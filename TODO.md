@@ -60,7 +60,8 @@ Acceptance / first delivery: Enter a real URL, see actual progress, and save an 
 
 Depends on stage 2.
 
-- [ ] SDM-017 — Implement a foreground service appropriate for file transfers and tie its lifecycle to active downloads.
+- [x] SDM-017 — Implement a foreground service appropriate for file transfers and tie its lifecycle to active downloads.
+  - Verification: Application-context `startForegroundService` replaced process-local `applicationScope` launches; non-exported `dataSync` service enters foreground immediately, runs `DownloadTransferEngine` for distinct download ids, and `stopSelf(startId)` / cancels its scope only when the session is idle (`START_NOT_STICKY`). Command parse and session registry tests passed; `:app:testDebugUnitTest` 104 tests, `:app:assembleDebug`, `:app:lintDebug`, and `git diff --check` passed.
 - [ ] SDM-018 — Configure notification channels, notification permission handling, and clear behavior when permission is denied.
 - [ ] SDM-019 — Show actual progress in notifications and open the corresponding download when tapped.
 - [ ] SDM-020 — Apply Keep active only when needed; release wake locks and resources on completion, failure, and pause.

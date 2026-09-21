@@ -4,12 +4,9 @@ import android.content.Context
 
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
 import com.espitman.sdm.download.DownloadTransferEngine
+import com.espitman.sdm.download.DownloadTransferService
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import com.espitman.sdm.network.HttpDownloadMetadataRetriever
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import java.io.File
 
 /** Application-owned dependencies; never retain an Activity. */
@@ -18,7 +15,6 @@ object AppRepositories {
     @Volatile private var metadataRetriever: DownloadMetadataRetriever? = null
     @Volatile private var transferEngine: DownloadTransferEngine? = null
     @Volatile private var submissionCoordinator: DownloadSubmissionCoordinator? = null
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun downloads(context: Context): DownloadRepository = downloadRepository ?: synchronized(this) {
         downloadRepository ?: SqliteDownloadRepository(context.applicationContext).also { downloadRepository = it }
@@ -37,7 +33,6 @@ object AppRepositories {
             val appContext = context.applicationContext
             val repo = downloads(appContext)
             val retriever = metadataRetriever()
-            val engine = transferEngine()
             val directoryProvider = {
                 val externalDir = appContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                 val dir = if (externalDir != null) {
@@ -55,15 +50,7 @@ object AppRepositories {
                 }
             }
             val transferStarter = { download: com.espitman.sdm.domain.Download, tempFile: File ->
-                applicationScope.launch {
-                    engine.executeTransfer(
-                        downloadId = download.id,
-                        url = download.url,
-                        tempFile = tempFile,
-                        repository = repo,
-                    )
-                }
-                Unit
+                DownloadTransferService.startTransfer(appContext, download.id, tempFile.absolutePath)
             }
             DownloadSubmissionCoordinator(
                 metadataRetriever = retriever,
