@@ -120,12 +120,30 @@ internal fun InteractiveDownloadsScreen(
 ) {
     val repository = AppRepositories.downloads(LocalContext.current)
     val records by repository.downloads.collectAsState()
+    var nowEpochMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val hasActive = remember(records) {
+        records.any { it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING }
+    }
+    LaunchedEffect(hasActive) {
+        if (!hasActive) return@LaunchedEffect
+        while (hasActive) {
+            nowEpochMillis = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
     val downloads = records.map { record ->
-        val progress = if (record.state == DownloadState.COMPLETED) 1f else record.totalBytes?.takeIf { it > 0 }?.let { record.downloadedBytes.toFloat() / it } ?: 0f
-        val percent = if (record.totalBytes == null && record.state != DownloadState.COMPLETED) "—" else "${(progress * 100).toInt()}%"
+        val metrics = calculateDownloadProgressMetrics(record, nowEpochMillis)
+        val progress = metrics.fraction ?: 0f
+        val speed = formatDownloadSpeed(metrics.bytesPerSecond)
+        val eta = formatEta(metrics.etaSeconds)
+        val trailing = when {
+            speed == "—" -> "—"
+            eta == "—" -> speed
+            else -> "$speed · $eta"
+        }
         DownloadItemState(record.id, record.fileName.substringAfterLast('.', "FILE").uppercase().take(5), record.fileName,
             record.totalBytes?.let(::formatBytes) ?: "Unknown size", progress,
-            "$percent · ${formatBytes(record.downloadedBytes)}", "—",
+            "${metrics.percentLabel} · ${formatBytes(record.downloadedBytes)}", trailing,
             when (record.state) {
                 DownloadState.COMPLETED -> DownloadCategory.Completed
                 DownloadState.QUEUED -> DownloadCategory.Queued
@@ -157,7 +175,7 @@ internal fun InteractiveDownloadsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
-            item { DownloadStatusCard(records) }
+            item { DownloadStatusCard(records, nowEpochMillis) }
             item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size,
                 onDownloadAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") },
                 onPauseAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") }) }
@@ -295,10 +313,21 @@ private fun HomeMenuItem(icon: ImageVector, title: String, subtitle: String, onC
 }
 
 @Composable
-private fun DownloadStatusCard(records: List<Download>) {
-    val active = records.count { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
-    val unfinished = records.filter { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
+private fun DownloadStatusCard(records: List<Download>, nowEpochMillis: Long) {
+    val activeRecords = records.filter { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
+    val active = activeRecords.size
+    val unfinished = activeRecords
     val remaining = if (unfinished.any { it.totalBytes == null }) "—" else formatBytes(unfinished.sumOf { (it.totalBytes ?: 0) - it.downloadedBytes })
+    val totalBytesPerSecond = activeRecords.fold(0L) { acc, record ->
+        val speed = calculateDownloadProgressMetrics(record, nowEpochMillis).bytesPerSecond
+        val sum = acc + speed
+        if (sum < 0L) Long.MAX_VALUE else sum
+    }
+    val speedValue = if (active == 0) {
+        "0"
+    } else {
+        String.format(java.util.Locale.US, "%.1f", totalBytesPerSecond / (1024.0 * 1024.0))
+    }
     // Daily traffic accounting is supplied by the transfer engine in a later stage.
     val downloadedToday = if (records.isEmpty()) "0 B" else "—"
     Surface(color = SdmSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .34f)), modifier = Modifier.fillMaxWidth()) {
@@ -306,7 +335,7 @@ private fun DownloadStatusCard(records: List<Download>) {
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("$active active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(if (active == 0) "0" else "—", fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
+                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(speedValue, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
                 Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
                 Row(Modifier.fillMaxWidth()) { DownloadStat(downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(remaining, "Active remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(if (active == 0) "0" else "—", "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
             }

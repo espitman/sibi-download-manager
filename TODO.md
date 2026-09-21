@@ -45,7 +45,8 @@ Depends on stage 1.
   - Verification: coordinator tests passed for Download and Queue actions, concurrent duplicate suppression, atomic hidden temporary-file reservation, 255-byte filenames, rollback, and directory/I/O failures; Add now reports submission errors inline and starts the real transfer service.
 - [x] SDM-012 — Stream downloads to temporary files without loading entire files into memory.
   - Verification: MockWebServer tests passed for multi-megabyte bounded-buffer streaming, monotonic persisted progress, HTTP failures, and deterministic mid-stream cancellation with partial-file preservation; all 74 unit tests, assembleDebug, and lintDebug passed.
-- [ ] SDM-013 — Calculate and display downloaded bytes, percentage, speed, and time remaining; handle unknown file sizes correctly.
+- [x] SDM-013 — Calculate and display downloaded bytes, percentage, speed, and time remaining; handle unknown file sizes correctly.
+  - Verification: progress-metrics tests passed for known, unknown, and zero sizes, zero elapsed time, completion, clamping, speed/ETA formatting, and overflow-safe ETA; existing card and status placeholders now show live values without layout changes; all 82 unit tests, assembleDebug, and lintDebug passed.
 - [ ] SDM-014 — Finalize files only after successful transfer; record failures and release resources on error paths.
 - [ ] SDM-015 — Connect live records and progress to Downloads cards; move successful downloads to Completed.
 - [ ] SDM-016 — Test on the phone using controlled URLs: small and large files, redirects, 404 responses, and unknown sizes; compare output sizes and checksums with the test source.
