@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.CompletableDeferred
@@ -94,6 +95,33 @@ class SqliteDownloadRepository(
         require(downloadedBytes >= current.downloadedBytes) { "Download progress cannot move backwards" }
         require(nowEpochMillis >= current.updatedAtEpochMillis) { "Progress time cannot move backwards" }
         current.copy(downloadedBytes = downloadedBytes, updatedAtEpochMillis = nowEpochMillis)
+    }
+
+    override suspend fun pauseAtExactOffset(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+                if (paused === current || paused == current) {
+                    updated = current
+                    return@inTransaction
+                }
+                check(db.update("downloads", paused.toValues(), "id = ?", arrayOf(id)) == 1) {
+                    "Concurrent update failed for download $id"
+                }
+                updated = paused
+            }
+            if (updated != null && updated!!.state == DownloadState.PAUSED) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
     }
 
     private suspend fun mutate(id: String, update: (Download) -> Download): Download = onIo {

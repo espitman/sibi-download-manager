@@ -1,7 +1,11 @@
 package com.espitman.sdm.download
 
+import kotlinx.coroutines.Job
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DownloadTransferSessionTest {
@@ -9,7 +13,7 @@ class DownloadTransferSessionTest {
     fun invalidCommandWhileIdleRequestsStopWithThatStartId() {
         val session = DownloadTransferSession()
 
-        assertNull(session.handleCommand(startId = 7, command = null))
+        assertEquals(SessionCommandResult.None, session.handleCommand(startId = 7, command = null))
         assertEquals(7, session.startIdIfIdle())
     }
 
@@ -18,9 +22,9 @@ class DownloadTransferSessionTest {
         val session = DownloadTransferSession()
         val command = StartTransferCommand("dl-1", "/tmp/a.part")
 
-        assertEquals(command, session.handleCommand(1, command))
-        assertNull(session.handleCommand(2, command))
-        assertNull(session.handleCommand(3, command.copy(tempFilePath = "/tmp/other.part")))
+        assertEquals(SessionCommandResult.StartJob(command), session.handleCommand(1, command))
+        assertEquals(SessionCommandResult.None, session.handleCommand(2, command))
+        assertEquals(SessionCommandResult.None, session.handleCommand(3, command.copy(tempFilePath = "/tmp/other.part")))
         assertNull(session.startIdIfIdle())
 
         assertEquals(3, session.onTransferFinished(command.downloadId))
@@ -32,9 +36,9 @@ class DownloadTransferSessionTest {
         val first = StartTransferCommand("dl-1", "/tmp/a.part")
         val second = StartTransferCommand("dl-2", "/tmp/b.part")
 
-        assertEquals(first, session.handleCommand(1, first))
-        assertEquals(second, session.handleCommand(2, second))
-        assertNull(session.handleCommand(3, null))
+        assertEquals(SessionCommandResult.StartJob(first), session.handleCommand(1, first))
+        assertEquals(SessionCommandResult.StartJob(second), session.handleCommand(2, second))
+        assertEquals(SessionCommandResult.None, session.handleCommand(3, null))
         assertNull(session.startIdIfIdle())
 
         assertNull(session.onTransferFinished(first.downloadId))
@@ -47,8 +51,8 @@ class DownloadTransferSessionTest {
         val first = StartTransferCommand("dl-1", "/tmp/a.part")
         val second = StartTransferCommand("dl-2", "/tmp/b.part")
 
-        assertEquals(first, session.handleCommand(1, first))
-        assertEquals(second, session.handleCommand(2, second))
+        assertEquals(SessionCommandResult.StartJob(first), session.handleCommand(1, first))
+        assertEquals(SessionCommandResult.StartJob(second), session.handleCommand(2, second))
         assertNull(session.onTransferFinished(second.downloadId))
         assertEquals(2, session.onTransferFinished(first.downloadId))
     }
@@ -58,12 +62,74 @@ class DownloadTransferSessionTest {
         val session = DownloadTransferSession()
         val command = StartTransferCommand("dl-1", "/tmp/a.part")
 
-        assertEquals(command, session.handleCommand(1, command))
+        assertEquals(SessionCommandResult.StartJob(command), session.handleCommand(1, command))
         assertEquals(1, session.onTransferFinished(command.downloadId))
         assertEquals(1, session.startIdIfIdle())
 
-        assertEquals(command, session.handleCommand(2, command))
+        assertEquals(SessionCommandResult.StartJob(command), session.handleCommand(2, command))
         assertNull(session.startIdIfIdle())
         assertEquals(2, session.onTransferFinished(command.downloadId))
+    }
+
+    @Test
+    fun pauseCancelsTheAttachedJobAndKeepsTheSessionAliveUntilFinish() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        val job = Job()
+
+        session.handleCommand(1, command)
+        assertFalse(session.attachJob(command.downloadId, job))
+        assertNull(session.startIdIfIdle())
+
+        val pause = session.handleCommand(2, PauseTransferCommand(command.downloadId))
+        check(pause is SessionCommandResult.CancelJob)
+        assertEquals(command.downloadId, pause.downloadId)
+        assertSame(job, pause.job)
+        assertTrue(session.isPauseRequested(command.downloadId))
+        assertEquals("/tmp/a.part", session.tempFilePath(command.downloadId))
+        assertNull(session.startIdIfIdle())
+
+        val duplicate = session.handleCommand(3, PauseTransferCommand(command.downloadId))
+        check(duplicate is SessionCommandResult.CancelJob)
+        assertSame(job, duplicate.job)
+        assertNull(session.startIdIfIdle())
+
+        assertEquals(3, session.onTransferFinished(command.downloadId))
+        assertFalse(session.isPauseRequested(command.downloadId))
+    }
+
+    @Test
+    fun pauseBeforeAttachMarksTheJobSoTheCallerCancelsAfterLaunch() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        session.handleCommand(1, command)
+
+        assertEquals(
+            SessionCommandResult.None,
+            session.handleCommand(2, PauseTransferCommand(command.downloadId)),
+        )
+        assertTrue(session.isPauseRequested(command.downloadId))
+        assertNull(session.startIdIfIdle())
+
+        val job = Job()
+        assertTrue(session.attachJob(command.downloadId, job))
+        assertNull(session.startIdIfIdle())
+        assertEquals(2, session.onTransferFinished(command.downloadId))
+    }
+
+    @Test
+    fun pauseForMissingCompletedOrIdleIdsDoesNotCorruptActiveWork() {
+        val session = DownloadTransferSession()
+        val active = StartTransferCommand("active", "/tmp/a.part")
+        session.handleCommand(1, active)
+        session.attachJob(active.downloadId, Job())
+
+        assertEquals(SessionCommandResult.None, session.handleCommand(2, PauseTransferCommand("missing")))
+        assertEquals(SessionCommandResult.None, session.handleCommand(3, PauseTransferCommand("paused-already")))
+        assertNull(session.startIdIfIdle())
+
+        session.onTransferFinished(active.downloadId)
+        assertEquals(SessionCommandResult.None, session.handleCommand(4, PauseTransferCommand(active.downloadId)))
+        assertEquals(4, session.startIdIfIdle())
     }
 }

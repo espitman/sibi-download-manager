@@ -48,21 +48,25 @@ class DownloadTransferService : Service() {
             downloadId = intent?.getStringExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID),
             tempFilePath = intent?.getStringExtra(DownloadTransferCommand.EXTRA_TEMP_FILE_PATH),
         )
-        val jobToStart = session.handleCommand(startId, command)
-        if (jobToStart != null) {
-            serviceScope.launch {
-                try {
-                    executeTransfer(jobToStart)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Throwable) {
-                    // Transfer failures are recorded by the engine; missing records are ignored.
-                } finally {
-                    session.onTransferFinished(jobToStart.downloadId)?.let { stopSelf(it) }
+        when (val result = session.handleCommand(startId, command)) {
+            is SessionCommandResult.StartJob -> {
+                val transferJob = serviceScope.launch {
+                    try {
+                        executeTransfer(result.command)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        // Transfer failures are recorded by the engine; missing records are ignored.
+                    } finally {
+                        session.onTransferFinished(result.command.downloadId)?.let { stopSelf(it) }
+                    }
+                }
+                if (session.attachJob(result.command.downloadId, transferJob)) {
+                    transferJob.cancel()
                 }
             }
-        } else {
-            session.startIdIfIdle()?.let { stopSelf(it) }
+            is SessionCommandResult.CancelJob -> result.job.cancel()
+            SessionCommandResult.None -> session.startIdIfIdle()?.let { stopSelf(it) }
         }
         return START_NOT_STICKY
     }
@@ -156,6 +160,7 @@ class DownloadTransferService : Service() {
             url = download.url,
             tempFile = File(command.tempFilePath),
             repository = repository,
+            pauseRequested = { session.isPauseRequested(command.downloadId) },
         )
     }
 
@@ -168,13 +173,27 @@ class DownloadTransferService : Service() {
                 action = DownloadTransferCommand.ACTION_START_TRANSFER,
                 downloadId = downloadId,
                 tempFilePath = tempFilePath,
-            ) ?: throw IllegalArgumentException(
+            ) as? StartTransferCommand ?: throw IllegalArgumentException(
                 "Cannot start transfer without a non-blank download id and temp file path",
             )
             val intent = Intent(appContext, DownloadTransferService::class.java).apply {
                 action = DownloadTransferCommand.ACTION_START_TRANSFER
                 putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
                 putExtra(DownloadTransferCommand.EXTRA_TEMP_FILE_PATH, command.tempFilePath)
+            }
+            ContextCompat.startForegroundService(appContext, intent)
+        }
+
+        fun pauseTransfer(context: Context, downloadId: String) {
+            val appContext = context.applicationContext
+            val command = DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER,
+                downloadId = downloadId,
+                tempFilePath = null,
+            ) as? PauseTransferCommand ?: return
+            val intent = Intent(appContext, DownloadTransferService::class.java).apply {
+                action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER
+                putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
             }
             ContextCompat.startForegroundService(appContext, intent)
         }

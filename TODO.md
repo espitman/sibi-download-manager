@@ -79,7 +79,8 @@ Acceptance: Transfers continue during normal app exit and screen-off operation. 
 
 Depends on stage 3.
 
-- [ ] SDM-023 — Implement Pause by closing the connection, recording the offset, and preserving the temporary file.
+- [x] SDM-023 — Implement Pause by closing the connection, recording the offset, and preserving the temporary file.
+  - Verification: User Pause cancels the HTTP call, waits for I/O to stop, and atomically persists the exact bounded `.part` length as `PAUSED` without failing or deleting the file; 170 JVM tests, assemble, lint, `git diff --check`, and 5/5 `SqliteDownloadRepository` instrumentation tests on Xiaomi Android 14 passed.
 - [ ] SDM-024 — Implement Resume using Range and validate Content-Range, ETag, or Last-Modified; prevent combining parts from different file versions.
 - [ ] SDM-025 — Handle unsupported resume, HTTP 200 responses to Range requests, and HTTP 416 errors; restart clearly without corrupting files.
 - [ ] SDM-026 — Implement Cancel, stop active work, and handle temporary files according to the approved deletion interaction.

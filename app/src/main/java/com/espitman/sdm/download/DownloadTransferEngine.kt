@@ -48,6 +48,7 @@ class DownloadTransferEngine(
         url: String,
         tempFile: File,
         repository: DownloadRepository,
+        pauseRequested: () -> Boolean = { false },
     ) = withContext(ioDispatcher) {
         require(downloadId.isNotBlank()) { "Download ID cannot be blank" }
         require(url.isNotBlank()) { "URL cannot be blank" }
@@ -177,9 +178,15 @@ class DownloadTransferEngine(
             }
         } catch (cancellation: CancellationException) {
             call.cancel()
+            persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested)
             throw cancellation
         } catch (e: Throwable) {
-            currentCoroutineContext().ensureActive()
+            try {
+                currentCoroutineContext().ensureActive()
+            } catch (cancellation: CancellationException) {
+                persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested)
+                throw cancellation
+            }
             val safeMessage = when (e) {
                 is IOException -> e.message?.takeIf { it.isNotBlank() } ?: "Network I/O failure"
                 else -> e.message?.takeIf { it.isNotBlank() } ?: "Download transfer failure"
@@ -191,7 +198,16 @@ class DownloadTransferEngine(
             }
         } finally {
             cancellationHandle.dispose()
+            persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested)
         }
+    }
+
+    suspend fun persistPausedOffset(
+        downloadId: String,
+        tempFile: File,
+        repository: DownloadRepository,
+    ) {
+        persistPausedIfRequested(repository, downloadId, tempFile) { true }
     }
 
     private suspend fun updateProgress(
@@ -206,6 +222,24 @@ class DownloadTransferEngine(
             downloadedBytes = downloadedBytes,
             nowEpochMillis = validTimestamp(current.updatedAtEpochMillis),
         )
+    }
+
+    private suspend fun persistPausedIfRequested(
+        repository: DownloadRepository,
+        downloadId: String,
+        tempFile: File,
+        pauseRequested: () -> Boolean,
+    ) {
+        if (!pauseRequested()) return
+        withContext(NonCancellable) {
+            val fileLength = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
+            val current = repository.get(downloadId) ?: return@withContext
+            repository.pauseAtExactOffset(
+                id = downloadId,
+                fileLengthBytes = fileLength,
+                nowEpochMillis = validTimestamp(current.updatedAtEpochMillis),
+            )
+        }
     }
 
     private suspend fun reportFailure(

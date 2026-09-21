@@ -16,6 +16,24 @@ class DownloadTransferCommandTest {
     }
 
     @Test
+    fun parsesPauseTransferCommandsKeyedByDownloadId() {
+        val parsed = DownloadTransferCommand.parse(
+            action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER,
+            downloadId = "  download-1  ",
+            tempFilePath = null,
+        )
+        assertEquals(PauseTransferCommand("download-1"), parsed)
+        assertEquals(
+            PauseTransferCommand("download-1"),
+            DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER,
+                downloadId = "download-1",
+                tempFilePath = "/ignored/path.part",
+            ),
+        )
+    }
+
+    @Test
     fun rejectsMissingBlankOrMismatchedStartTransferCommands() {
         val validAction = DownloadTransferCommand.ACTION_START_TRANSFER
         val cases = listOf(
@@ -35,5 +53,22 @@ class DownloadTransferCommandTest {
                 DownloadTransferCommand.parse(action, downloadId, tempFilePath),
             )
         }
+    }
+
+    @Test
+    fun rejectsPauseCommandsWithoutADownloadId() {
+        val action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER
+        listOf(null, "", "   ").forEach { downloadId ->
+            assertNull(
+                DownloadTransferCommand.parse(action, downloadId, tempFilePath = null),
+            )
+        }
+        assertNull(
+            DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_START_TRANSFER,
+                downloadId = "id",
+                tempFilePath = null,
+            ),
+        )
     }
 }

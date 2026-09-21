@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
@@ -151,5 +152,13 @@ class SqliteDownloadRepositoryTest {
             runBlocking { repository!!.insert(item.copy(state = DownloadState.PAUSED, updatedAtEpochMillis = 600)) }
         }
         assertEquals(40, repository!!.get("progress")!!.downloadedBytes)
+
+        val paused = repository!!.pauseAtExactOffset("progress", fileLengthBytes = 20, nowEpochMillis = 399)
+        assertEquals(DownloadState.PAUSED, paused!!.state)
+        assertEquals(20L, paused.downloadedBytes)
+        assertEquals(400L, paused.updatedAtEpochMillis)
+        assertEquals(null, paused.error)
+        assertEquals(paused, repository!!.pauseAtExactOffset("progress", fileLengthBytes = 1, nowEpochMillis = 800))
+        assertNull(repository!!.pauseAtExactOffset("missing", fileLengthBytes = 10, nowEpochMillis = 800))
     }
 }

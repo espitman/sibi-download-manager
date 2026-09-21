@@ -18,4 +18,5 @@ interface DownloadRepository {
         error: String? = null,
     ): Download
     suspend fun updateProgress(id: String, downloadedBytes: Long, nowEpochMillis: Long): Download
+    suspend fun pauseAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
 }

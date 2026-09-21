@@ -2,6 +2,7 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.CancellationException
@@ -91,6 +92,20 @@ class DownloadTransferEngineTest {
             )
             insert(updated)
             return updated
+        }
+
+        override suspend fun pauseAtExactOffset(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+        ): Download? {
+            val current = get(id) ?: return null
+            val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+            if (paused != current) {
+                transitions.add(Triple(id, DownloadState.PAUSED, null))
+                insert(paused)
+            }
+            return paused
         }
     }
 

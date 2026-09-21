@@ -2,6 +2,7 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import com.espitman.sdm.network.DownloadMetadata
@@ -76,6 +77,17 @@ class DownloadSubmissionCoordinatorTest {
             val updated = current.copy(downloadedBytes = downloadedBytes, updatedAtEpochMillis = nowEpochMillis)
             insert(updated)
             return updated
+        }
+
+        override suspend fun pauseAtExactOffset(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+        ): Download? {
+            val current = get(id) ?: return null
+            val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+            if (paused != current) insert(paused)
+            return paused
         }
     }
 

@@ -73,6 +73,7 @@ import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.download.DownloadTransferService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
@@ -106,7 +107,8 @@ internal fun InteractiveDownloadsScreen(
     onToast: (String) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val repository = AppRepositories.downloads(LocalContext.current)
+    val context = LocalContext.current
+    val repository = AppRepositories.downloads(context)
     val records by repository.downloads.collectAsState()
     var nowEpochMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val hasActive = remember(records) {
@@ -147,6 +149,13 @@ internal fun InteractiveDownloadsScreen(
                 item = mapDownloadToCard(selectedRecord, nowEpochMillis),
                 onBack = { onSelectedDownloadIdChange(null) },
                 onToast = onToast,
+                onPause = {
+                    if (selectedRecord.state == DownloadState.CONNECTING ||
+                        selectedRecord.state == DownloadState.DOWNLOADING
+                    ) {
+                        DownloadTransferService.pauseTransfer(context, selectedRecord.id)
+                    }
+                },
             )
         }
         return
@@ -171,7 +180,13 @@ internal fun InteractiveDownloadsScreen(
                     DownloadCard(
                         item = item,
                         onOpen = { onSelectedDownloadIdChange(item.id) },
-                        onAction = { onToast("Download engine is not connected yet") },
+                        onAction = {
+                            if (item.showPlayAction) {
+                                onToast("Download engine is not connected yet")
+                            } else {
+                                DownloadTransferService.pauseTransfer(context, item.id)
+                            }
+                        },
                     )
                     Spacer(Modifier.height(10.dp))
                 }
@@ -515,10 +530,10 @@ private fun SheetActions(onCancel: () -> Unit, primaryLabel: String = "Save", on
 private fun SheetActionButton(label: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) { Surface(onClick = onClick, color = if (primary) SdmGold else sdmColor(0xFF191A1C, 0xFFECE8DF), contentColor = if (primary) Color(0xFF080808) else SdmText, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, if (primary) SdmGold else SdmLine), modifier = modifier.height(50.dp)) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
 
 @Composable
-private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, onToast: (String) -> Unit) {
+private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, onToast: (String) -> Unit, onPause: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }; var headersOpen by remember { mutableStateOf(false) }; var segmentsOpen by remember { mutableStateOf(false) }; var cancelOpen by remember { mutableStateOf(false) }
     var priorityActive by remember { mutableStateOf(false) }
-    var paused by remember(item.id) { mutableStateOf(item.metadataValue == "Paused") }
+    val paused = item.metadataValue == "Paused"
     val clipboard = LocalClipboardManager.current
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
@@ -536,7 +551,7 @@ private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, o
                 item { DetailsHero(item, paused) }
                 item { MetricsGrid() }
                 item { SpeedChart() }
-                item { DetailsActions(paused, priorityActive, onPause = { paused = !paused; onToast(if (paused) "Download paused" else "Download resumed") }, onCancel = { cancelOpen = true }, onPriority = { priorityActive = !priorityActive; onToast(if (priorityActive) "High priority enabled" else "Priority returned to normal") }, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
+                item { DetailsActions(paused, priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = { priorityActive = !priorityActive; onToast(if (priorityActive) "High priority enabled" else "Priority returned to normal") }, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
                 item { TechnicalInfo() }
                 item { DisclosureInfo(headersOpen, segmentsOpen, { headersOpen = !headersOpen }, { segmentsOpen = !segmentsOpen }) }
             }
