@@ -37,7 +37,8 @@ Depends on stage 1.
 
 - [x] SDM-008 — Validate direct HTTP/HTTPS URLs in Add and display clear errors for invalid input.
   - Verification: 6 URL validation tests passed; debug build and lint passed; connected-device checks confirmed blank and unsupported-scheme errors, live error clearing, and valid HTTPS acceptance.
-- [ ] SDM-009 — Retrieve metadata while handling redirects, HTTP errors, and servers without HEAD or Content-Length support.
+- [x] SDM-009 — Retrieve metadata while handling redirects, HTTP errors, and servers without HEAD or Content-Length support.
+  - Verification: 21 MockWebServer JVM tests passed covering HEAD optimization, minimal Range fallback GET (bytes=0-0), 206 Content-Range total, 200 Range ignoring, zero body reads, nonnegative maxRedirects, redirects, cycles/limits, and response closure; assembleDebug and lintDebug passed.
 - [ ] SDM-010 — Extract and sanitize filenames from responses or URLs; prevent path traversal and accidental overwrites of existing files.
 - [ ] SDM-011 — Connect Download to real record creation and transfer startup; prevent duplicate submissions from rapid taps.
 - [ ] SDM-012 — Stream downloads to temporary files without loading entire files into memory.
