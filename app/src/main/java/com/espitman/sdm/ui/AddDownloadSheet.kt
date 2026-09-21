@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
 import com.espitman.sdm.download.SubmissionResult
+import com.espitman.sdm.notification.rememberTransferNotificationPermissionPreparer
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -50,7 +52,8 @@ internal fun AddDownloadSheet(
 ) {
     var url by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
-    var isSubmitting by remember { mutableStateOf(false) }
+    var isSubmitting by rememberSaveable { mutableStateOf(false) }
+    var pendingForegroundUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
     val fileName = url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
@@ -73,6 +76,38 @@ internal fun AddDownloadSheet(
             (DownloadUrl.validate(value) as? DownloadUrlResult.Invalid)?.let { DownloadUrl.errorMessage(it.error) }
         }
     }
+    fun launchSubmit(validatedUrl: String, startNow: Boolean) {
+        scope.launch {
+            try {
+                when (val submissionResult = coordinator.submit(validatedUrl, startNow)) {
+                    is SubmissionResult.Success -> {
+                        isSubmitting = false
+                        pendingForegroundUrl = null
+                        dismissAnimated()
+                    }
+                    is SubmissionResult.Failure -> {
+                        urlError = submissionResult.message
+                        isSubmitting = false
+                        pendingForegroundUrl = null
+                    }
+                }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                urlError = "Failed to submit download"
+                isSubmitting = false
+                pendingForegroundUrl = null
+            }
+        }
+    }
+    fun consumePendingForegroundSubmit() {
+        val pendingUrl = pendingForegroundUrl ?: return
+        pendingForegroundUrl = null
+        launchSubmit(pendingUrl, startNow = true)
+    }
+    val prepareForegroundNotifications = rememberTransferNotificationPermissionPreparer {
+        consumePendingForegroundSubmit()
+    }
     fun submit(startNow: Boolean) {
         if (isSubmitting) return
         when (val result = DownloadUrl.validate(url)) {
@@ -80,24 +115,13 @@ internal fun AddDownloadSheet(
                 url = result.url
                 urlError = null
                 isSubmitting = true
-                scope.launch {
-                    try {
-                        when (val submissionResult = coordinator.submit(result.url, startNow)) {
-                            is SubmissionResult.Success -> {
-                                isSubmitting = false
-                                dismissAnimated()
-                            }
-                            is SubmissionResult.Failure -> {
-                                urlError = submissionResult.message
-                                isSubmitting = false
-                            }
-                        }
-                    } catch (cancellation: kotlinx.coroutines.CancellationException) {
-                        throw cancellation
-                    } catch (_: Throwable) {
-                        urlError = "Failed to submit download"
-                        isSubmitting = false
+                if (startNow) {
+                    pendingForegroundUrl = result.url
+                    prepareForegroundNotifications.prepareForForegroundTransfer {
+                        consumePendingForegroundSubmit()
                     }
+                } else {
+                    launchSubmit(result.url, startNow = false)
                 }
             }
             is DownloadUrlResult.Invalid -> urlError = DownloadUrl.errorMessage(result.error)

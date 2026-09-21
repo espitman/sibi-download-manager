@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">SDM</string>
+    <string name="transfer_notification_channel_name">File transfers</string>
+    <string name="transfer_notification_channel_description">Ongoing file transfers while SDM downloads in the background</string>
 </resources>
