@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,10 +74,16 @@ import com.espitman.sdm.ui.theme.sdmColor
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.heightIn
 import kotlinx.coroutines.delay
@@ -108,8 +115,11 @@ private val sampleDownloads = listOf(
 
 @Composable
 fun SdmApp() {
+    val downloadsStateHolder = rememberSaveableStateHolder()
+    val downloadsUiState = rememberDownloadsUiState()
     var destination by remember { mutableStateOf(Destination.Downloads) }
     var showAddDownload by remember { mutableStateOf(false) }
+    var downloadDetails by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf("") }
     var toastVisible by remember { mutableStateOf(false) }
     var toastSequence by remember { mutableIntStateOf(0) }
@@ -126,19 +136,69 @@ fun SdmApp() {
         contentColor = SdmText,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            when (destination) {
-                Destination.Downloads, Destination.Add -> DownloadsScreen()
-                Destination.Browser -> BrowserScreen()
-                Destination.Files -> FilesScreen()
-                Destination.Settings -> SettingsScreen { toastMessage = it; toastSequence++ }
+            Column(Modifier.fillMaxSize()) {
+                if (!downloadDetails) {
+                    Crossfade(
+                        targetState = destination,
+                        modifier = Modifier.fillMaxWidth(),
+                        animationSpec = tween(160),
+                        label = "mainHeaderTransition",
+                    ) { targetDestination ->
+                        when (targetDestination) {
+                            Destination.Downloads, Destination.Add -> DownloadsTopBar(downloadsUiState)
+                            Destination.Browser -> AppHeader("Browser", privateMode = true)
+                            Destination.Files -> AppHeader("Files", showSort = true)
+                            Destination.Settings -> AppHeader("Settings", showMore = false)
+                        }
+                    }
+                }
+                AnimatedContent(
+                    targetState = destination,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    transitionSpec = {
+                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                        slideInHorizontally(
+                            animationSpec = tween(240, easing = CubicBezierEasing(.2f, .82f, .24f, 1f)),
+                            initialOffsetX = { direction * it / 11 },
+                        ) togetherWith slideOutHorizontally(
+                            animationSpec = tween(210, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)),
+                            targetOffsetX = { -direction * it / 14 },
+                        )
+                    },
+                    label = "mainBodyTransition",
+                ) { targetDestination ->
+                    Box(Modifier.fillMaxSize().background(SdmBackground)) {
+                        when (targetDestination) {
+                            Destination.Downloads, Destination.Add -> downloadsStateHolder.SaveableStateProvider("downloads") { InteractiveDownloadsScreen(
+                                uiState = downloadsUiState,
+                                showDetails = downloadDetails,
+                                showHeader = false,
+                                onDetailsChange = { downloadDetails = it },
+                                onToast = { toastMessage = it; toastSequence++ },
+                                onOpenSettings = { downloadDetails = false; destination = Destination.Settings },
+                            ) }
+                            Destination.Browser -> BrowserScreen(showHeader = false)
+                            Destination.Files -> FilesScreen(showHeader = false)
+                            Destination.Settings -> SettingsScreen(showHeader = false) { toastMessage = it; toastSequence++ }
+                        }
+                    }
+                }
             }
-            BottomNavigation(
-                selected = destination,
-                onSelect = {
-                    if (it == Destination.Add) showAddDownload = true else destination = it
-                },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+            if (!downloadDetails) {
+                BottomNavigation(
+                    selected = destination,
+                    onSelect = {
+                        if (it == Destination.Add) showAddDownload = true
+                        else {
+                            downloadDetails = false
+                            downloadsUiState.searchOpen = false
+                            downloadsUiState.menuOpen = false
+                            destination = it
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
             AnimatedVisibility(
                 visible = toastVisible,
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 88.dp),

@@ -39,7 +39,7 @@ import com.espitman.sdm.ui.theme.*
 private enum class SettingsOverlay { Connections, Simultaneous, Theme, Reset }
 
 @Composable
-internal fun SettingsScreen(onToast: (String) -> Unit) {
+internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("sdm_settings", 0) }
     val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.1.0" }
@@ -67,7 +67,7 @@ internal fun SettingsScreen(onToast: (String) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
-        AppHeader("Settings", showMore = false)
+        if (showHeader) AppHeader("Settings", showMore = false)
         LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp)) {
             item { AccountCard() }
             item {

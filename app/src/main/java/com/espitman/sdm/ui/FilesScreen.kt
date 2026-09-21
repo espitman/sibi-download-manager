@@ -62,10 +62,10 @@ private val files = listOf(
 )
 
 @Composable
-internal fun FilesScreen() {
+internal fun FilesScreen(showHeader: Boolean = true) {
     var filter by remember { mutableStateOf("All") }
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
-        AppHeader("Files", showSort = true)
+        if (showHeader) AppHeader("Files", showSort = true)
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -66,7 +66,7 @@ import com.espitman.sdm.ui.theme.sdmColor
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-internal fun BrowserScreen() {
+internal fun BrowserScreen(showHeader: Boolean = true) {
     var address by remember { mutableStateOf("") }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -77,9 +77,9 @@ internal fun BrowserScreen() {
     }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
-        AppHeader("Browser", privateMode = true)
+        if (showHeader) AppHeader("Browser", privateMode = true)
         Row(
-            Modifier.fillMaxWidth().background(sdmColor(0xFF191A1D, 0xFFF8F9FA)).padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
+            Modifier.fillMaxWidth().background(SdmBackground).padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
