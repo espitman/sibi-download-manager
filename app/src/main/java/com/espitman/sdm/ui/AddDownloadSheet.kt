@@ -23,11 +23,16 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.espitman.sdm.domain.DownloadUrl
+import com.espitman.sdm.domain.DownloadUrlResult
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -37,6 +42,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun AddDownloadSheet(onDismiss: () -> Unit) {
     var url by remember { mutableStateOf("") }
+    var urlError by remember { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
     val fileName = url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
@@ -48,6 +54,23 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
             closing = true
             motion.animateTo(0f, tween(260, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)))
             onDismiss()
+        }
+    }
+    fun applyUrl(value: String) {
+        url = value
+        urlError = if (urlError == null) {
+            null
+        } else {
+            (DownloadUrl.validate(value) as? DownloadUrlResult.Invalid)?.let { DownloadUrl.errorMessage(it.error) }
+        }
+    }
+    fun submitDirectUrl() {
+        when (val result = DownloadUrl.validate(url)) {
+            is DownloadUrlResult.Valid -> {
+                url = result.url
+                dismissAnimated()
+            }
+            is DownloadUrlResult.Invalid -> urlError = DownloadUrl.errorMessage(result.error)
         }
     }
     LaunchedEffect(Unit) {
@@ -86,17 +109,31 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                         Text("Download link", color = SdmMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = .4.sp)
                         Spacer(Modifier.height(8.dp))
                         BasicTextField(
-                            value = url, onValueChange = { url = it },
+                            value = url, onValueChange = ::applyUrl,
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 12.sp, lineHeight = 17.4.sp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             cursorBrush = SolidColor(SdmGold),
                             minLines = 3, maxLines = 4,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp, max = 104.dp).background(SdmSurface, RoundedCornerShape(14.dp)).border(1.dp, SdmLine, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp, max = 104.dp)
+                                .background(SdmSurface, RoundedCornerShape(14.dp))
+                                .border(1.dp, if (urlError == null) SdmLine else SdmDanger, RoundedCornerShape(14.dp))
+                                .semantics { urlError?.let { error(it) } }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             decorationBox = { inner -> Box { if (url.isEmpty()) Text("Paste a direct download URL", color = SdmMuted, fontSize = 12.sp); inner() } },
                         )
                         Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FieldTool("Paste", SdmIcons.Paste) { clipboard.getText()?.text?.let { url = it } }
-                            FieldTool("Clear", SdmIcons.Close) { url = "" }
+                            FieldTool("Paste", SdmIcons.Paste) { clipboard.getText()?.text?.let(::applyUrl) }
+                            FieldTool("Clear", SdmIcons.Close) { applyUrl("") }
+                        }
+                        urlError?.let {
+                            Text(
+                                text = it,
+                                color = SdmDanger,
+                                fontSize = 11.sp,
+                                lineHeight = 15.4.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp).padding(top = 8.dp),
+                            )
                         }
                         if (url.isNotBlank()) {
                             Row(Modifier.fillMaxWidth().padding(top = 15.dp, bottom = 9.dp, start = 2.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -112,10 +149,10 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = dismissAnimated, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
+                        Button(onClick = ::submitDirectUrl, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
                             Text("Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                         }
-                        Button(onClick = dismissAnimated, enabled = url.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
+                        Button(onClick = ::submitDirectUrl, enabled = url.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
                             Icon(SdmIcons.Download, null, modifier = Modifier.size(21.dp))
                             Spacer(Modifier.width(9.dp))
                             Text("Download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)

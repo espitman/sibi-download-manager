@@ -1,7 +1,6 @@
 package com.espitman.sdm.domain
 
 import java.util.UUID
-import java.net.URI
 
 enum class DownloadState {
     QUEUED,
@@ -34,7 +33,7 @@ data class Download(
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }
         require(url.isNotBlank()) { "Download URL cannot be blank" }
-        require(runCatching { URI(url).scheme?.lowercase() in setOf("http", "https") }.getOrDefault(false)) {
+        require(DownloadUrl.validate(url) is DownloadUrlResult.Valid) {
             "Download URL must use HTTP or HTTPS"
         }
         require(fileName.isNotBlank()) { "Filename cannot be blank" }
