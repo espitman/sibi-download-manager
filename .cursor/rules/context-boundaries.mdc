@@ -1,0 +1,13 @@
+---
+description: Keep Cursor context focused on the SDM repository and prevent recursive transcript searches.
+globs:
+alwaysApply: true
+---
+
+- Treat `/Users/espitman/Documents/AndroidApp/SDM` as the only code workspace.
+- Never read, grep, glob, index, summarize, or cite Cursor chat history, Past Chats, worker logs, or anything under `/Users/espitman/.cursor/projects/**`, especially `agent-transcripts/**`.
+- Never search parent directories or use `..` to discover context. Search the narrowest relevant repository path with `rg` or the file tools.
+- Do not use previous agent transcripts as implementation evidence. Use the current source, tests, `TODO.md`, `docs/`, Git diff/history, and the current prompt.
+- Generated directories and binary artifacts listed in `.cursorignore` and `.cursorindexingignore` are outside working context. Read a generated test or lint report only when the current task explicitly needs that exact report.
+- The only routinely allowed external read-only source is the Open Design project at `/Users/espitman/Library/Application Support/Open Design/namespaces/release-stable/data/projects/13ab3c0f-1414-409f-934f-981d4a24c89f/`. Access other external paths only when the user explicitly supplies or requests them.
+- Start each new task in a fresh Cursor session unless continuity is necessary. Prefer explicit files or narrow folders in the prompt; do not attach the repository root as full-folder content.

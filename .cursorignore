@@ -1,0 +1,34 @@
+# Generated output and caches
+.git/
+.gradle/
+.kotlin/
+**/build/
+
+# IDE-local state
+.idea/
+*.iml
+local.properties
+.DS_Store
+
+# Local QA artifacts and binary outputs
+artifacts/
+captures/
+screenshots/
+*.apk
+*.aab
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and signing material
+.env
+.env.*
+*.jks
+*.keystore
+keystore.properties
+
+# Cursor's own generated history must never become project context.
+**/agent-transcripts/
+**/agent-transcripts/**
+**/.cursor/projects/**

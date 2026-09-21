@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [],
+    "deny": [
+      "Read(/Users/espitman/.cursor/projects/**)",
+      "Write(/Users/espitman/.cursor/projects/**)"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+# Keep the semantic index limited to source, tests, resources, and project docs.
+.git/
+.gradle/
+.kotlin/
+**/build/
+.idea/
+*.iml
+local.properties
+.DS_Store
+artifacts/
+captures/
+screenshots/
+*.apk
+*.aab
+*.log
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+*.jks
+*.keystore
+keystore.properties
+**/agent-transcripts/
+**/agent-transcripts/**
+**/.cursor/projects/**
