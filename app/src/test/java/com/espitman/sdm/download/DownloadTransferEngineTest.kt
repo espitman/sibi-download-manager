@@ -361,6 +361,59 @@ class DownloadTransferEngineTest {
     }
 
     @Test
+    fun httpTerminalFailureDeletesEmptyReservedPartFile() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(404)
+                .setBody("Not Found")
+        )
+
+        val downloadId = "http-terminal-empty-part-test"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_terminal_fail.bin")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/missing.bin").toString(),
+                    fileName = "missing.bin",
+                    destinationPath = destFile.absolutePath,
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val tempFile = File(tempDir, "reserved.part")
+        assertTrue(tempFile.createNewFile())
+        assertTrue(tempFile.exists())
+        assertEquals(0L, tempFile.length())
+
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/missing.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        // Verify transitions: QUEUED -> CONNECTING -> FAILED
+        assertEquals(2, repo.transitions.size)
+        assertEquals(DownloadState.CONNECTING, repo.transitions[0].second)
+        assertEquals(DownloadState.FAILED, repo.transitions[1].second)
+        assertTrue(repo.transitions[1].third!!.contains("404"))
+
+        // Empty reserved .part file must be deleted on terminal HTTP failure
+        assertFalse("Empty reserved .part file must be deleted on HTTP terminal failure", tempFile.exists())
+        assertFalse("Destination must not be exposed", destFile.exists())
+    }
+
+    @Test
     fun cancellationClosesResourcesAndPreservesPartialTemp() = runBlocking {
         // Prepare a large streamed response throttled deterministically (8KiB per 50ms)
         val payload = ByteArray(512 * 1024) { 0x55 }

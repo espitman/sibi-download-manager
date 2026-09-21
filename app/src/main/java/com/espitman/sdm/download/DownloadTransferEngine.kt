@@ -87,6 +87,9 @@ class DownloadTransferEngine(
                 if (!response.isSuccessful) {
                     val statusCode = response.code
                     val statusMessage = response.message.ifBlank { "HTTP $statusCode error" }
+                    if (tempFile.exists() && tempFile.length() == 0L) {
+                        try { tempFile.delete() } catch (_: Throwable) {}
+                    }
                     reportFailure(repository, downloadId, "HTTP $statusCode: $statusMessage")
                     return@withContext
                 }

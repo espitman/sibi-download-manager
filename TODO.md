@@ -51,7 +51,8 @@ Depends on stage 1.
   - Verification: transfer-engine tests passed for byte-for-byte finalization, known-length mismatch, unknown size, destination collision, missing destination, filesystem finalization failure, HTTP failure, and prompt cancellation; temporary files are preserved on recoverable failure and successful records become Completed only after finalization; all 87 unit tests, assembleDebug, and lintDebug passed.
 - [x] SDM-015 — Connect live records and progress to Downloads cards; move successful downloads to Completed.
   - Verification: pure card-mapping and filter tests passed for queued, connecting, active known/unknown-size, paused, failed, and completed records; the selected tab filters immediately, completed records move out of Downloading into Completed, and existing card slots match the Open Design speed/ETA and queue copy; all 96 unit tests, assembleDebug, and lintDebug passed.
-- [ ] SDM-016 — Test on the phone using controlled URLs: small and large files, redirects, 404 responses, and unknown sizes; compare output sizes and checksums with the test source.
+- [x] SDM-016 — Test on the phone using controlled URLs: small and large files, redirects, 404 responses, and unknown sizes; compare output sizes and checksums with the test source.
+  - Verification: Connected-device acceptance matrix passed on physical device (Xiaomi 11T Pro, API 34). Verified byte-for-byte size and SHA-256 for small (64 KiB), large (4 MiB), redirect (128 KiB), and chunked (256 KiB) files, terminal GET 404 handling with 0-byte temp cleanup, collision resolution (`small (1).bin`), process-boundary persistence across force-stop, and inline HEAD 404 validation; all 97 unit tests, assembleDebug, and lintDebug passed. Documented in [SDM-016 Acceptance Report](docs/sdm-016-acceptance.md).
 
 Acceptance / first delivery: Enter a real URL, see actual progress, and save an intact file on the phone. The result survives relaunch.
 
