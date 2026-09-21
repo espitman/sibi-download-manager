@@ -1,0 +1,21 @@
+# Gradle and build outputs
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+
+# Signing and secrets
+*.jks
+*.keystore
+keystore.properties
+
+# macOS
+.DS_Store
+
+# Local QA captures
+artifacts/
+
