@@ -78,7 +78,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-private enum class DownloadCategory(val label: String) { Downloading("Downloading"), Queued("Queued"), Completed("Completed") }
 internal enum class HomeOverlay { KeepActive, SpeedLimit, Preferences }
 private val LocalHomeSheetVisible = staticCompositionLocalOf { true }
 
@@ -92,22 +91,6 @@ internal class DownloadsUiState {
 
 @Composable
 internal fun rememberDownloadsUiState(): DownloadsUiState = remember { DownloadsUiState() }
-
-private class DownloadItemState(
-    val id: String,
-    val type: String,
-    val name: String,
-    val size: String,
-    val progress: Float,
-    val progressLabel: String,
-    val trailing: String,
-    initialCategory: DownloadCategory,
-    initialState: String,
-) {
-    var category by mutableStateOf(initialCategory)
-    var state by mutableStateOf(initialState)
-    var paused by mutableStateOf(false)
-}
 
 @Composable
 internal fun InteractiveDownloadsScreen(
@@ -131,28 +114,8 @@ internal fun InteractiveDownloadsScreen(
             delay(1000)
         }
     }
-    val downloads = records.map { record ->
-        val metrics = calculateDownloadProgressMetrics(record, nowEpochMillis)
-        val progress = metrics.fraction ?: 0f
-        val speed = formatDownloadSpeed(metrics.bytesPerSecond)
-        val eta = formatEta(metrics.etaSeconds)
-        val trailing = when {
-            speed == "—" -> "—"
-            eta == "—" -> speed
-            else -> "$speed · $eta"
-        }
-        DownloadItemState(record.id, record.fileName.substringAfterLast('.', "FILE").uppercase().take(5), record.fileName,
-            record.totalBytes?.let(::formatBytes) ?: "Unknown size", progress,
-            "${metrics.percentLabel} · ${formatBytes(record.downloadedBytes)}", trailing,
-            when (record.state) {
-                DownloadState.COMPLETED -> DownloadCategory.Completed
-                DownloadState.QUEUED -> DownloadCategory.Queued
-                else -> DownloadCategory.Downloading
-            }, record.state.name.lowercase().replaceFirstChar { it.uppercase() }
-        ).apply { paused = record.state == DownloadState.PAUSED }
-    }
+    val downloads = records.map { record -> mapDownloadToCard(record, nowEpochMillis) }
     var filter by rememberSaveable { mutableStateOf(DownloadCategory.Downloading) }
-    var filterApplied by rememberSaveable { mutableStateOf(false) }
     var overlayClosing by remember { mutableStateOf(false) }
     val overlayScope = rememberCoroutineScope()
     val dismissOverlay: () -> Unit = {
@@ -179,8 +142,8 @@ internal fun InteractiveDownloadsScreen(
             item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size,
                 onDownloadAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") },
                 onPauseAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") }) }
-            item { Spacer(Modifier.height(8.dp)); DownloadTabs(filter) { filter = it; filterApplied = true; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
-            val visibleDownloads = downloads.filter { (!filterApplied || it.category == filter) && it.name.contains(uiState.query, ignoreCase = true) }
+            item { Spacer(Modifier.height(8.dp)); DownloadTabs(filter) { filter = it; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
+            val visibleDownloads = filterDownloadCards(downloads, filter, uiState.query)
             if (visibleDownloads.isEmpty()) {
                 item { EmptyDownloads(filter) }
             } else {
@@ -337,7 +300,7 @@ private fun DownloadStatusCard(records: List<Download>, nowEpochMillis: Long) {
                 Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("$active active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(speedValue, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
                 Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
-                Row(Modifier.fillMaxWidth()) { DownloadStat(downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(remaining, "Active remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(if (active == 0) "0" else "—", "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
+                Row(Modifier.fillMaxWidth()) { DownloadStat(downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(remaining, "Remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(if (active == 0) "0" else "—", "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
             }
         }
     }
@@ -400,16 +363,16 @@ internal fun SdmEmptyState(title: String, description: String) {
 }
 
 @Composable
-private fun DownloadCard(item: DownloadItemState, onOpen: (() -> Unit)?, onAction: () -> Unit) {
+private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onAction: () -> Unit) {
     val queued = item.category == DownloadCategory.Queued
     Surface(color = SdmSurface, contentColor = SdmText, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.fillMaxWidth().then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Box(Modifier.size(width = 46.dp, height = 52.dp).background(if (queued) sdmColor(0xFF17181A, 0xFFF0ECE3) else sdmColor(0xFF181813, 0xFFF2EAD2), RoundedCornerShape(12.dp)).border(1.dp, if (queued) SdmLine else SdmGold.copy(alpha = .3f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text(item.type, color = if (queued) SdmMuted else SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = .6.sp) }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(if (item.paused) "Paused" else item.state, color = SdmMuted, fontSize = 11.sp) } }
+                Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
                 Spacer(Modifier.width(12.dp))
-                Surface(onClick = onAction, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (queued || item.paused) SdmIcons.Play else SdmIcons.Pause, if (queued || item.paused) "Start" else "Pause", modifier = Modifier.size(19.dp)) } }
+                Surface(onClick = onAction, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause, if (item.showPlayAction) "Start" else "Pause", modifier = Modifier.size(19.dp)) } }
             }
             Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(3.dp).background(sdmColor(0xFF34332F, 0xFFDED8CB), CircleShape)) { Box(Modifier.fillMaxWidth(if (queued) 0f else item.progress).height(3.dp).background(SdmGold, CircleShape)) }
             Row(Modifier.fillMaxWidth().padding(top = 9.dp)) { Text(item.progressLabel, color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(item.trailing, color = SdmMuted, fontSize = 11.sp) }
@@ -547,9 +510,10 @@ private fun SheetActions(onCancel: () -> Unit, primaryLabel: String = "Save", on
 private fun SheetActionButton(label: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) { Surface(onClick = onClick, color = if (primary) SdmGold else sdmColor(0xFF191A1C, 0xFFECE8DF), contentColor = if (primary) Color(0xFF080808) else SdmText, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, if (primary) SdmGold else SdmLine), modifier = modifier.height(50.dp)) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
 
 @Composable
-private fun DownloadDetailsScreen(item: DownloadItemState, onBack: () -> Unit, onToast: (String) -> Unit) {
+private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, onToast: (String) -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }; var headersOpen by remember { mutableStateOf(false) }; var segmentsOpen by remember { mutableStateOf(false) }; var cancelOpen by remember { mutableStateOf(false) }
     var priorityActive by remember { mutableStateOf(false) }
+    var paused by remember(item.id) { mutableStateOf(item.metadataValue == "Paused") }
     val clipboard = LocalClipboardManager.current
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
@@ -564,21 +528,21 @@ private fun DownloadDetailsScreen(item: DownloadItemState, onBack: () -> Unit, o
         HorizontalDivider(color = SdmGold.copy(alpha = .14f))
         Box(Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize().padding(bottom = 67.dp)) {
-                item { DetailsHero(item) }
+                item { DetailsHero(item, paused) }
                 item { MetricsGrid() }
                 item { SpeedChart() }
-                item { DetailsActions(item.paused, priorityActive, onPause = { item.paused = !item.paused; onToast(if (item.paused) "Download paused" else "Download resumed") }, onCancel = { cancelOpen = true }, onPriority = { priorityActive = !priorityActive; onToast(if (priorityActive) "High priority enabled" else "Priority returned to normal") }, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
+                item { DetailsActions(paused, priorityActive, onPause = { paused = !paused; onToast(if (paused) "Download paused" else "Download resumed") }, onCancel = { cancelOpen = true }, onPriority = { priorityActive = !priorityActive; onToast(if (priorityActive) "High priority enabled" else "Priority returned to normal") }, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
                 item { TechnicalInfo() }
                 item { DisclosureInfo(headersOpen, segmentsOpen, { headersOpen = !headersOpen }, { segmentsOpen = !segmentsOpen }) }
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast("Opening /Download/SDM") }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
         }
     }
-    if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) { cancelOpen = false; item.state = "Canceled"; onBack(); onToast("Download canceled · Partial file kept") }
+    if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) { cancelOpen = false; onBack(); onToast("Download canceled · Partial file kept") }
 }
 
 @Composable
-private fun DetailsHero(item: DownloadItemState) {
+private fun DetailsHero(item: DownloadCardModel, paused: Boolean) {
     val ringTrack = sdmColor(0xFF252622, 0xFFDED8CB)
     val ringProgress = SdmGold
     Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -593,7 +557,7 @@ private fun DetailsHero(item: DownloadItemState) {
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("72%", fontSize = 42.sp, fontWeight = FontWeight.Bold, letterSpacing = (-2.1).sp)
-                Text(if (item.paused) "PAUSED" else "ACTIVE", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.3.sp)
+                Text(if (paused) "PAUSED" else "ACTIVE", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.3.sp)
             }
         }
         Text(item.name, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp).widthIn(max = 310.dp), maxLines = 2)
