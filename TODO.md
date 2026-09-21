@@ -41,8 +41,10 @@ Depends on stage 1.
   - Verification: 21 MockWebServer JVM tests passed covering HEAD optimization, minimal Range fallback GET (bytes=0-0), 206 Content-Range total, 200 Range ignoring, zero body reads, nonnegative maxRedirects, redirects, cycles/limits, and response closure; assembleDebug and lintDebug passed.
 - [x] SDM-010 — Extract and sanitize filenames from responses or URLs; prevent path traversal and accidental overwrites of existing files.
   - Verification: 27 filename resolver JVM tests passed covering RFC filename precedence and encoding, URL fallbacks, traversal and reserved names, 255-byte UTF-8 limits, deterministic collisions, and atomic reservation; all 60 unit tests, assembleDebug, and lintDebug passed.
-- [ ] SDM-011 — Connect Download to real record creation and transfer startup; prevent duplicate submissions from rapid taps.
-- [ ] SDM-012 — Stream downloads to temporary files without loading entire files into memory.
+- [x] SDM-011 — Connect Download to real record creation and transfer startup; prevent duplicate submissions from rapid taps.
+  - Verification: coordinator tests passed for Download and Queue actions, concurrent duplicate suppression, atomic hidden temporary-file reservation, 255-byte filenames, rollback, and directory/I/O failures; Add now reports submission errors inline and starts the real transfer service.
+- [x] SDM-012 — Stream downloads to temporary files without loading entire files into memory.
+  - Verification: MockWebServer tests passed for multi-megabyte bounded-buffer streaming, monotonic persisted progress, HTTP failures, and deterministic mid-stream cancellation with partial-file preservation; all 74 unit tests, assembleDebug, and lintDebug passed.
 - [ ] SDM-013 — Calculate and display downloaded bytes, percentage, speed, and time remaining; handle unknown file sizes correctly.
 - [ ] SDM-014 — Finalize files only after successful transfer; record failures and release resources on error paths.
 - [ ] SDM-015 — Connect live records and progress to Downloads cards; move successful downloads to Completed.

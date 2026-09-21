@@ -33,6 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.espitman.sdm.domain.DownloadUrl
 import com.espitman.sdm.domain.DownloadUrlResult
+import androidx.compose.ui.platform.LocalContext
+import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.download.DownloadSubmissionCoordinator
+import com.espitman.sdm.download.SubmissionResult
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -40,9 +44,13 @@ import com.espitman.sdm.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun AddDownloadSheet(onDismiss: () -> Unit) {
+internal fun AddDownloadSheet(
+    onDismiss: () -> Unit,
+    coordinator: DownloadSubmissionCoordinator = AppRepositories.submissionCoordinator(LocalContext.current),
+) {
     var url by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val fileName = url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
@@ -50,13 +58,14 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
     var closing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val dismissAnimated: () -> Unit = {
-        if (!closing) scope.launch {
+        if (!closing && !isSubmitting) scope.launch {
             closing = true
             motion.animateTo(0f, tween(260, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)))
             onDismiss()
         }
     }
     fun applyUrl(value: String) {
+        if (isSubmitting) return
         url = value
         urlError = if (urlError == null) {
             null
@@ -64,11 +73,32 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
             (DownloadUrl.validate(value) as? DownloadUrlResult.Invalid)?.let { DownloadUrl.errorMessage(it.error) }
         }
     }
-    fun submitDirectUrl() {
+    fun submit(startNow: Boolean) {
+        if (isSubmitting) return
         when (val result = DownloadUrl.validate(url)) {
             is DownloadUrlResult.Valid -> {
                 url = result.url
-                dismissAnimated()
+                urlError = null
+                isSubmitting = true
+                scope.launch {
+                    try {
+                        when (val submissionResult = coordinator.submit(result.url, startNow)) {
+                            is SubmissionResult.Success -> {
+                                isSubmitting = false
+                                dismissAnimated()
+                            }
+                            is SubmissionResult.Failure -> {
+                                urlError = submissionResult.message
+                                isSubmitting = false
+                            }
+                        }
+                    } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        urlError = "Failed to submit download"
+                        isSubmitting = false
+                    }
+                }
             }
             is DownloadUrlResult.Invalid -> urlError = DownloadUrl.errorMessage(result.error)
         }
@@ -101,7 +131,7 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 9.dp, bottom = 2.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), RoundedCornerShape(99.dp)))
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 16.dp, top = 7.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("New download", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        IconButton(onClick = dismissAnimated, modifier = Modifier.size(44.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp))) {
+                        IconButton(onClick = dismissAnimated, enabled = !isSubmitting, modifier = Modifier.size(44.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp))) {
                             Icon(SdmIcons.Close, "Close add download", tint = SdmMuted, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -110,6 +140,7 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                         Spacer(Modifier.height(8.dp))
                         BasicTextField(
                             value = url, onValueChange = ::applyUrl,
+                            enabled = !isSubmitting,
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 12.sp, lineHeight = 17.4.sp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             cursorBrush = SolidColor(SdmGold),
@@ -122,8 +153,8 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                             decorationBox = { inner -> Box { if (url.isEmpty()) Text("Paste a direct download URL", color = SdmMuted, fontSize = 12.sp); inner() } },
                         )
                         Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FieldTool("Paste", SdmIcons.Paste) { clipboard.getText()?.text?.let(::applyUrl) }
-                            FieldTool("Clear", SdmIcons.Close) { applyUrl("") }
+                            FieldTool("Paste", SdmIcons.Paste, enabled = !isSubmitting) { clipboard.getText()?.text?.let(::applyUrl) }
+                            FieldTool("Clear", SdmIcons.Close, enabled = !isSubmitting) { applyUrl("") }
                         }
                         urlError?.let {
                             Text(
@@ -149,10 +180,10 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = ::submitDirectUrl, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
+                        Button(onClick = { submit(startNow = false) }, enabled = !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
                             Text("Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                         }
-                        Button(onClick = ::submitDirectUrl, enabled = url.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
+                        Button(onClick = { submit(startNow = true) }, enabled = url.isNotBlank() && !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
                             Icon(SdmIcons.Download, null, modifier = Modifier.size(21.dp))
                             Spacer(Modifier.width(9.dp))
                             Text("Download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
@@ -165,10 +196,16 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun FieldTool(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    Row(Modifier.height(32.dp).clickable(onClick = onClick).padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = SdmMuted, modifier = Modifier.size(14.dp))
+private fun FieldTool(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .height(32.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = if (enabled) SdmMuted else SdmMuted.copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(6.dp))
-        Text(label, color = SdmMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = if (enabled) SdmMuted else SdmMuted.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
