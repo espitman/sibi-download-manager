@@ -96,23 +96,6 @@ private enum class Destination(val label: String, val icon: ImageVector) {
     Settings("Settings", SdmIcons.Settings),
 }
 
-private data class DownloadUi(
-    val type: String,
-    val name: String,
-    val size: String,
-    val state: String,
-    val progress: Float,
-    val progressLabel: String,
-    val trailing: String,
-    val queued: Boolean = false,
-)
-
-private val sampleDownloads = listOf(
-    DownloadUi("MKV", "Dune.Part.Two.2024.2160p.BluRay.mkv", "2.18 GB", "12.4 MB/s", .72f, "72% · 1.57 GB", "01:04 left"),
-    DownloadUi("APK", "SDM.Premium.v4.8.2.apk", "186 MB", "6.2 MB/s", .38f, "38% · 70.7 MB", "00:19 left"),
-    DownloadUi("ZIP", "Editorial_Assets_September.zip", "4.83 GB", "Queued", 0f, "Next in queue", "Wi-Fi only", queued = true),
-)
-
 @Composable
 fun SdmApp() {
     val downloadsStateHolder = rememberSaveableStateHolder()
@@ -219,23 +202,6 @@ fun SdmApp() {
 }
 
 @Composable
-private fun DownloadsScreen() {
-    Column(Modifier.fillMaxSize()) {
-        AppHeader("Downloads")
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item { StatusCard() }
-            item { Column { Spacer(Modifier.height(8.dp)); DownloadToolbar() } }
-            item { DownloadFilters() }
-            items(sampleDownloads.size) { index -> DownloadCard(sampleDownloads[index]) }
-        }
-    }
-}
-
-@Composable
 internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Boolean = false, showMore: Boolean = true) {
     Column(
         modifier = Modifier
@@ -281,157 +247,6 @@ internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Bo
 private fun HeaderAction(icon: ImageVector, description: String) {
     IconButton(onClick = {}, modifier = Modifier.size(42.dp)) {
         Icon(icon, description, tint = SdmText, modifier = Modifier.size(21.dp))
-    }
-}
-
-@Composable
-private fun StatusCard() {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SdmSurface),
-        border = BorderStroke(1.dp, SdmGold.copy(alpha = .34f)),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Box {
-          Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))
-          Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.weight(1f))
-                Box(Modifier.size(7.dp).background(SdmSuccess, CircleShape))
-                Spacer(Modifier.width(6.dp))
-                Text("2 active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text("18.6", color = SdmText, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black)
-                Spacer(Modifier.width(6.dp))
-                Text("MB/s", color = SdmText, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp))
-            }
-            Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp))
-            Spacer(Modifier.height(18.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Stat("8.42 GB", "Downloaded today", Modifier.weight(1f))
-                Box(Modifier.width(1.dp).height(36.dp).background(SdmLine))
-                Stat("725 MB", "Active remaining", Modifier.weight(1f).padding(start = 10.dp))
-                Box(Modifier.width(1.dp).height(36.dp).background(SdmLine))
-                Stat("16", "Connections", Modifier.weight(1f).padding(start = 10.dp))
-            }
-        }
-        }
-    }
-}
-
-@Composable
-private fun Stat(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier.padding(end = 7.dp)) {
-        Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-        Text(label, color = SdmMuted, fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp))
-    }
-}
-
-@Composable
-private fun DownloadToolbar() {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text("Downloads", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-            Text("3 items", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
-        }
-        CompactButton("Download All", SdmIcons.DownloadAll, true)
-        Spacer(Modifier.width(6.dp))
-        CompactButton("Pause All", SdmIcons.Pause, false)
-    }
-}
-
-@Composable
-private fun CompactButton(label: String, icon: ImageVector, highlighted: Boolean) {
-    Button(
-        onClick = {},
-        shape = RoundedCornerShape(13.dp),
-        border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .6f) else SdmLine),
-        colors = ButtonDefaults.buttonColors(containerColor = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted),
-        contentPadding = PaddingValues(horizontal = 10.dp),
-        modifier = Modifier.height(38.dp),
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(5.dp))
-        Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
-    }
-}
-
-@Composable
-private fun DownloadFilters() {
-    var selected by remember { mutableStateOf("Downloading") }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(SdmSurface)
-            .padding(4.dp),
-    ) {
-        listOf("Downloading", "Queued", "Completed").forEach { label ->
-            val active = selected == label
-            val color by animateColorAsState(if (active) sdmColor(0xFF25251F, 0xFFF5EDD4) else Color.Transparent, label = "filter")
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(color)
-                    .then(if (active) Modifier.border(1.dp, SdmGold.copy(alpha = .35f), RoundedCornerShape(10.dp)) else Modifier)
-                    .clickable { selected = label },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, color = if (active) SdmGoldHigh else SdmMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DownloadCard(item: DownloadUi) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SdmSurface),
-        border = BorderStroke(1.dp, SdmLine),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(15.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 46.dp, height = 52.dp)
-                        .background(if (item.queued) sdmColor(0xFF17181A, 0xFFF0ECE3) else sdmColor(0xFF181813, 0xFFF2EAD2), RoundedCornerShape(12.dp))
-                        .border(1.dp, if (item.queued) SdmLine else SdmGold.copy(alpha = .38f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center,
-                ) { Text(item.type, color = if (item.queued) SdmMuted else SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.Black) }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(item.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(6.dp))
-                    Text("${item.size}  ·  ${item.state}", color = SdmMuted, fontSize = 11.sp)
-                }
-                Spacer(Modifier.width(12.dp))
-                Surface(
-                    color = SdmSurfaceAlt,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.size(44.dp),
-                    onClick = {},
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(if (item.queued) SdmIcons.Play else SdmIcons.Pause, contentDescription = if (item.queued) "Start" else "Pause", tint = SdmGoldHigh, modifier = Modifier.size(19.dp))
-                    }
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            Box(Modifier.fillMaxWidth().height(3.dp).background(sdmColor(0xFF34332F, 0xFFDED8CB), CircleShape)) {
-                Box(Modifier.fillMaxWidth(item.progress).height(3.dp).background(SdmGold, CircleShape))
-            }
-            Spacer(Modifier.height(9.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Text(item.progressLabel, color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text(item.trailing, color = SdmMuted, fontSize = 11.sp)
-            }
-        }
     }
 }
 

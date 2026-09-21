@@ -51,6 +51,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -68,8 +69,13 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.IntOffset
 import com.espitman.sdm.ui.theme.*
+import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.data.settings.SettingsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 private enum class DownloadCategory(val label: String) { Downloading("Downloading"), Queued("Queued"), Completed("Completed") }
@@ -103,11 +109,6 @@ private class DownloadItemState(
     var paused by mutableStateOf(false)
 }
 
-private val DownloadsSaver = listSaver<List<DownloadItemState>, Any>(
-    save = { items -> items.flatMap { listOf(it.id, it.type, it.name, it.size, it.progress, it.progressLabel, it.trailing, it.category.name, it.state, it.paused) } },
-    restore = { values -> values.chunked(10).map { DownloadItemState(it[0] as String, it[1] as String, it[2] as String, it[3] as String, it[4] as Float, it[5] as String, it[6] as String, DownloadCategory.valueOf(it[7] as String), it[8] as String).apply { paused = it[9] as Boolean } } },
-)
-
 @Composable
 internal fun InteractiveDownloadsScreen(
     uiState: DownloadsUiState,
@@ -117,12 +118,20 @@ internal fun InteractiveDownloadsScreen(
     onToast: (String) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val downloads = rememberSaveable(saver = DownloadsSaver) {
-        listOf(
-            DownloadItemState("dune", "MKV", "Dune.Part.Two.2024.2160p.BluRay.mkv", "2.18 GB", .72f, "72% · 1.57 GB", "01:04 left", DownloadCategory.Downloading, "12.4 MB/s"),
-            DownloadItemState("sdm", "APK", "SDM.Premium.v4.8.2.apk", "186 MB", .38f, "38% · 70.7 MB", "00:19 left", DownloadCategory.Downloading, "6.2 MB/s"),
-            DownloadItemState("editorial", "ZIP", "Editorial_Assets_September.zip", "4.83 GB", 0f, "Next in queue", "Wi-Fi only", DownloadCategory.Queued, "Queued"),
-        )
+    val repository = AppRepositories.downloads(LocalContext.current)
+    val records by repository.downloads.collectAsState()
+    val downloads = records.map { record ->
+        val progress = if (record.state == DownloadState.COMPLETED) 1f else record.totalBytes?.takeIf { it > 0 }?.let { record.downloadedBytes.toFloat() / it } ?: 0f
+        val percent = if (record.totalBytes == null && record.state != DownloadState.COMPLETED) "—" else "${(progress * 100).toInt()}%"
+        DownloadItemState(record.id, record.fileName.substringAfterLast('.', "FILE").uppercase().take(5), record.fileName,
+            record.totalBytes?.let(::formatBytes) ?: "Unknown size", progress,
+            "$percent · ${formatBytes(record.downloadedBytes)}", "—",
+            when (record.state) {
+                DownloadState.COMPLETED -> DownloadCategory.Completed
+                DownloadState.QUEUED -> DownloadCategory.Queued
+                else -> DownloadCategory.Downloading
+            }, record.state.name.lowercase().replaceFirstChar { it.uppercase() }
+        ).apply { paused = record.state == DownloadState.PAUSED }
     }
     var filter by rememberSaveable { mutableStateOf(DownloadCategory.Downloading) }
     var filterApplied by rememberSaveable { mutableStateOf(false) }
@@ -136,15 +145,10 @@ internal fun InteractiveDownloadsScreen(
             overlayClosing = false
         }
     }
-    var keepAwake by rememberSaveable { mutableStateOf(true) }
-    var awakeDuration by rememberSaveable { mutableStateOf("downloading") }
-    var unlimitedSpeed by rememberSaveable { mutableStateOf(false) }
-    var speedLimit by rememberSaveable { mutableFloatStateOf(10f) }
-    var speedWifiOnly by rememberSaveable { mutableStateOf(false) }
-    if (showDetails) {
-        DownloadDetailsScreen(downloads.first(), onBack = { onDetailsChange(false) }, onToast = onToast)
-        return
-    }
+    val settingsRepository = SettingsRepository.get(LocalContext.current)
+    val settings by settingsRepository.settings.collectAsState()
+    // Details and transfer commands are connected in later implementation stages.
+    LaunchedEffect(showDetails) { if (showDetails) onDetailsChange(false) }
     BackHandler(uiState.searchOpen) { uiState.searchOpen = false }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
@@ -153,14 +157,10 @@ internal fun InteractiveDownloadsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
-            item { DownloadStatusCard() }
-            item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size, onDownloadAll = {
-                downloads.forEach { if (it.category != DownloadCategory.Completed) { it.category = DownloadCategory.Downloading; it.paused = false; if (it.state == "Queued") it.state = "Connecting…" } }
-                filter = DownloadCategory.Downloading; onToast("All downloads started")
-            }, onPauseAll = {
-                downloads.filter { it.category == DownloadCategory.Downloading }.forEach { it.paused = true }
-                onToast("All active downloads paused")
-            }) }
+            item { DownloadStatusCard(records) }
+            item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size,
+                onDownloadAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") },
+                onPauseAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") }) }
             item { Spacer(Modifier.height(8.dp)); DownloadTabs(filter) { filter = it; filterApplied = true; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
             val visibleDownloads = downloads.filter { (!filterApplied || it.category == filter) && it.name.contains(uiState.query, ignoreCase = true) }
             if (visibleDownloads.isEmpty()) {
@@ -169,16 +169,8 @@ internal fun InteractiveDownloadsScreen(
                 items(visibleDownloads, key = { it.id }) { item ->
                     DownloadCard(
                         item = item,
-                        onOpen = if (item.id == "dune") ({ onDetailsChange(true) }) else null,
-                        onAction = {
-                            if (item.category == DownloadCategory.Queued) {
-                                item.category = DownloadCategory.Downloading; item.state = "Connecting…"; item.paused = false; filter = DownloadCategory.Downloading
-                                onToast("Queued file moved to downloading")
-                            } else {
-                                item.paused = !item.paused
-                                onToast(if (item.paused) "Download paused" else "Download resumed")
-                            }
-                        },
+                        onOpen = null,
+                        onAction = { onToast("Download engine is not connected yet") },
                     )
                     Spacer(Modifier.height(10.dp))
                 }
@@ -187,8 +179,23 @@ internal fun InteractiveDownloadsScreen(
     }
 
     CompositionLocalProvider(LocalHomeSheetVisible provides !overlayClosing) { when (uiState.overlay) {
-        HomeOverlay.KeepActive -> KeepActiveSheet(keepAwake, { keepAwake = it }, awakeDuration, { awakeDuration = it }, dismissOverlay, onToast)
-        HomeOverlay.SpeedLimit -> SpeedLimitSheet(unlimitedSpeed, { unlimitedSpeed = it }, speedLimit, { speedLimit = it }, speedWifiOnly, { speedWifiOnly = it }, dismissOverlay, onToast)
+        HomeOverlay.KeepActive -> {
+            var enabled by remember { mutableStateOf(settings.keepActive) }
+            var duration by remember { mutableStateOf(settings.keepActiveDuration) }
+            KeepActiveSheet(enabled, { enabled = it }, duration, { duration = it }, dismissOverlay) { message ->
+                settingsRepository.update { it.copy(keepActive = enabled, keepActiveDuration = duration) }
+                onToast(message)
+            }
+        }
+        HomeOverlay.SpeedLimit -> {
+            var unlimited by remember { mutableStateOf(settings.unlimitedSpeed) }
+            var limit by remember { mutableFloatStateOf(settings.speedLimitMbps) }
+            var wifiOnly by remember { mutableStateOf(settings.speedLimitWifiOnly) }
+            SpeedLimitSheet(unlimited, { unlimited = it }, limit, { limit = it }, wifiOnly, { wifiOnly = it }, dismissOverlay) { message ->
+                settingsRepository.update { it.copy(unlimitedSpeed = unlimited, speedLimitMbps = limit, speedLimitWifiOnly = wifiOnly) }
+                onToast(message)
+            }
+        }
         HomeOverlay.Preferences -> PreferencesSheet(dismissOverlay, onToast, onOpenSettings)
         else -> Unit
     } }
@@ -288,15 +295,20 @@ private fun HomeMenuItem(icon: ImageVector, title: String, subtitle: String, onC
 }
 
 @Composable
-private fun DownloadStatusCard() {
+private fun DownloadStatusCard(records: List<Download>) {
+    val active = records.count { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
+    val unfinished = records.filter { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
+    val remaining = if (unfinished.any { it.totalBytes == null }) "—" else formatBytes(unfinished.sumOf { (it.totalBytes ?: 0) - it.downloadedBytes })
+    // Daily traffic accounting is supplied by the transfer engine in a later stage.
+    val downloadedToday = if (records.isEmpty()) "0 B" else "—"
     Surface(color = SdmSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .34f)), modifier = Modifier.fillMaxWidth()) {
         Box {
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))
             Column(Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("2 active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text("18.6", fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
+                Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("$active active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(if (active == 0) "0" else "—", fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
                 Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
-                Row(Modifier.fillMaxWidth()) { DownloadStat("8.42 GB", "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat("725 MB", "Active remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat("16", "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
+                Row(Modifier.fillMaxWidth()) { DownloadStat(downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(remaining, "Active remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(if (active == 0) "0" else "—", "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
             }
         }
     }
@@ -332,7 +344,30 @@ private fun DownloadTabs(selected: DownloadCategory, onSelect: (DownloadCategory
 
 @Composable
 private fun EmptyDownloads(category: DownloadCategory) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(if (category == DownloadCategory.Completed) "No completed downloads" else "No ${category.label.lowercase()} downloads", fontWeight = FontWeight.Bold); Text("Finished files will appear here.", color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp)) }
+    SdmEmptyState(
+        if (category == DownloadCategory.Completed) "No completed downloads" else "No ${category.label.lowercase()} downloads",
+        "Finished files will appear here.",
+    )
+}
+
+@Composable
+internal fun SdmEmptyState(title: String, description: String) {
+    val textStyle = MaterialTheme.typography.bodyLarge.copy(
+        fontSize = 16.sp,
+        lineHeight = 24.8.sp,
+        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
+        textAlign = TextAlign.Center,
+    )
+    // A native paragraph rounds its 24.8sp line box up. Round the complete
+    // line-height + CSS margin once so a fractional density does not add a
+    // second pixel between the two lines.
+    val lineGap = with(LocalDensity.current) {
+        ((textStyle.lineHeight.toPx() + 5.dp.toPx()).roundToInt() - ceil(textStyle.lineHeight.toPx()).toInt()).toDp()
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(title, color = SdmText, fontWeight = FontWeight.Bold, style = textStyle)
+        Text(description, color = SdmMuted, style = textStyle, modifier = Modifier.padding(top = lineGap))
+    }
 }
 
 @Composable
@@ -434,10 +469,14 @@ private fun SpeedRange(value: Float, enabled: Boolean, onValueChange: (Float) ->
 
 @Composable
 private fun PreferencesSheet(onDismiss: () -> Unit, onToast: (String) -> Unit, onOpenSettings: () -> Unit) {
-    val context = LocalContext.current; val prefs = remember { context.getSharedPreferences("sdm_settings", 0) }
-    var wifi by rememberSaveable { mutableStateOf(prefs.getBoolean("wifi_only", true)) }; var resume by rememberSaveable { mutableStateOf(prefs.getBoolean("auto_resume", true)) }; var notifications by rememberSaveable { mutableStateOf(prefs.getBoolean("download_complete", true)) }; var connections by rememberSaveable { mutableIntStateOf(prefs.getInt("connections", 16)) }
+    val repository = SettingsRepository.get(LocalContext.current)
+    val settings by repository.settings.collectAsState()
+    var wifi by remember { mutableStateOf(settings.wifiOnly) }
+    var resume by remember { mutableStateOf(settings.autoResume) }
+    var notifications by remember { mutableStateOf(settings.downloadComplete) }
+    var connections by remember { mutableIntStateOf(settings.connections) }
     var connectionsOpen by remember { mutableStateOf(false) }
-    fun save() { prefs.edit().putBoolean("wifi_only", wifi).putBoolean("auto_resume", resume).putBoolean("download_complete", notifications).putInt("connections", connections).apply() }
+    fun save() { repository.update { it.copy(wifiOnly = wifi, autoResume = resume, downloadComplete = notifications, connections = connections) } }
     HomeSheet(SdmIcons.DownloadPreferences, "QUICK SETUP", "Preferences", "Adjust the download controls you use most.", onDismiss) {
         Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SheetSetting("Wi-Fi only", "Pause downloads on mobile data", wifi) { wifi = it }; Spacer(Modifier.height(0.dp)); SheetSetting("Auto-resume", "Continue interrupted downloads", resume) { resume = it }; Spacer(Modifier.height(0.dp)); SheetSetting("Download notifications", "Alert when a transfer finishes", notifications) { notifications = it }; Spacer(Modifier.height(0.dp))

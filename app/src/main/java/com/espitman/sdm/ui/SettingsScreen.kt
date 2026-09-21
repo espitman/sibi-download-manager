@@ -13,7 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import com.espitman.sdm.data.settings.SettingsRepository
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,15 +41,16 @@ private enum class SettingsOverlay { Connections, Simultaneous, Theme, Reset }
 @Composable
 internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Unit) {
     val context = LocalContext.current
-    val preferences = remember { context.getSharedPreferences("sdm_settings", 0) }
+    val repository = remember(context) { SettingsRepository.get(context) }
+    val settings by repository.settings.collectAsState()
     val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.1.0" }
-    var connections by rememberSaveable { mutableIntStateOf(preferences.getInt("connections", 16)) }
-    var simultaneous by rememberSaveable { mutableIntStateOf(preferences.getInt("simultaneous", 3)) }
-    var autoResume by rememberSaveable { mutableStateOf(preferences.getBoolean("auto_resume", true)) }
-    var wifiOnly by rememberSaveable { mutableStateOf(preferences.getBoolean("wifi_only", true)) }
-    var downloadComplete by rememberSaveable { mutableStateOf(preferences.getBoolean("download_complete", true)) }
-    var speedAlerts by rememberSaveable { mutableStateOf(preferences.getBoolean("speed_alerts", false)) }
-    var appliedTheme by rememberSaveable { mutableStateOf(preferences.getString("theme", "dark") ?: "dark") }
+    val connections = settings.connections
+    val simultaneous = settings.simultaneous
+    val autoResume = settings.autoResume
+    val wifiOnly = settings.wifiOnly
+    val downloadComplete = settings.downloadComplete
+    val speedAlerts = settings.speedAlerts
+    val appliedTheme = settings.theme
     var pendingTheme by remember { mutableStateOf(appliedTheme) }
     var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     var renderedOverlay by remember { mutableStateOf<SettingsOverlay?>(null) }
@@ -62,9 +63,6 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
     }
 
     fun toast(message: String) = onToast(message)
-    fun saveToggle(key: String, value: Boolean, message: String, update: (Boolean) -> Unit) {
-        update(value); preferences.edit().putBoolean(key, value).apply(); toast(message)
-    }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) AppHeader("Settings", showMore = false)
@@ -76,16 +74,16 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
                     SettingDivider()
                     ValueRow(SdmIcons.Simultaneous, "Simultaneous downloads", "Maximum active downloads", simultaneous.toString(), chevron = true) { overlay = SettingsOverlay.Simultaneous }
                     SettingDivider()
-                    ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { saveToggle("auto_resume", it, if (it) "Auto-resume enabled" else "Auto-resume disabled") { value -> autoResume = value } }
+                    ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { repository.update { current -> current.copy(autoResume = it) }; toast(if (it) "Auto-resume enabled" else "Auto-resume disabled") }
                 }
             }
-            item { SettingsGroup("NETWORK") { ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { saveToggle("wifi_only", it, if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") { value -> wifiOnly = value } } } }
+            item { SettingsGroup("NETWORK") { ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") } } }
             item { SettingsGroup("STORAGE") { ValueRow(SdmIcons.Folder, "Save location", "/Download/SDM", chevron = true) { toast("Save location editor opened") } } }
             item {
                 SettingsGroup("NOTIFICATIONS") {
-                    ToggleRow(SdmIcons.Notifications, "Download complete", "Notify when a transfer finishes", downloadComplete) { saveToggle("download_complete", it, if (it) "Completion alerts enabled" else "Completion alerts disabled") { value -> downloadComplete = value } }
+                    ToggleRow(SdmIcons.Notifications, "Download complete", "Notify when a transfer finishes", downloadComplete) { repository.update { current -> current.copy(downloadComplete = it) }; toast(if (it) "Completion alerts enabled" else "Completion alerts disabled") }
                     SettingDivider()
-                    ToggleRow(SdmIcons.Speed, "Speed alerts", "Warn when transfers stall", speedAlerts) { saveToggle("speed_alerts", it, if (it) "Speed alerts enabled" else "Speed alerts disabled") { value -> speedAlerts = value } }
+                    ToggleRow(SdmIcons.Speed, "Speed alerts", "Warn when transfers stall", speedAlerts) { repository.update { current -> current.copy(speedAlerts = it) }; toast(if (it) "Speed alerts enabled" else "Speed alerts disabled") }
                 }
             }
             item {
@@ -107,12 +105,12 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
     when (renderedOverlay) {
         SettingsOverlay.Connections -> SettingsSheet(SdmIcons.Connections, "DOWNLOAD BEHAVIOR", "Connections per download", "Choose the number of parallel threads used for each file.", { overlay = null }, overlay != null) {
             NumberGrid(listOf(8, 16, 24, 32), connections, 4) {
-                connections = it; preferences.edit().putInt("connections", it).apply(); overlay = null; toast("$it connections per download")
+                repository.update { current -> current.copy(connections = it) }; overlay = null; toast("$it connections per download")
             }
         }
         SettingsOverlay.Simultaneous -> SettingsSheet(SdmIcons.Simultaneous, "DOWNLOAD BEHAVIOR", "Simultaneous downloads", "Choose how many downloads SDM can run at once.", { overlay = null }, overlay != null) {
             NumberGrid((1..10).toList(), simultaneous, 5) {
-                simultaneous = it; preferences.edit().putInt("simultaneous", it).apply(); overlay = null; toast("$it simultaneous downloads")
+                repository.update { current -> current.copy(simultaneous = it) }; overlay = null; toast("$it simultaneous downloads")
             }
         }
         SettingsOverlay.Theme -> SettingsSheet(SdmIcons.Theme, "APPEARANCE", "Choose theme", "Select the visual style for every SDM screen.", { overlay = null }, overlay != null) {
@@ -123,15 +121,14 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 SheetButton("Cancel", false, Modifier.weight(1f)) { overlay = null }
                 SheetButton("Apply theme", true, Modifier.weight(1.15f)) {
-                    appliedTheme = pendingTheme; preferences.edit().putString("theme", appliedTheme).apply(); overlay = null; toast(if (appliedTheme == "light") "Light & Gold applied" else "Black & Gold applied")
+                    repository.update { it.copy(theme = pendingTheme) }; overlay = null; toast(if (pendingTheme == "light") "Light & Gold applied" else "Black & Gold applied")
                 }
             }
         }
         SettingsOverlay.Reset -> ResetDialog(
             onDismiss = { overlay = null },
             onReset = {
-                connections = 16; simultaneous = 3; autoResume = true; wifiOnly = true; downloadComplete = true; speedAlerts = false; appliedTheme = "dark"; pendingTheme = "dark"
-                preferences.edit().clear().putString("theme", "dark").apply(); overlay = null; toast("Settings restored to defaults")
+                repository.reset(); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
             },
         )
         null -> Unit

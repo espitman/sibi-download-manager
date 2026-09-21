@@ -29,6 +29,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.domain.DownloadState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,27 +57,37 @@ import com.espitman.sdm.ui.theme.SdmMuted
 import com.espitman.sdm.ui.theme.SdmSuccess
 import com.espitman.sdm.ui.theme.SdmSurface
 import com.espitman.sdm.ui.theme.sdmColor
+import kotlin.math.roundToInt
 
 private data class FileUi(val type: String, val name: String, val meta: String, val verified: Boolean = false)
-
-private val files = listOf(
-    FileUi("MKV", "Dune.Part.Two.2024.2160p.BluRay.mkv", "2.18 GB · Today, 14:32"),
-    FileUi("APK", "SDM.Premium.v4.8.2.apk", "186 MB · Today, 13:08", verified = true),
-    FileUi("ZIP", "Editorial_Assets_September.zip", "4.83 GB · Yesterday, 22:41"),
-    FileUi("FLAC", "Hans_Zimmer_A_Time_of_Quiet.flac", "84 MB · Sep 18, 19:20"),
-    FileUi("PDF", "SDM_User_Guide.pdf", "12.6 MB · Sep 17, 08:12"),
-)
 
 @Composable
 internal fun FilesScreen(showHeader: Boolean = true) {
     var filter by remember { mutableStateOf("All") }
+    val context = LocalContext.current
+    val records by AppRepositories.downloads(context).downloads.collectAsState()
+    val files = records.filter { it.state == DownloadState.COMPLETED }.map {
+        FileUi(it.fileName.substringAfterLast('.', "FILE").uppercase().take(5), it.fileName, formatBytes(it.downloadedBytes))
+    }
+    val visibleFiles = files.filter { filter == "All" || when (it.type) {
+        "MP4", "MKV", "WEBM", "AVI" -> "Video"
+        "MP3", "FLAC", "WAV", "M4A" -> "Audio"
+        "APK" -> "APK"
+        "ZIP", "RAR", "7Z", "TAR", "GZ" -> "Archives"
+        else -> "Documents"
+    } == filter }
+    val storage by produceState<Pair<Long, Long>?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { android.os.StatFs(android.os.Environment.getExternalStorageDirectory().absolutePath).let { it.totalBytes - it.availableBytes to it.totalBytes } }.getOrNull()
+        }
+    }
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) AppHeader("Files", showSort = true)
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item { StorageCard() }
+            item { StorageCard(storage) }
             item {
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     listOf("All", "Video", "Audio", "Documents", "APK", "Archives").forEach { label ->
@@ -84,15 +101,22 @@ internal fun FilesScreen(showHeader: Boolean = true) {
                 }
             }
             item { Text("RECENT FILES", color = SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.43.sp, modifier = Modifier.padding(bottom = 4.dp)) }
-            items(files.size) { FileRow(files[it]) }
+            if (visibleFiles.isEmpty()) {
+                item {
+                    SdmEmptyState("No matching files", "Try another search or file type.")
+                }
+            } else items(visibleFiles.size) { FileRow(visibleFiles[it]) }
         }
     }
 }
 
 @Composable
-private fun StorageCard() {
+private fun StorageCard(storage: Pair<Long, Long>?) {
+    val usedFraction = storage?.takeIf { it.second > 0 }?.let { (it.first.toFloat() / it.second).coerceIn(0f, 1f) }
     Card(colors = CardDefaults.cardColors(containerColor = SdmSurface), border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)), shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.padding(18.dp)) {
+        // CSS storage-card has 18px padding inside a 1px border. Compose draws
+        // its border inside the card, so include that border in the inset.
+        Column(Modifier.padding(19.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text("DEVICE STORAGE", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp)
@@ -100,17 +124,17 @@ private fun StorageCard() {
                     Text("SDM files across video, audio, apps, and archives.", color = SdmMuted, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 5.dp, end = 12.dp))
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("82.4 GB", color = SdmGoldHigh, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("OF 128 GB", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
+                    Text(storage?.first?.let(::formatBytes) ?: "—", color = SdmGoldHigh, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(storage?.second?.let { "OF ${formatBytes(it)}" } ?: "—", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
                 }
             }
             Spacer(Modifier.height(16.dp))
             Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(sdmColor(0xFF34332F, 0xFFDED8CB))) {
-                Box(Modifier.fillMaxWidth(.64f).height(5.dp).background(SdmGold))
+                Box(Modifier.fillMaxWidth(usedFraction ?: 0f).height(5.dp).background(SdmGold))
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Text("45.6 GB available", color = SdmMuted, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                Text("64% used", color = SdmMuted, fontSize = 10.sp)
+                Text(storage?.let { "${formatBytes((it.second - it.first).coerceAtLeast(0))} available" } ?: "—", color = SdmMuted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Text(usedFraction?.let { "${(it * 100).roundToInt()}% used" } ?: "—", color = SdmMuted, fontSize = 10.sp)
             }
         }
     }

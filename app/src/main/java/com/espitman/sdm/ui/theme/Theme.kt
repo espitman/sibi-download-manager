@@ -1,7 +1,7 @@
 package com.espitman.sdm.ui.theme
 
 import android.app.Activity
-import android.content.SharedPreferences
+import com.espitman.sdm.data.settings.SettingsRepository
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -34,15 +34,9 @@ fun SdmTheme(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
-    val preferences = remember(context) { context.getSharedPreferences("sdm_settings", 0) }
-    var light by remember { mutableStateOf(preferences.getString("theme", "dark") == "light") }
-    DisposableEffect(preferences) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "theme" || key == null) light = preferences.getString("theme", "dark") == "light"
-        }
-        preferences.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
+    val repository = remember(context) { SettingsRepository.get(context) }
+    val settings by repository.settings.collectAsState()
+    val light = settings.theme == "light"
     SideEffect {
         (context as? Activity)?.window?.let { window ->
             WindowCompat.getInsetsController(window, view).apply {
