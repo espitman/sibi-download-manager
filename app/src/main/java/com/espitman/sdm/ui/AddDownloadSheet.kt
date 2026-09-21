@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
 import com.espitman.sdm.download.SubmissionResult
+import com.espitman.sdm.notification.NotificationPermissionHandoff
 import com.espitman.sdm.notification.rememberTransferNotificationPermissionPreparer
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -53,7 +54,15 @@ internal fun AddDownloadSheet(
     var url by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
-    var pendingForegroundUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedHandoffPhase by rememberSaveable {
+        mutableStateOf(NotificationPermissionHandoff.Phase.Consumed.savedName)
+    }
+    var savedHandoffUrl by rememberSaveable { mutableStateOf("") }
+    val permissionHandoff = NotificationPermissionHandoff.restore(savedHandoffPhase, savedHandoffUrl)
+    fun publish(handoff: NotificationPermissionHandoff) {
+        savedHandoffPhase = handoff.savedPhase
+        savedHandoffUrl = handoff.savedPendingUrl
+    }
     val clipboard = LocalClipboardManager.current
     val fileName = url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
@@ -82,13 +91,11 @@ internal fun AddDownloadSheet(
                 when (val submissionResult = coordinator.submit(validatedUrl, startNow)) {
                     is SubmissionResult.Success -> {
                         isSubmitting = false
-                        pendingForegroundUrl = null
                         dismissAnimated()
                     }
                     is SubmissionResult.Failure -> {
                         urlError = submissionResult.message
                         isSubmitting = false
-                        pendingForegroundUrl = null
                     }
                 }
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
@@ -96,17 +103,12 @@ internal fun AddDownloadSheet(
             } catch (_: Throwable) {
                 urlError = "Failed to submit download"
                 isSubmitting = false
-                pendingForegroundUrl = null
             }
         }
     }
-    fun consumePendingForegroundSubmit() {
-        val pendingUrl = pendingForegroundUrl ?: return
-        pendingForegroundUrl = null
-        launchSubmit(pendingUrl, startNow = true)
-    }
     val prepareForegroundNotifications = rememberTransferNotificationPermissionPreparer {
-        consumePendingForegroundSubmit()
+        val current = NotificationPermissionHandoff.restore(savedHandoffPhase, savedHandoffUrl)
+        publish(current.onSystemResult())
     }
     fun submit(startNow: Boolean) {
         if (isSubmitting) return
@@ -116,15 +118,45 @@ internal fun AddDownloadSheet(
                 urlError = null
                 isSubmitting = true
                 if (startNow) {
-                    pendingForegroundUrl = result.url
+                    val waiting = NotificationPermissionHandoff.awaitingPermission(result.url)
+                    publish(waiting)
                     prepareForegroundNotifications.prepareForForegroundTransfer {
-                        consumePendingForegroundSubmit()
+                        publish(waiting.onSystemResult())
                     }
                 } else {
                     launchSubmit(result.url, startNow = false)
                 }
             }
             is DownloadUrlResult.Invalid -> urlError = DownloadUrl.errorMessage(result.error)
+        }
+    }
+    LaunchedEffect(permissionHandoff.phase) {
+        if (permissionHandoff.phase == NotificationPermissionHandoff.Phase.ReadyToSubmit) {
+            publish(permissionHandoff.markSubmitting())
+        }
+    }
+    LaunchedEffect(permissionHandoff.phase, permissionHandoff.pendingUrl) {
+        if (permissionHandoff.phase != NotificationPermissionHandoff.Phase.Submitting) return@LaunchedEffect
+        val pendingUrl = permissionHandoff.pendingUrl ?: return@LaunchedEffect
+        try {
+            when (val submissionResult = coordinator.submit(pendingUrl, true)) {
+                is SubmissionResult.Success -> {
+                    publish(permissionHandoff.consume())
+                    isSubmitting = false
+                    dismissAnimated()
+                }
+                is SubmissionResult.Failure -> {
+                    urlError = submissionResult.message
+                    publish(permissionHandoff.consume())
+                    isSubmitting = false
+                }
+            }
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            urlError = "Failed to submit download"
+            publish(permissionHandoff.consume())
+            isSubmitting = false
         }
     }
     LaunchedEffect(Unit) {
