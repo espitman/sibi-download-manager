@@ -66,7 +66,8 @@ Depends on stage 2.
   - Verification: Runtime POST_NOTIFICATIONS is requested only on the first user-started Download (not Queue, not cold start); denied/unavailable still starts the dataSync foreground service; silent low-importance `sdm.transfer` channel; policy/channel unit tests passed with `:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug`, and `git diff --check`.
 - [x] SDM-019 — Show actual progress in notifications and open the corresponding download when tapped.
   - Verification: Live child notifications use the real filename, transferred/total bytes, determinate or indeterminate progress, and collision-safe download-id tags; summary and child taps route to Downloads or the exact record. Unit, assembly, lint, diff checks, and a connected-device instrumentation probe passed; the device notification showed `8.94 MB / 128.00 MB` at `6%` with a runnable content intent. The Downloads status card now reads real aggregate values without changing its design.
-- [ ] SDM-020 — Apply Keep active only when needed; release wake locks and resources on completion, failure, and pause.
+- [x] SDM-020 — Apply Keep active only when needed; release wake locks and resources on completion, failure, and pause.
+  - Verification: Policy and wake-lock decision JVM tests passed with `:app:testDebugUnitTest`, `:app:assembleDebug`, and `:app:lintDebug`. On a connected Android 14 device, a cleartext HTTP download held `PARTIAL_WAKE_LOCK sdm:keep-active` (`dumpsys power`); after the transfer failed, dumpsys logged `REL sdm:keep-active`, Wake Locks size=0, and the service stopped.
 - [ ] SDM-021 — Recover consistent state after process death; distinguish normal exit, removal from recent apps, force-stop, and device restart.
 - [ ] SDM-022 — Test app exit, screen-off operation, and process recovery on the phone; record observed Android and device limitations.
 
