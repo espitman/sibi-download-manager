@@ -12,6 +12,7 @@ data class DownloadMetadata(
     val lastModified: String? = null,
     val acceptsRanges: Boolean = false,
     val statusCode: Int = 200,
+    val suggestedFilename: String = DownloadFilenameResolver.resolveFilename(contentDisposition, url),
 ) {
     init {
         require(url.isNotBlank()) { "Metadata URL cannot be blank" }
@@ -21,6 +22,7 @@ data class DownloadMetadata(
         require(etag == null || etag.isNotBlank()) { "ETag cannot be blank" }
         require(lastModified == null || lastModified.isNotBlank()) { "Last-Modified cannot be blank" }
         require(statusCode in 100..599) { "Status code must be a valid HTTP status code: $statusCode" }
+        require(suggestedFilename.isNotBlank()) { "Suggested filename cannot be blank" }
     }
 }
 

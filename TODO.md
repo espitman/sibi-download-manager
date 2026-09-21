@@ -39,7 +39,8 @@ Depends on stage 1.
   - Verification: 6 URL validation tests passed; debug build and lint passed; connected-device checks confirmed blank and unsupported-scheme errors, live error clearing, and valid HTTPS acceptance.
 - [x] SDM-009 — Retrieve metadata while handling redirects, HTTP errors, and servers without HEAD or Content-Length support.
   - Verification: 21 MockWebServer JVM tests passed covering HEAD optimization, minimal Range fallback GET (bytes=0-0), 206 Content-Range total, 200 Range ignoring, zero body reads, nonnegative maxRedirects, redirects, cycles/limits, and response closure; assembleDebug and lintDebug passed.
-- [ ] SDM-010 — Extract and sanitize filenames from responses or URLs; prevent path traversal and accidental overwrites of existing files.
+- [x] SDM-010 — Extract and sanitize filenames from responses or URLs; prevent path traversal and accidental overwrites of existing files.
+  - Verification: 27 filename resolver JVM tests passed covering RFC filename precedence and encoding, URL fallbacks, traversal and reserved names, 255-byte UTF-8 limits, deterministic collisions, and atomic reservation; all 60 unit tests, assembleDebug, and lintDebug passed.
 - [ ] SDM-011 — Connect Download to real record creation and transfer startup; prevent duplicate submissions from rapid taps.
 - [ ] SDM-012 — Stream downloads to temporary files without loading entire files into memory.
 - [ ] SDM-013 — Calculate and display downloaded bytes, percentage, speed, and time remaining; handle unknown file sizes correctly.
