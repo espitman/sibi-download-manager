@@ -70,7 +70,8 @@ Depends on stage 2.
   - Verification: Policy and wake-lock decision JVM tests passed with `:app:testDebugUnitTest`, `:app:assembleDebug`, and `:app:lintDebug`. On a connected Android 14 device, a cleartext HTTP download held `PARTIAL_WAKE_LOCK sdm:keep-active` (`dumpsys power`); after the transfer failed, dumpsys logged `REL sdm:keep-active`, Wake Locks size=0, and the service stopped.
 - [x] SDM-021 — Recover consistent state after process death; distinguish normal exit, removal from recent apps, force-stop, and device restart.
   - Verification: 9 focused recovery tests and the complete 156-test unit suite passed with `:app:assembleDebug`, `:app:lintDebug`, and `git diff --check`. On the connected Android 14 phone a seeded DOWNLOADING record recovered to FAILED after process restart while preserving `downloadedBytes=1234` and the actual 1234-byte partial file; the boot receiver and `RECEIVE_BOOT_COMPLETED` permission were registered; recovery does not start transfers.
-- [ ] SDM-022 — Test app exit, screen-off operation, and process recovery on the phone; record observed Android and device limitations.
+- [x] SDM-022 — Test app exit, screen-off operation, and process recovery on the phone; record observed Android and device limitations.
+  - Verification: Connected Xiaomi 2107113SG (11T Pro, Android 14/API 34) confirmed continued transfer after Back exit and screen-off/Dozing, FAILED recovery of a single row with preserved partial file after process death and force-stop, and documented platform limits; recents swipe was not measured. [Device lifecycle validation](docs/device-lifecycle-validation.md).
 
 Acceptance: Transfers continue during normal app exit and screen-off operation. Interruptions do not corrupt files or state or create duplicate downloads.
 
