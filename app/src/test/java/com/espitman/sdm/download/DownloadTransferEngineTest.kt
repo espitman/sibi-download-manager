@@ -116,6 +116,25 @@ class DownloadTransferEngineTest {
             insert(queued)
             return queued
         }
+
+        override suspend fun beginFreshRestart(
+            id: String,
+            nowEpochMillis: Long,
+            etag: String?,
+            lastModified: String?,
+            totalBytes: Long?,
+        ): Download {
+            val current = get(id) ?: throw IllegalArgumentException("Download not found: $id")
+            val updated = com.espitman.sdm.domain.DownloadFreshRestartMutation.apply(
+                current = current,
+                nowEpochMillis = nowEpochMillis,
+                etag = etag,
+                lastModified = lastModified,
+                totalBytes = totalBytes,
+            )
+            insert(updated)
+            return updated
+        }
     }
 
     @Before
@@ -971,13 +990,15 @@ class DownloadTransferEngineTest {
     }
 
     @Test
-    fun resumeNonPartialStatusPreservesExistingPartAndDoesNotTruncate() = runBlocking {
+    fun http200ToRangeRequestRestartsOnSeparateTempWithoutAppending() = runBlocking {
         val prefix = byteArrayOf(3, 3, 3, 3)
+        val fresh = ByteArray(8) { 9 }
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
-                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v1\"")
-                .setBody(Buffer().write(ByteArray(8) { 9 }))
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v2\"")
+                .setHeader(HttpRangeResume.HEADER_LAST_MODIFIED, "Thu, 22 Oct 2015 07:28:00 GMT")
+                .setBody(Buffer().write(fresh))
         )
 
         val downloadId = "resume-status-200"
@@ -985,6 +1006,7 @@ class DownloadTransferEngineTest {
         val destFile = File(tempDir, "status.bin")
         val tempFile = DownloadPartFile.forDestination(destFile)
         tempFile.writeBytes(prefix)
+        val restartFile = DownloadPartFile.restartForDestination(destFile)
 
         val repo = FakeDownloadRepository(
             listOf(
@@ -993,6 +1015,7 @@ class DownloadTransferEngineTest {
                     url = server.url("/status.bin").toString(),
                     fileName = destFile.name,
                     etag = "\"file-v1\"",
+                    lastModified = "Wed, 21 Oct 2015 07:28:00 GMT",
                     destinationPath = destFile.absolutePath,
                     totalBytes = 8L,
                     downloadedBytes = prefix.size.toLong(),
@@ -1013,19 +1036,27 @@ class DownloadTransferEngineTest {
             repository = repo,
         )
 
-        assertTrue(tempFile.exists())
-        assertArrayEquals(prefix, tempFile.readBytes())
-        assertFalse(destFile.exists())
-        val finalDownload = repo.get(downloadId)!!
-        assertEquals(DownloadState.FAILED, finalDownload.state)
-        assertTrue(finalDownload.error!!.contains("206"))
-        assertEquals(
-            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
-            repo.transitions.map { it.second },
-        )
         val recorded = server.takeRequest()
         assertEquals("bytes=4-", recorded.getHeader(HttpRangeResume.HEADER_RANGE))
         assertEquals("\"file-v1\"", recorded.getHeader(HttpRangeResume.HEADER_IF_RANGE))
+        assertEquals(1, server.requestCount)
+
+        assertFalse(tempFile.exists())
+        assertFalse(restartFile.exists())
+        assertTrue(destFile.exists())
+        assertArrayEquals(fresh, destFile.readBytes())
+        assertFalse(destFile.readBytes().contentEquals(prefix + fresh))
+
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.COMPLETED, finalDownload.state)
+        assertEquals("\"file-v2\"", finalDownload.etag)
+        assertEquals("Thu, 22 Oct 2015 07:28:00 GMT", finalDownload.lastModified)
+        assertEquals(8L, finalDownload.totalBytes)
+        assertEquals(8L, finalDownload.downloadedBytes)
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.COMPLETED),
+            repo.transitions.map { it.second },
+        )
     }
 
     @Test
@@ -1141,5 +1172,252 @@ class DownloadTransferEngineTest {
             listOf(DownloadState.CONNECTING, DownloadState.FAILED),
             repo.transitions.map { it.second },
         )
+    }
+
+    @Test
+    fun http416TriggersOneFreshNonRangeGetAndDoesNotAppend() = runBlocking {
+        val prefix = byteArrayOf(1, 1, 1, 1)
+        val fresh = byteArrayOf(9, 8, 7, 6, 5, 4, 3, 2)
+        server.enqueue(MockResponse().setResponseCode(416).setBody("Range Not Satisfiable"))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v2\"")
+                .setHeader(HttpRangeResume.HEADER_LAST_MODIFIED, "Fri, 23 Oct 2015 07:28:00 GMT")
+                .setBody(Buffer().write(fresh))
+        )
+
+        val downloadId = "resume-416"
+        val destFile = File(tempDir, "range-416.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+        val restartFile = DownloadPartFile.restartForDestination(destFile)
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/range-416.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = FakeClock(1000L),
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/range-416.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        val ranged = server.takeRequest()
+        val freshGet = server.takeRequest()
+        assertEquals("bytes=4-", ranged.getHeader(HttpRangeResume.HEADER_RANGE))
+        assertEquals(null, freshGet.getHeader(HttpRangeResume.HEADER_RANGE))
+        assertEquals(2, server.requestCount)
+
+        assertFalse(tempFile.exists())
+        assertFalse(restartFile.exists())
+        assertArrayEquals(fresh, destFile.readBytes())
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.COMPLETED, finalDownload.state)
+        assertEquals("\"file-v2\"", finalDownload.etag)
+        assertEquals("Fri, 23 Oct 2015 07:28:00 GMT", finalDownload.lastModified)
+        assertEquals(8L, finalDownload.downloadedBytes)
+    }
+
+    @Test
+    fun resumeFallbackFailurePreservesOriginalPart() = runBlocking {
+        val prefix = byteArrayOf(4, 5, 6, 7)
+        server.enqueue(MockResponse().setResponseCode(416).setBody("Range Not Satisfiable"))
+        server.enqueue(MockResponse().setResponseCode(500).setBody("unavailable"))
+
+        val downloadId = "resume-fallback-fail"
+        val destFile = File(tempDir, "fallback-fail.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+        val restartFile = DownloadPartFile.restartForDestination(destFile)
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/fallback-fail.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = FakeClock(1000L),
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/fallback-fail.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        assertEquals(2, server.requestCount)
+        assertTrue(tempFile.exists())
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(restartFile.exists())
+        assertFalse(destFile.exists())
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.FAILED, finalDownload.state)
+        assertTrue(finalDownload.error!!.contains("500"))
+        assertEquals("\"file-v1\"", finalDownload.etag)
+        assertEquals(prefix.size.toLong(), finalDownload.downloadedBytes)
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+    }
+
+    @Test
+    fun resumeFallbackCancellationLeavesUsableNewPartial() = runBlocking {
+        val prefix = byteArrayOf(1, 2, 3, 4)
+        val fresh = ByteArray(256 * 1024) { 0x22 }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v2\"")
+                .setBody(Buffer().write(fresh))
+                .throttleBody(8 * 1024, 50, TimeUnit.MILLISECONDS)
+        )
+
+        val downloadId = "resume-fallback-cancel"
+        val destFile = File(tempDir, "fallback-cancel.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+        val restartFile = DownloadPartFile.restartForDestination(destFile)
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/fallback-cancel.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = fresh.size.toLong(),
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = FakeClock(1000L),
+            bufferSizeBytes = 1024,
+            progressUpdateIntervalBytes = 2048L,
+        )
+        val pauseOnCancel = java.util.concurrent.atomic.AtomicBoolean(false)
+        val transferJob = async(Dispatchers.IO) {
+            engine.executeTransfer(
+                downloadId = downloadId,
+                url = server.url("/fallback-cancel.bin").toString(),
+                tempFile = tempFile,
+                repository = repo,
+                pauseRequested = { pauseOnCancel.get() },
+            )
+        }
+        withTimeout(5000L) {
+            while (!restartFile.exists() || restartFile.length() <= 0L) {
+                delay(10)
+            }
+        }
+        pauseOnCancel.set(true)
+        transferJob.cancel()
+        assertThrows(CancellationException::class.java) {
+            runBlocking {
+                withTimeout(2000L) { transferJob.await() }
+            }
+        }
+
+        assertFalse(destFile.exists())
+        assertTrue(tempFile.exists())
+        val partial = tempFile.readBytes()
+        assertTrue(partial.isNotEmpty())
+        assertTrue(partial.size < fresh.size)
+        assertEquals(0x22.toByte(), partial[0])
+        assertFalse(partial.contentEquals(prefix + partial.copyOfRange(0, (partial.size - prefix.size).coerceAtLeast(0))))
+        assertArrayEquals(fresh.copyOf(partial.size), partial)
+        assertFalse(restartFile.exists())
+        val paused = repo.get(downloadId)!!
+        assertEquals(DownloadState.PAUSED, paused.state)
+        assertEquals(partial.size.toLong(), paused.downloadedBytes)
+        assertEquals("\"file-v2\"", paused.etag)
+    }
+
+    @Test
+    fun resumeFallbackPersistsNewValidatorsAndChecksumOfFreshBody() = runBlocking {
+        val prefix = byteArrayOf(7, 7, 7, 7)
+        val fresh = ByteArray(64) { it.toByte() }
+        val expectedDigest = MessageDigest.getInstance("SHA-256").digest(fresh)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v9\"")
+                .setHeader(HttpRangeResume.HEADER_LAST_MODIFIED, "Sat, 24 Oct 2015 07:28:00 GMT")
+                .setBody(Buffer().write(fresh))
+        )
+
+        val downloadId = "resume-fallback-checksum"
+        val destFile = File(tempDir, "fallback-checksum.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/fallback-checksum.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    lastModified = "Wed, 21 Oct 2015 07:28:00 GMT",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = FakeClock(1000L),
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/fallback-checksum.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.COMPLETED, finalDownload.state)
+        assertEquals("\"file-v9\"", finalDownload.etag)
+        assertEquals("Sat, 24 Oct 2015 07:28:00 GMT", finalDownload.lastModified)
+        assertEquals(fresh.size.toLong(), finalDownload.totalBytes)
+        assertArrayEquals(fresh, destFile.readBytes())
+        assertArrayEquals(expectedDigest, MessageDigest.getInstance("SHA-256").digest(destFile.readBytes()))
+        assertFalse(tempFile.exists())
     }
 }

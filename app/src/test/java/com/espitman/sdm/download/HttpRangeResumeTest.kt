@@ -166,4 +166,24 @@ class HttpRangeResumeTest {
         }
         assertTrue(received.message!!.contains("body length"))
     }
+
+    @Test
+    fun classifyResumeStatusMapsPartialFullRestartAnd416() {
+        assertEquals(
+            HttpRangeResume.ResumeStatusAction.ContinuePartial,
+            HttpRangeResume.classifyResumeStatus(206),
+        )
+        assertEquals(
+            HttpRangeResume.ResumeStatusAction.UseFullBodyRestart,
+            HttpRangeResume.classifyResumeStatus(200),
+        )
+        assertEquals(
+            HttpRangeResume.ResumeStatusAction.FetchFreshGet,
+            HttpRangeResume.classifyResumeStatus(416),
+        )
+        assertEquals(
+            HttpRangeResume.ResumeStatusAction.Fail,
+            HttpRangeResume.classifyResumeStatus(404),
+        )
+    }
 }

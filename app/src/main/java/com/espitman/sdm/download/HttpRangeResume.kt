@@ -20,6 +20,8 @@ object HttpRangeResume {
     const val HEADER_ETAG: String = "ETag"
     const val HEADER_LAST_MODIFIED: String = "Last-Modified"
     const val HTTP_PARTIAL_CONTENT: Int = 206
+    const val HTTP_OK: Int = 200
+    const val HTTP_RANGE_NOT_SATISFIABLE: Int = 416
 
     private val CONTENT_RANGE_REGEX =
         Regex("""^bytes\s+(\d+)-(\d+)/(\d+|\*)$""", RegexOption.IGNORE_CASE)
@@ -51,6 +53,20 @@ object HttpRangeResume {
     sealed class ResumeValidation {
         data object Ok : ResumeValidation()
         data class Failed(val reason: String) : ResumeValidation()
+    }
+
+    enum class ResumeStatusAction {
+        ContinuePartial,
+        UseFullBodyRestart,
+        FetchFreshGet,
+        Fail,
+    }
+
+    fun classifyResumeStatus(statusCode: Int): ResumeStatusAction = when (statusCode) {
+        HTTP_PARTIAL_CONTENT -> ResumeStatusAction.ContinuePartial
+        HTTP_OK -> ResumeStatusAction.UseFullBodyRestart
+        HTTP_RANGE_NOT_SATISFIABLE -> ResumeStatusAction.FetchFreshGet
+        else -> ResumeStatusAction.Fail
     }
 
     fun rangeHeaderValue(offset: Long): String {

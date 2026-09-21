@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
 import com.espitman.sdm.domain.DownloadState
@@ -145,6 +146,22 @@ class SqliteDownloadRepository(
             }
             updated
         }
+    }
+
+    override suspend fun beginFreshRestart(
+        id: String,
+        nowEpochMillis: Long,
+        etag: String?,
+        lastModified: String?,
+        totalBytes: Long?,
+    ): Download = mutate(id) { current ->
+        DownloadFreshRestartMutation.apply(
+            current = current,
+            nowEpochMillis = nowEpochMillis,
+            etag = etag,
+            lastModified = lastModified,
+            totalBytes = totalBytes,
+        )
     }
 
     private suspend fun mutate(id: String, update: (Download) -> Download): Download = onIo {

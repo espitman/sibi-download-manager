@@ -2,6 +2,7 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
@@ -108,6 +109,21 @@ class DownloadPausePersistenceTest {
             transitions.add(Triple(id, DownloadState.QUEUED, null))
             insert(queued)
             return queued
+        }
+
+        override suspend fun beginFreshRestart(
+            id: String,
+            nowEpochMillis: Long,
+            etag: String?,
+            lastModified: String?,
+            totalBytes: Long?,
+        ): Download {
+            val current = get(id) ?: throw IllegalArgumentException("Download not found: $id")
+            val updated = DownloadFreshRestartMutation.apply(
+                current, nowEpochMillis, etag, lastModified, totalBytes,
+            )
+            insert(updated)
+            return updated
         }
     }
 

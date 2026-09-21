@@ -1,6 +1,7 @@
 package com.espitman.sdm.download
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -22,6 +23,18 @@ class DownloadPartFileTest {
         assertEquals(".sdm-$hash.part", fromDestination.name)
         assertEquals(directory, fromDestination.parentFile)
         assertTrue(fromDestination.name.startsWith(".sdm-") && fromDestination.name.endsWith(".part"))
+    }
+
+    @Test
+    fun restartPartIsDeterministicAndDistinctFromResumePart() {
+        val destination = File("/downloads", "archive.zip")
+        val part = DownloadPartFile.forDestination(destination)
+        val restart = DownloadPartFile.restartForDestination(destination)
+        assertEquals(part.parentFile, restart.parentFile)
+        assertEquals(restart, DownloadPartFile.restartForDestination(destination))
+        assertTrue(restart.name.startsWith(".sdm-") && restart.name.endsWith(".restart.part"))
+        assertTrue(restart.name.contains(part.name.removePrefix(".sdm-").removeSuffix(".part")))
+        assertFalse(part == restart)
     }
 
     @Test

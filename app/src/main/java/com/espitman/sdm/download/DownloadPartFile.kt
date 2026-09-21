@@ -25,4 +25,11 @@ object DownloadPartFile {
             .joinToString("") { "%02x".format(it) }
         return File(directory, ".sdm-$hash.part")
     }
+
+    fun restartForDestination(destinationFile: File): File {
+        val part = forDestination(destinationFile)
+        val parent = part.parentFile
+            ?: throw IllegalArgumentException("Restart part must have a parent directory: ${part.path}")
+        return File(parent, part.name.removeSuffix(".part") + ".restart.part")
+    }
 }
