@@ -17,7 +17,6 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okio.Buffer
-import okio.buffer
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -30,9 +29,6 @@ import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 class DownloadTransferEngineTest {
 
@@ -127,12 +123,14 @@ class DownloadTransferEngineTest {
 
         val downloadId = "test-stream-dl"
         val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_stream.bin")
         val repo = FakeDownloadRepository(
             listOf(
                 Download(
                     id = downloadId,
                     url = server.url("/large.bin").toString(),
                     fileName = "large.bin",
+                    destinationPath = destFile.absolutePath,
                     totalBytes = totalBytes.toLong(),
                     state = DownloadState.QUEUED,
                     createdAtEpochMillis = 1000L,
@@ -156,16 +154,22 @@ class DownloadTransferEngineTest {
             repository = repo,
         )
 
-        assertTrue(tempFile.exists())
-        assertEquals(totalBytes.toLong(), tempFile.length())
+        // Assert temp is gone
+        assertFalse(tempFile.exists())
 
-        val actualDigest = MessageDigest.getInstance("SHA-256").digest(tempFile.readBytes())
+        // Assert destination exists byte-for-byte
+        assertTrue(destFile.exists())
+        assertEquals(totalBytes.toLong(), destFile.length())
+        val actualDigest = MessageDigest.getInstance("SHA-256").digest(destFile.readBytes())
         assertArrayEquals(expectedDigest, actualDigest)
 
-        // Verify state sequence: QUEUED -> CONNECTING -> DOWNLOADING
-        assertEquals(2, repo.transitions.size)
-        assertEquals(DownloadState.CONNECTING, repo.transitions[0].second)
-        assertEquals(DownloadState.DOWNLOADING, repo.transitions[1].second)
+        // Final repository state COMPLETED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.COMPLETED, finalDownload!!.state)
+
+        // Transition sequence includes COMPLETED
+        assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.COMPLETED), repo.transitions.map { it.second })
 
         // Verify progress updates are monotonically increasing and final count is exact
         assertTrue(repo.progressUpdates.isNotEmpty())
@@ -192,12 +196,14 @@ class DownloadTransferEngineTest {
 
         val downloadId = "bounded-test"
         val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_bounded.bin")
         val repo = FakeDownloadRepository(
             listOf(
                 Download(
                     id = downloadId,
                     url = server.url("/bounded.bin").toString(),
                     fileName = "bounded.bin",
+                    destinationPath = destFile.absolutePath,
                     totalBytes = payload.size.toLong(),
                     state = DownloadState.QUEUED,
                     createdAtEpochMillis = 1000L,
@@ -232,8 +238,18 @@ class DownloadTransferEngineTest {
                 chunk <= maxChunk
             )
         }
-        assertEquals(payload.size.toLong(), tempFile.length())
-        assertArrayEquals(payload, tempFile.readBytes())
+
+        // Temp is gone, destination exists byte-for-byte
+        assertFalse(tempFile.exists())
+        assertTrue(destFile.exists())
+        assertEquals(payload.size.toLong(), destFile.length())
+        assertArrayEquals(payload, destFile.readBytes())
+
+        // Final repository state COMPLETED and transition sequence includes COMPLETED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.COMPLETED, finalDownload!!.state)
+        assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.COMPLETED), repo.transitions.map { it.second })
     }
 
     @Test
@@ -247,12 +263,14 @@ class DownloadTransferEngineTest {
 
         val downloadId = "seq-test"
         val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_seq.bin")
         val repo = FakeDownloadRepository(
             listOf(
                 Download(
                     id = downloadId,
                     url = server.url("/seq.bin").toString(),
                     fileName = "seq.bin",
+                    destinationPath = destFile.absolutePath,
                     totalBytes = payload.size.toLong(),
                     state = DownloadState.QUEUED,
                     createdAtEpochMillis = 1000L,
@@ -276,10 +294,17 @@ class DownloadTransferEngineTest {
             repository = repo,
         )
 
-        // Check transitions
-        assertEquals(2, repo.transitions.size)
-        assertEquals(DownloadState.CONNECTING, repo.transitions[0].second)
-        assertEquals(DownloadState.DOWNLOADING, repo.transitions[1].second)
+        // Temp is gone, destination exists byte-for-byte
+        assertFalse(tempFile.exists())
+        assertTrue(destFile.exists())
+        assertEquals(payload.size.toLong(), destFile.length())
+        assertArrayEquals(payload, destFile.readBytes())
+
+        // Final repository state COMPLETED and transition sequence includes COMPLETED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.COMPLETED, finalDownload!!.state)
+        assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.COMPLETED), repo.transitions.map { it.second })
 
         // Progress updates
         val expected = listOf(256L, 512L, 768L, 1000L)
@@ -296,12 +321,14 @@ class DownloadTransferEngineTest {
 
         val downloadId = "http-err-test"
         val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_missing.bin")
         val repo = FakeDownloadRepository(
             listOf(
                 Download(
                     id = downloadId,
                     url = server.url("/missing.bin").toString(),
                     fileName = "missing.bin",
+                    destinationPath = destFile.absolutePath,
                     state = DownloadState.QUEUED,
                     createdAtEpochMillis = 1000L,
                 )
@@ -328,8 +355,9 @@ class DownloadTransferEngineTest {
         assertEquals(DownloadState.FAILED, repo.transitions[1].second)
         assertTrue(repo.transitions[1].third!!.contains("404"))
 
-        // Temp file must be empty or absent
+        // Temp file must be empty or absent, destination absent
         assertTrue(!tempFile.exists() || tempFile.length() == 0L)
+        assertFalse(destFile.exists())
     }
 
     @Test
@@ -345,12 +373,14 @@ class DownloadTransferEngineTest {
 
         val downloadId = "cancel-test"
         val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_cancel.bin")
         val repo = FakeDownloadRepository(
             listOf(
                 Download(
                     id = downloadId,
                     url = server.url("/cancel.bin").toString(),
                     fileName = "cancel.bin",
+                    destinationPath = destFile.absolutePath,
                     totalBytes = payload.size.toLong(),
                     state = DownloadState.QUEUED,
                     createdAtEpochMillis = 1000L,
@@ -384,21 +414,297 @@ class DownloadTransferEngineTest {
         }
 
         // Cancel the job
+        val cancelStart = System.currentTimeMillis()
         transferJob.cancel()
 
-        // Expect CancellationException rethrown
+        // Expect CancellationException rethrown promptly
         assertThrows(CancellationException::class.java) {
             runBlocking {
-                transferJob.await()
+                withTimeout(2000L) {
+                    transferJob.await()
+                }
             }
         }
+        val cancelDuration = System.currentTimeMillis() - cancelStart
+        assertTrue("Cancellation should finish promptly, took $cancelDuration ms", cancelDuration < 2000L)
 
         // Check temp file was preserved and is non-empty partial
         assertTrue(tempFile.exists())
         assertTrue("Expected partial bytes preserved > 0 but was ${tempFile.length()}", tempFile.length() > 0)
         assertTrue("Expected partial bytes < total but was ${tempFile.length()}", tempFile.length() < payload.size)
 
+        // Destination must not be exposed
+        assertFalse(destFile.exists())
+
         // Resources are closed, so we can freely read or delete tempFile
         assertTrue(tempFile.canRead())
+    }
+
+    @Test
+    fun unknownTotalSuccessfullyFinalizesAndCompletes() = runBlocking {
+        val payload = ByteArray(4096) { 0x33 }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setChunkedBody(Buffer().write(payload), 512)
+        )
+
+        val downloadId = "unknown-total-test"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_unknown.bin")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/chunked.bin").toString(),
+                    fileName = "chunked.bin",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = null, // unknown total
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val tempFile = File(tempDir, "unknown.tmp")
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+            bufferSizeBytes = 512,
+            progressUpdateIntervalBytes = 1024L,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/chunked.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        // Temp is gone, destination exists byte-for-byte
+        assertFalse(tempFile.exists())
+        assertTrue(destFile.exists())
+        assertEquals(payload.size.toLong(), destFile.length())
+        assertArrayEquals(payload, destFile.readBytes())
+
+        // Repository state COMPLETED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.COMPLETED, finalDownload!!.state)
+        assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.COMPLETED), repo.transitions.map { it.second })
+    }
+
+    @Test
+    fun knownTotalShortResponseFailsWithMismatchWhileTempRemainsAndDestinationAbsent() = runBlocking {
+        val expectedTotal = 8192L
+        val shortPayload = ByteArray(2048) { 0x11 }
+
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody(Buffer().write(shortPayload))
+        )
+
+        val downloadId = "short-response-test"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_short.bin")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/short.bin").toString(),
+                    fileName = "short.bin",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = expectedTotal,
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val tempFile = File(tempDir, "short.tmp")
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/short.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        // Assert temp remains with partial content
+        assertTrue(tempFile.exists())
+        assertEquals(shortPayload.size.toLong(), tempFile.length())
+
+        // Destination is absent
+        assertFalse(destFile.exists())
+
+        // Final state FAILED with mismatch error
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.FAILED, finalDownload!!.state)
+        assertTrue(finalDownload.error!!.contains("mismatch"))
+        assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.FAILED), repo.transitions.map { it.second })
+    }
+
+    @Test
+    fun preexistingDestinationIsNeverOverwrittenNoNetworkTempRemainsStateFailed() = runBlocking {
+        val downloadId = "preexist-test"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "dest_exists.bin")
+        val existingContent = "original content".toByteArray()
+        destFile.writeBytes(existingContent)
+
+        val tempFile = File(tempDir, "preexist.tmp")
+        val tempContent = "temp partial content".toByteArray()
+        tempFile.writeBytes(tempContent)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/existing.bin").toString(),
+                    fileName = "existing.bin",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 100L,
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/existing.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        // No network request made
+        assertEquals(0, server.requestCount)
+
+        // Pre-existing destination is never overwritten
+        assertTrue(destFile.exists())
+        assertArrayEquals(existingContent, destFile.readBytes())
+
+        // Temp remains intact
+        assertTrue(tempFile.exists())
+        assertArrayEquals(tempContent, tempFile.readBytes())
+
+        // Final state FAILED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.FAILED, finalDownload!!.state)
+        assertTrue(finalDownload.error!!.contains("already exists"))
+    }
+
+    @Test
+    fun blankOrNullDestinationRecordsFailedWithoutNetwork() = runBlocking {
+        val downloadId = "blank-dest-test"
+        val clock = FakeClock(1000L)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/blank.bin").toString(),
+                    fileName = "blank.bin",
+                    destinationPath = null, // null destination
+                    totalBytes = 100L,
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val tempFile = File(tempDir, "blank.tmp")
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/blank.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        // No network request made
+        assertEquals(0, server.requestCount)
+
+        // Final state FAILED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.FAILED, finalDownload!!.state)
+        assertTrue(finalDownload.error!!.contains("Destination path"))
+    }
+
+    @Test
+    fun moveFinalizationErrorRecordsFailedAndDoesNotExposePartialDestination() = runBlocking {
+        val payload = ByteArray(1024) { 0x77 }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody(Buffer().write(payload))
+        )
+
+        val downloadId = "move-error-test"
+        val clock = FakeClock(1000L)
+
+        // Create a parent path that is a regular file so destination mkdirs/move deterministically fails
+        val blockingFile = File(tempDir, "blocking_file")
+        blockingFile.writeText("I am a file, not a directory")
+        val impossibleDestFile = File(blockingFile, "dest_fail.bin")
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/move_err.bin").toString(),
+                    fileName = "move_err.bin",
+                    destinationPath = impossibleDestFile.absolutePath,
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val tempFile = File(tempDir, "move_err.tmp")
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/move_err.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        // Partial destination must not be exposed
+        assertFalse(impossibleDestFile.exists())
+
+        // Final state FAILED
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.FAILED, finalDownload!!.state)
+        assertTrue(finalDownload.error!!.isNotBlank())
+        assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.FAILED), repo.transitions.map { it.second })
     }
 }
