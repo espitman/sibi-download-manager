@@ -81,7 +81,8 @@ Depends on stage 3.
 
 - [x] SDM-023 — Implement Pause by closing the connection, recording the offset, and preserving the temporary file.
   - Verification: User Pause cancels the HTTP call, waits for I/O to stop, and atomically persists the exact bounded `.part` length as `PAUSED` without failing or deleting the file; 170 JVM tests, assemble, lint, `git diff --check`, and 5/5 `SqliteDownloadRepository` instrumentation tests on Xiaomi Android 14 passed.
-- [ ] SDM-024 — Implement Resume using Range and validate Content-Range, ETag, or Last-Modified; prevent combining parts from different file versions.
+- [x] SDM-024 — Implement Resume using Range and validate Content-Range, ETag, or Last-Modified; prevent combining parts from different file versions.
+  - Verification: Resume sends validated Range/If-Range, rejects missing or mismatched ETag/Last-Modified versions, appends only matching Content-Range bytes without silently accepting extras or mutating the original part on pre-append failure, and wires paused card/details Resume plus active Pause to the real transfer service; 47 focused tests, 196 JVM tests, assembleDebug, lintDebug, and git diff --check passed.
 - [ ] SDM-025 — Handle unsupported resume, HTTP 200 responses to Range requests, and HTTP 416 errors; restart clearly without corrupting files.
 - [ ] SDM-026 — Implement Cancel, stop active work, and handle temporary files according to the approved deletion interaction.
 - [ ] SDM-027 — Connect Queue in Add to a real scheduler respecting priority and concurrent download limits.

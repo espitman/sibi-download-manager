@@ -100,6 +100,15 @@ class DownloadPausePersistenceTest {
             }
             return paused
         }
+
+        override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? {
+            val current = get(id) ?: return null
+            if (current.state != DownloadState.PAUSED) return null
+            val queued = DownloadStateMachine.transition(current, DownloadState.QUEUED, nowEpochMillis)
+            transitions.add(Triple(id, DownloadState.QUEUED, null))
+            insert(queued)
+            return queued
+        }
     }
 
     @Before

@@ -21,7 +21,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.UUID
 
 sealed interface SubmissionResult {
@@ -240,10 +239,7 @@ class DownloadSubmissionCoordinator(
                 continue
             }
 
-            val hash = MessageDigest.getInstance("SHA-256")
-                .digest(candidateFinalName.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-            val partFile = File(baseDir, ".sdm-$hash.part")
+            val partFile = DownloadPartFile.forResolvedFilename(baseDir, candidateFinalName)
             try {
                 if (partFile.createNewFile()) {
                     return Pair(candidateFinalName, partFile)

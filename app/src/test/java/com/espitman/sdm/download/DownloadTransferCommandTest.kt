@@ -71,4 +71,32 @@ class DownloadTransferCommandTest {
             ),
         )
     }
+
+    @Test
+    fun parsesResumeTransferCommandsKeyedByDownloadId() {
+        val parsed = DownloadTransferCommand.parse(
+            action = DownloadTransferCommand.ACTION_RESUME_TRANSFER,
+            downloadId = "  download-1  ",
+            tempFilePath = null,
+        )
+        assertEquals(ResumeTransferCommand("download-1"), parsed)
+        assertEquals(
+            ResumeTransferCommand("download-1"),
+            DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_RESUME_TRANSFER,
+                downloadId = "download-1",
+                tempFilePath = "/ignored/path.part",
+            ),
+        )
+    }
+
+    @Test
+    fun rejectsResumeCommandsWithoutADownloadId() {
+        val action = DownloadTransferCommand.ACTION_RESUME_TRANSFER
+        listOf(null, "", "   ").forEach { downloadId ->
+            assertNull(
+                DownloadTransferCommand.parse(action, downloadId, tempFilePath = null),
+            )
+        }
+    }
 }

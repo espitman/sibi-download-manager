@@ -361,6 +361,14 @@ class DownloadInterruptionRecoveryTest {
             return paused
         }
 
+        override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? {
+            val current = get(id) ?: return null
+            if (current.state != DownloadState.PAUSED) return null
+            val queued = DownloadStateMachine.transition(current, DownloadState.QUEUED, nowEpochMillis)
+            insert(queued)
+            return queued
+        }
+
         fun require(id: String): Download = _downloads.value.first { it.id == id }
     }
 }

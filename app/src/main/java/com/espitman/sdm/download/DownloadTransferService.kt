@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
 
 class DownloadTransferService : Service() {
     private val serviceJob = SupervisorJob()
@@ -52,7 +53,11 @@ class DownloadTransferService : Service() {
             is SessionCommandResult.StartJob -> {
                 val transferJob = serviceScope.launch {
                     try {
-                        executeTransfer(result.command)
+                        when (val command = result.command) {
+                            is StartTransferCommand -> executeTransfer(command)
+                            is ResumeTransferCommand -> executeResume(command)
+                            else -> Unit
+                        }
                     } catch (cancellation: CancellationException) {
                         throw cancellation
                     } catch (_: Throwable) {
@@ -164,6 +169,34 @@ class DownloadTransferService : Service() {
         )
     }
 
+    private suspend fun executeResume(command: ResumeTransferCommand) {
+        val repository = AppRepositories.downloads(applicationContext)
+        val download = repository.get(command.downloadId) ?: return
+        when (val part = DownloadResumePart.resolve(download.destinationPath)) {
+            is DownloadResumePart.Result.Failed -> {
+                DownloadResumeFailure.persist(
+                    repository = repository,
+                    downloadId = download.id,
+                    error = part.error,
+                    nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
+                )
+            }
+            is DownloadResumePart.Result.Ready -> {
+                val resumed = repository.resumePaused(
+                    id = download.id,
+                    nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
+                ) ?: return
+                AppRepositories.transferEngine().executeTransfer(
+                    downloadId = resumed.id,
+                    url = resumed.url,
+                    tempFile = part.file,
+                    repository = repository,
+                    pauseRequested = { session.isPauseRequested(command.downloadId) },
+                )
+            }
+        }
+    }
+
     companion object {
         private const val WAKE_LOCK_TAG = "sdm:keep-active"
 
@@ -193,6 +226,20 @@ class DownloadTransferService : Service() {
             ) as? PauseTransferCommand ?: return
             val intent = Intent(appContext, DownloadTransferService::class.java).apply {
                 action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER
+                putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
+            }
+            ContextCompat.startForegroundService(appContext, intent)
+        }
+
+        fun resumeTransfer(context: Context, downloadId: String) {
+            val appContext = context.applicationContext
+            val command = DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_RESUME_TRANSFER,
+                downloadId = downloadId,
+                tempFilePath = null,
+            ) as? ResumeTransferCommand ?: return
+            val intent = Intent(appContext, DownloadTransferService::class.java).apply {
+                action = DownloadTransferCommand.ACTION_RESUME_TRANSFER
                 putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
             }
             ContextCompat.startForegroundService(appContext, intent)

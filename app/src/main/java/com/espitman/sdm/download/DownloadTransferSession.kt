@@ -3,7 +3,7 @@ package com.espitman.sdm.download
 import kotlinx.coroutines.Job
 
 sealed interface SessionCommandResult {
-    data class StartJob(val command: StartTransferCommand) : SessionCommandResult
+    data class StartJob(val command: TransferCommand) : SessionCommandResult
     data class CancelJob(val downloadId: String, val job: Job) : SessionCommandResult
     data object None : SessionCommandResult
 }
@@ -16,7 +16,7 @@ class DownloadTransferSession {
     fun handleCommand(startId: Int, command: TransferCommand?): SessionCommandResult = synchronized(lock) {
         latestStartId = startId
         when (command) {
-            is StartTransferCommand -> {
+            is StartTransferCommand, is ResumeTransferCommand -> {
                 if (active.containsKey(command.downloadId)) return@synchronized SessionCommandResult.None
                 active[command.downloadId] = ActiveTransfer(command)
                 SessionCommandResult.StartJob(command)
@@ -46,7 +46,7 @@ class DownloadTransferSession {
     }
 
     fun tempFilePath(downloadId: String): String? = synchronized(lock) {
-        active[downloadId]?.command?.tempFilePath
+        (active[downloadId]?.command as? StartTransferCommand)?.tempFilePath
     }
 
     fun startIdIfIdle(): Int? = synchronized(lock) {
@@ -59,7 +59,7 @@ class DownloadTransferSession {
     }
 
     private class ActiveTransfer(
-        val command: StartTransferCommand,
+        val command: TransferCommand,
         var job: Job? = null,
         var pauseRequested: Boolean = false,
     )

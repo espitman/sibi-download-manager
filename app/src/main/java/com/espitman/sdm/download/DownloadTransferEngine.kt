@@ -19,6 +19,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlin.math.max
+import kotlin.math.min
 
 interface Clock {
     fun currentTimeMillis(): Long
@@ -74,10 +75,30 @@ class DownloadTransferEngine(
             return@withContext
         }
 
-        val request = Request.Builder()
+        val resumeOffset = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
+        val isResume = resumeOffset > 0L
+        val storedValidators = HttpRangeResume.ResumeValidators(
+            etag = existingDownload.etag,
+            lastModified = existingDownload.lastModified,
+        )
+        if (isResume && HttpRangeResume.ifRangeHeaderValue(storedValidators) == null) {
+            reportFailure(
+                repository,
+                downloadId,
+                "Resume requires a stored strong ETag or Last-Modified",
+            )
+            return@withContext
+        }
+
+        val requestBuilder = Request.Builder()
             .url(url)
             .get()
-            .build()
+        if (isResume) {
+            HttpRangeResume.requestHeaders(resumeOffset, storedValidators).forEach { (name, value) ->
+                requestBuilder.header(name, value)
+            }
+        }
+        val request = requestBuilder.build()
 
         val call = okHttpClient.newCall(request)
         val cancellationHandle = coroutineContext.job.invokeOnCompletion { cause ->
@@ -85,7 +106,61 @@ class DownloadTransferEngine(
         }
         try {
             call.execute().use { response ->
-                if (!response.isSuccessful) {
+                var expectedTotal = existingDownload.totalBytes
+                var resumeContentRange: HttpRangeResume.ContentRange? = null
+                if (isResume) {
+                    if (response.code != HttpRangeResume.HTTP_PARTIAL_CONTENT) {
+                        reportFailure(
+                            repository,
+                            downloadId,
+                            "HTTP ${response.code}: expected 206 Partial Content",
+                        )
+                        return@withContext
+                    }
+                    val contentRange = try {
+                        HttpRangeResume.validateContentRange(
+                            header = response.header(HttpRangeResume.HEADER_CONTENT_RANGE),
+                            expectedOffset = resumeOffset,
+                            knownTotal = existingDownload.totalBytes,
+                        )
+                    } catch (e: IllegalArgumentException) {
+                        reportFailure(
+                            repository,
+                            downloadId,
+                            e.message?.takeIf { it.isNotBlank() } ?: "Invalid Content-Range",
+                        )
+                        return@withContext
+                    }
+                    when (
+                        val validators = HttpRangeResume.validateStoredValidators(
+                            stored = storedValidators,
+                            responseEtag = response.header(HttpRangeResume.HEADER_ETAG),
+                            responseLastModified = response.header(HttpRangeResume.HEADER_LAST_MODIFIED),
+                        )
+                    ) {
+                        is HttpRangeResume.ResumeValidation.Failed -> {
+                            reportFailure(repository, downloadId, validators.reason)
+                            return@withContext
+                        }
+                        HttpRangeResume.ResumeValidation.Ok -> Unit
+                    }
+                    val bodyForLength = response.body
+                    try {
+                        HttpRangeResume.validateDeclaredBodyLength(
+                            inclusiveLength = contentRange.inclusiveLength,
+                            contentLength = bodyForLength?.contentLength() ?: -1L,
+                        )
+                    } catch (e: IllegalArgumentException) {
+                        reportFailure(
+                            repository,
+                            downloadId,
+                            e.message?.takeIf { it.isNotBlank() } ?: "Response body length does not match Content-Range",
+                        )
+                        return@withContext
+                    }
+                    expectedTotal = contentRange.total ?: existingDownload.totalBytes
+                    resumeContentRange = contentRange
+                } else if (!response.isSuccessful) {
                     val statusCode = response.code
                     val statusMessage = response.message.ifBlank { "HTTP $statusCode error" }
                     if (tempFile.exists() && tempFile.length() == 0L) {
@@ -113,10 +188,11 @@ class DownloadTransferEngine(
                     throw IOException("Could not create temporary download directory: ${tempParent.path}")
                 }
 
-                var totalBytesRead = 0L
-                var lastReportedBytes = 0L
+                var totalBytesRead = resumeOffset
+                var lastReportedBytes = resumeOffset
+                var extraResumeBytes = false
 
-                FileOutputStream(tempFile, false).use { fileOutputStream ->
+                FileOutputStream(tempFile, isResume).use { fileOutputStream ->
                     body.byteStream().use { inputStream ->
                         val buffer = ByteArray(bufferSizeBytes)
 
@@ -125,19 +201,33 @@ class DownloadTransferEngine(
                             val bytesRead = inputStream.read(buffer)
                             if (bytesRead == -1) break
 
-                            onChunkRead(bytesRead)
+                            val allowedBytes = resumeContentRange?.let { range ->
+                                val remaining = resumeOffset + range.inclusiveLength - totalBytesRead
+                                if (remaining <= 0L) {
+                                    extraResumeBytes = true
+                                    0
+                                } else {
+                                    val writable = min(bytesRead.toLong(), remaining).toInt()
+                                    if (writable < bytesRead) extraResumeBytes = true
+                                    writable
+                                }
+                            } ?: bytesRead
+                            if (allowedBytes <= 0) break
 
-                            fileOutputStream.write(buffer, 0, bytesRead)
-                            totalBytesRead += bytesRead
+                            onChunkRead(allowedBytes)
+
+                            fileOutputStream.write(buffer, 0, allowedBytes)
+                            totalBytesRead += allowedBytes
 
                             if (
                                 totalBytesRead - lastReportedBytes >= progressUpdateIntervalBytes &&
-                                (existingDownload.totalBytes == null || totalBytesRead <= existingDownload.totalBytes)
+                                (expectedTotal == null || totalBytesRead <= expectedTotal)
                             ) {
                                 fileOutputStream.flush()
                                 updateProgress(repository, downloadId, totalBytesRead)
                                 lastReportedBytes = totalBytesRead
                             }
+                            if (extraResumeBytes) break
                         }
 
                         fileOutputStream.flush()
@@ -146,15 +236,43 @@ class DownloadTransferEngine(
 
                 currentCoroutineContext().ensureActive()
 
-                val knownTotal = existingDownload.totalBytes
-                if (knownTotal != null && totalBytesRead != knownTotal) {
-                    if (totalBytesRead != lastReportedBytes && totalBytesRead <= knownTotal) {
-                        updateProgress(repository, downloadId, totalBytesRead)
+                val range = resumeContentRange
+                if (range != null) {
+                    val receivedBytes = totalBytesRead - resumeOffset
+                    if (extraResumeBytes || receivedBytes != range.inclusiveLength) {
+                        try {
+                            HttpRangeResume.validateReceivedBodyLength(
+                                inclusiveLength = range.inclusiveLength,
+                                receivedBytes = receivedBytes,
+                            )
+                        } catch (e: IllegalArgumentException) {
+                            reportFailure(
+                                repository,
+                                downloadId,
+                                e.message?.takeIf { it.isNotBlank() }
+                                    ?: "Response body length does not match Content-Range",
+                            )
+                            return@withContext
+                        }
+                        reportFailure(
+                            repository,
+                            downloadId,
+                            "Response body length exceeds Content-Range length ${range.inclusiveLength}",
+                        )
+                        return@withContext
+                    }
+                }
+
+                val completedBytes = if (tempFile.exists()) tempFile.length() else totalBytesRead
+                val knownTotal = expectedTotal
+                if (knownTotal != null && completedBytes != knownTotal) {
+                    if (completedBytes != lastReportedBytes && completedBytes <= knownTotal) {
+                        updateProgress(repository, downloadId, completedBytes)
                     }
                     reportFailure(
                         repository,
                         downloadId,
-                        "Downloaded byte count mismatch: expected $knownTotal, received $totalBytesRead",
+                        "Downloaded byte count mismatch: expected $knownTotal, received $completedBytes",
                     )
                     return@withContext
                 }

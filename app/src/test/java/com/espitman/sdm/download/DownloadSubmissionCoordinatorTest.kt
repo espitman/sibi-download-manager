@@ -89,6 +89,14 @@ class DownloadSubmissionCoordinatorTest {
             if (paused != current) insert(paused)
             return paused
         }
+
+        override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? {
+            val current = get(id) ?: return null
+            if (current.state != DownloadState.PAUSED) return null
+            val queued = DownloadStateMachine.transition(current, DownloadState.QUEUED, nowEpochMillis)
+            insert(queued)
+            return queued
+        }
     }
 
     class FakeClock(private var time: Long = 1000L) : Clock {

@@ -107,6 +107,15 @@ class DownloadTransferEngineTest {
             }
             return paused
         }
+
+        override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? {
+            val current = get(id) ?: return null
+            if (current.state != DownloadState.PAUSED) return null
+            val queued = DownloadStateMachine.transition(current, DownloadState.QUEUED, nowEpochMillis)
+            transitions.add(Triple(id, DownloadState.QUEUED, null))
+            insert(queued)
+            return queued
+        }
     }
 
     @Before
@@ -774,5 +783,363 @@ class DownloadTransferEngineTest {
         assertEquals(DownloadState.FAILED, finalDownload!!.state)
         assertTrue(finalDownload.error!!.isNotBlank())
         assertEquals(listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.FAILED), repo.transitions.map { it.second })
+    }
+
+    @Test
+    fun resumeWithValidatedPartialContentAppendsIntoExistingPartAndCompletes() = runBlocking {
+        val prefix = byteArrayOf(1, 2, 3, 4)
+        val suffix = byteArrayOf(5, 6, 7, 8)
+        val etag = "\"file-v1\""
+        val lastModified = "Wed, 21 Oct 2015 07:28:00 GMT"
+
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader(HttpRangeResume.HEADER_CONTENT_RANGE, "bytes 4-7/8")
+                .setHeader(HttpRangeResume.HEADER_ETAG, etag)
+                .setHeader(HttpRangeResume.HEADER_LAST_MODIFIED, lastModified)
+                .setBody(Buffer().write(suffix))
+        )
+
+        val downloadId = "resume-success"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "resume.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/resume.bin").toString(),
+                    fileName = destFile.name,
+                    etag = etag,
+                    lastModified = lastModified,
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/resume.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        val recorded = server.takeRequest()
+        assertEquals("bytes=4-", recorded.getHeader(HttpRangeResume.HEADER_RANGE))
+        assertEquals(etag, recorded.getHeader(HttpRangeResume.HEADER_IF_RANGE))
+
+        assertFalse(tempFile.exists())
+        assertTrue(destFile.exists())
+        assertArrayEquals(prefix + suffix, destFile.readBytes())
+
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.COMPLETED, finalDownload!!.state)
+        assertEquals(8L, finalDownload.downloadedBytes)
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.COMPLETED),
+            repo.transitions.map { it.second },
+        )
+    }
+
+    @Test
+    fun resumeContentRangeMismatchPreservesExistingPartAndFails() = runBlocking {
+        val prefix = byteArrayOf(9, 8, 7, 6)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader(HttpRangeResume.HEADER_CONTENT_RANGE, "bytes 0-3/8")
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v1\"")
+                .setBody(Buffer().write(byteArrayOf(1, 2, 3, 4)))
+        )
+
+        val downloadId = "resume-range-mismatch"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "mismatch.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/mismatch.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/mismatch.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        assertTrue(tempFile.exists())
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(destFile.exists())
+
+        val finalDownload = repo.get(downloadId)
+        assertNotNull(finalDownload)
+        assertEquals(DownloadState.FAILED, finalDownload!!.state)
+        assertTrue(finalDownload.error!!.contains("Content-Range"))
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+        assertEquals("bytes=4-", server.takeRequest().getHeader(HttpRangeResume.HEADER_RANGE))
+    }
+
+    @Test
+    fun resumeValidatorMismatchPreservesExistingPartAndFails() = runBlocking {
+        val prefix = byteArrayOf(1, 1, 1, 1)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader(HttpRangeResume.HEADER_CONTENT_RANGE, "bytes 4-7/8")
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"other-version\"")
+                .setBody(Buffer().write(byteArrayOf(2, 2, 2, 2)))
+        )
+
+        val downloadId = "resume-etag-mismatch"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "etag.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/etag.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/etag.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        assertTrue(tempFile.exists())
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(destFile.exists())
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.FAILED, finalDownload.state)
+        assertTrue(finalDownload.error!!.contains("ETag"))
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+    }
+
+    @Test
+    fun resumeNonPartialStatusPreservesExistingPartAndDoesNotTruncate() = runBlocking {
+        val prefix = byteArrayOf(3, 3, 3, 3)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v1\"")
+                .setBody(Buffer().write(ByteArray(8) { 9 }))
+        )
+
+        val downloadId = "resume-status-200"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "status.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/status.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/status.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        assertTrue(tempFile.exists())
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(destFile.exists())
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.FAILED, finalDownload.state)
+        assertTrue(finalDownload.error!!.contains("206"))
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+        val recorded = server.takeRequest()
+        assertEquals("bytes=4-", recorded.getHeader(HttpRangeResume.HEADER_RANGE))
+        assertEquals("\"file-v1\"", recorded.getHeader(HttpRangeResume.HEADER_IF_RANGE))
+    }
+
+    @Test
+    fun resumeWithoutStoredValidatorsPreservesExistingPartAndFails() = runBlocking {
+        val prefix = byteArrayOf(1, 2, 3, 4)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader(HttpRangeResume.HEADER_CONTENT_RANGE, "bytes 4-7/8")
+                .setBody(Buffer().write(byteArrayOf(5, 6, 7, 8)))
+        )
+
+        val downloadId = "resume-no-validators"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "no-validators.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/no-validators.bin").toString(),
+                    fileName = destFile.name,
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/no-validators.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        assertEquals(0, server.requestCount)
+        assertTrue(tempFile.exists())
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(destFile.exists())
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.FAILED, finalDownload.state)
+        assertTrue(finalDownload.error!!.contains("ETag") || finalDownload.error!!.contains("Last-Modified"))
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+    }
+
+    @Test
+    fun resumeBodyLengthMismatchPreservesExistingPartAndFails() = runBlocking {
+        val prefix = byteArrayOf(9, 8, 7, 6)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader(HttpRangeResume.HEADER_CONTENT_RANGE, "bytes 4-7/8")
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v1\"")
+                .setBody(Buffer().write(ByteArray(8) { 1 }))
+        )
+
+        val downloadId = "resume-body-mismatch"
+        val clock = FakeClock(1000L)
+        val destFile = File(tempDir, "body-mismatch.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/body-mismatch.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1000L,
+                )
+            )
+        )
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/body-mismatch.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+
+        assertTrue(tempFile.exists())
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(destFile.exists())
+        val finalDownload = repo.get(downloadId)!!
+        assertEquals(DownloadState.FAILED, finalDownload.state)
+        assertTrue(
+            finalDownload.error!!.contains("Content-Length") ||
+                finalDownload.error!!.contains("Content-Range") ||
+                finalDownload.error!!.contains("body length"),
+        )
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
     }
 }

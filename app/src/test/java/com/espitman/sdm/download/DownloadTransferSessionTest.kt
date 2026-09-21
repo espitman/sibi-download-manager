@@ -132,4 +132,24 @@ class DownloadTransferSessionTest {
         assertEquals(SessionCommandResult.None, session.handleCommand(4, PauseTransferCommand(active.downloadId)))
         assertEquals(4, session.startIdIfIdle())
     }
+
+    @Test
+    fun duplicateResumeDoesNotStartASecondJobOrRequestStop() {
+        val session = DownloadTransferSession()
+        val resume = ResumeTransferCommand("dl-1")
+        val start = StartTransferCommand("dl-1", "/tmp/a.part")
+
+        assertEquals(SessionCommandResult.StartJob(resume), session.handleCommand(1, resume))
+        assertEquals(SessionCommandResult.None, session.handleCommand(2, resume))
+        assertEquals(SessionCommandResult.None, session.handleCommand(3, start))
+        assertNull(session.startIdIfIdle())
+
+        val pause = session.handleCommand(4, PauseTransferCommand("dl-1"))
+        assertEquals(SessionCommandResult.None, pause)
+        assertTrue(session.isPauseRequested("dl-1"))
+
+        assertEquals(4, session.onTransferFinished("dl-1"))
+        assertEquals(SessionCommandResult.StartJob(resume), session.handleCommand(5, resume))
+        assertEquals(5, session.onTransferFinished("dl-1"))
+    }
 }

@@ -98,6 +98,18 @@ internal fun resolveSelectedDownload(records: List<Download>, id: String?): Down
     return records.firstOrNull { it.id == id }
 }
 
+internal enum class TransferCardAction {
+    Pause,
+    Resume,
+    None,
+}
+
+internal fun transferCardAction(state: DownloadState): TransferCardAction = when (state) {
+    DownloadState.PAUSED -> TransferCardAction.Resume
+    DownloadState.CONNECTING, DownloadState.DOWNLOADING -> TransferCardAction.Pause
+    else -> TransferCardAction.None
+}
+
 @Composable
 internal fun InteractiveDownloadsScreen(
     uiState: DownloadsUiState,
@@ -150,10 +162,12 @@ internal fun InteractiveDownloadsScreen(
                 onBack = { onSelectedDownloadIdChange(null) },
                 onToast = onToast,
                 onPause = {
-                    if (selectedRecord.state == DownloadState.CONNECTING ||
-                        selectedRecord.state == DownloadState.DOWNLOADING
-                    ) {
-                        DownloadTransferService.pauseTransfer(context, selectedRecord.id)
+                    when (transferCardAction(selectedRecord.state)) {
+                        TransferCardAction.Pause ->
+                            DownloadTransferService.pauseTransfer(context, selectedRecord.id)
+                        TransferCardAction.Resume ->
+                            DownloadTransferService.resumeTransfer(context, selectedRecord.id)
+                        TransferCardAction.None -> Unit
                     }
                 },
             )
@@ -181,10 +195,16 @@ internal fun InteractiveDownloadsScreen(
                         item = item,
                         onOpen = { onSelectedDownloadIdChange(item.id) },
                         onAction = {
-                            if (item.showPlayAction) {
-                                onToast("Download engine is not connected yet")
-                            } else {
-                                DownloadTransferService.pauseTransfer(context, item.id)
+                            val record = records.firstOrNull { it.id == item.id }
+                            when (record?.let { transferCardAction(it.state) }) {
+                                TransferCardAction.Pause ->
+                                    DownloadTransferService.pauseTransfer(context, item.id)
+                                TransferCardAction.Resume ->
+                                    DownloadTransferService.resumeTransfer(context, item.id)
+                                TransferCardAction.None, null ->
+                                    if (item.showPlayAction) {
+                                        onToast("Download engine is not connected yet")
+                                    }
                             }
                         },
                     )

@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadResumeMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.CompletableDeferred
@@ -118,6 +119,28 @@ class SqliteDownloadRepository(
                 updated = paused
             }
             if (updated != null && updated!!.state == DownloadState.PAUSED) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun resumePaused(
+        id: String,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val queued = DownloadResumeMutation.apply(current, nowEpochMillis) ?: return@inTransaction
+                check(db.update("downloads", queued.toValues(), "id = ?", arrayOf(id)) == 1) {
+                    "Concurrent update failed for download $id"
+                }
+                updated = queued
+            }
+            if (updated != null && updated!!.state == DownloadState.QUEUED) {
                 refreshLocked(database.readableDatabase)
             }
             updated
