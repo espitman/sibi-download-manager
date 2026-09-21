@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -13,12 +14,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 class DownloadTransferService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.Default)
     private val session = DownloadTransferSession()
     private val notifications by lazy { TransferNotificationCoordinator(this) }
+    private val progressCollectorStarted = AtomicBoolean(false)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -28,6 +31,7 @@ class DownloadTransferService : Service() {
             session.startIdIfIdle()?.let { stopSelf(it) }
             return START_NOT_STICKY
         }
+        startProgressCollectorOnce()
 
         val command = DownloadTransferCommand.parse(
             action = intent?.action,
@@ -54,8 +58,22 @@ class DownloadTransferService : Service() {
     }
 
     override fun onDestroy() {
+        notifications.cancelAllChildren()
         serviceJob.cancel()
         super.onDestroy()
+    }
+
+    private fun startProgressCollectorOnce() {
+        if (!progressCollectorStarted.compareAndSet(false, true)) return
+        serviceScope.launch {
+            AppRepositories.downloads(applicationContext).downloads.collect { downloads ->
+                notifications.updateActiveTransfers(
+                    downloads.filter {
+                        it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING
+                    },
+                )
+            }
+        }
     }
 
     private suspend fun executeTransfer(command: StartTransferCommand) {

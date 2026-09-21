@@ -92,12 +92,17 @@ internal class DownloadsUiState {
 @Composable
 internal fun rememberDownloadsUiState(): DownloadsUiState = remember { DownloadsUiState() }
 
+internal fun resolveSelectedDownload(records: List<Download>, id: String?): Download? {
+    if (id == null) return null
+    return records.firstOrNull { it.id == id }
+}
+
 @Composable
 internal fun InteractiveDownloadsScreen(
     uiState: DownloadsUiState,
-    showDetails: Boolean,
+    selectedDownloadId: String?,
     showHeader: Boolean = true,
-    onDetailsChange: (Boolean) -> Unit,
+    onSelectedDownloadIdChange: (String?) -> Unit,
     onToast: (String) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -128,9 +133,24 @@ internal fun InteractiveDownloadsScreen(
     }
     val settingsRepository = SettingsRepository.get(LocalContext.current)
     val settings by settingsRepository.settings.collectAsState()
-    // Details and transfer commands are connected in later implementation stages.
-    LaunchedEffect(showDetails) { if (showDetails) onDetailsChange(false) }
+    LaunchedEffect(selectedDownloadId) {
+        val id = selectedDownloadId ?: return@LaunchedEffect
+        repository.awaitInitialized()
+        if (repository.get(id) == null) onSelectedDownloadIdChange(null)
+    }
     BackHandler(uiState.searchOpen) { uiState.searchOpen = false }
+
+    val selectedRecord = resolveSelectedDownload(records, selectedDownloadId)
+    if (selectedDownloadId != null) {
+        if (selectedRecord != null) {
+            DownloadDetailsScreen(
+                item = mapDownloadToCard(selectedRecord, nowEpochMillis),
+                onBack = { onSelectedDownloadIdChange(null) },
+                onToast = onToast,
+            )
+        }
+        return
+    }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) DownloadsTopBar(uiState)
@@ -150,7 +170,7 @@ internal fun InteractiveDownloadsScreen(
                 items(visibleDownloads, key = { it.id }) { item ->
                     DownloadCard(
                         item = item,
-                        onOpen = null,
+                        onOpen = { onSelectedDownloadIdChange(item.id) },
                         onAction = { onToast("Download engine is not connected yet") },
                     )
                     Spacer(Modifier.height(10.dp))
@@ -277,30 +297,15 @@ private fun HomeMenuItem(icon: ImageVector, title: String, subtitle: String, onC
 
 @Composable
 private fun DownloadStatusCard(records: List<Download>, nowEpochMillis: Long) {
-    val activeRecords = records.filter { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
-    val active = activeRecords.size
-    val unfinished = activeRecords
-    val remaining = if (unfinished.any { it.totalBytes == null }) "—" else formatBytes(unfinished.sumOf { (it.totalBytes ?: 0) - it.downloadedBytes })
-    val totalBytesPerSecond = activeRecords.fold(0L) { acc, record ->
-        val speed = calculateDownloadProgressMetrics(record, nowEpochMillis).bytesPerSecond
-        val sum = acc + speed
-        if (sum < 0L) Long.MAX_VALUE else sum
-    }
-    val speedValue = if (active == 0) {
-        "0"
-    } else {
-        String.format(java.util.Locale.US, "%.1f", totalBytesPerSecond / (1024.0 * 1024.0))
-    }
-    // Daily traffic accounting is supplied by the transfer engine in a later stage.
-    val downloadedToday = if (records.isEmpty()) "0 B" else "—"
+    val values = downloadStatusCardValues(records, nowEpochMillis)
     Surface(color = SdmSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .34f)), modifier = Modifier.fillMaxWidth()) {
         Box {
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))
             Column(Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("$active active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(speedValue, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
+                Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("${values.activeCount} active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(values.speedValue, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
                 Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
-                Row(Modifier.fillMaxWidth()) { DownloadStat(downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(remaining, "Remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(if (active == 0) "0" else "—", "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
+                Row(Modifier.fillMaxWidth()) { DownloadStat(values.downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(values.remaining, "Remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(values.connections, "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
             }
         }
     }

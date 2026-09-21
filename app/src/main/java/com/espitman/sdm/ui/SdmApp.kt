@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -97,12 +98,16 @@ private enum class Destination(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun SdmApp() {
+fun SdmApp(
+    openDownloads: Boolean = false,
+    openDownloadId: String? = null,
+    onConsumed: () -> Unit = {},
+) {
     val downloadsStateHolder = rememberSaveableStateHolder()
     val downloadsUiState = rememberDownloadsUiState()
     var destination by remember { mutableStateOf(Destination.Downloads) }
     var showAddDownload by remember { mutableStateOf(false) }
-    var downloadDetails by remember { mutableStateOf(false) }
+    var selectedDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
     var toastMessage by remember { mutableStateOf("") }
     var toastVisible by remember { mutableStateOf(false) }
     var toastSequence by remember { mutableIntStateOf(0) }
@@ -113,6 +118,16 @@ fun SdmApp() {
             toastVisible = false
         }
     }
+    LaunchedEffect(openDownloads, openDownloadId) {
+        if (!openDownloads && openDownloadId == null) return@LaunchedEffect
+        destination = Destination.Downloads
+        showAddDownload = false
+        downloadsUiState.searchOpen = false
+        downloadsUiState.menuOpen = false
+        downloadsUiState.overlay = null
+        selectedDownloadId = openDownloadId
+        onConsumed()
+    }
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = SdmBackground,
@@ -120,7 +135,7 @@ fun SdmApp() {
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                if (!downloadDetails) {
+                if (selectedDownloadId == null) {
                     Crossfade(
                         targetState = destination,
                         modifier = Modifier.fillMaxWidth(),
@@ -154,11 +169,11 @@ fun SdmApp() {
                         when (targetDestination) {
                             Destination.Downloads, Destination.Add -> downloadsStateHolder.SaveableStateProvider("downloads") { InteractiveDownloadsScreen(
                                 uiState = downloadsUiState,
-                                showDetails = downloadDetails,
+                                selectedDownloadId = selectedDownloadId,
                                 showHeader = false,
-                                onDetailsChange = { downloadDetails = it },
+                                onSelectedDownloadIdChange = { selectedDownloadId = it },
                                 onToast = { toastMessage = it; toastSequence++ },
-                                onOpenSettings = { downloadDetails = false; destination = Destination.Settings },
+                                onOpenSettings = { selectedDownloadId = null; destination = Destination.Settings },
                             ) }
                             Destination.Browser -> BrowserScreen(showHeader = false)
                             Destination.Files -> FilesScreen(showHeader = false)
@@ -167,13 +182,13 @@ fun SdmApp() {
                     }
                 }
             }
-            if (!downloadDetails) {
+            if (selectedDownloadId == null) {
                 BottomNavigation(
                     selected = destination,
                     onSelect = {
                         if (it == Destination.Add) showAddDownload = true
                         else {
-                            downloadDetails = false
+                            selectedDownloadId = null
                             downloadsUiState.searchOpen = false
                             downloadsUiState.menuOpen = false
                             destination = it
