@@ -45,7 +45,7 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).clickable(remember { MutableInteractionSource() }, indication = null) {},
-                color = Color(0xFF151618), contentColor = SdmText,
+                color = sdmColor(0xFF151618, 0xFFFAF8F2), contentColor = SdmText,
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 22.dp, bottomEnd = 22.dp),
                 border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)),
             ) {
@@ -53,7 +53,7 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 9.dp, bottom = 2.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), RoundedCornerShape(99.dp)))
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 16.dp, top = 7.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("New download", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        IconButton(onClick = onDismiss, modifier = Modifier.size(44.dp).background(Color(0xFF222326), RoundedCornerShape(12.dp))) {
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(44.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp))) {
                             Icon(SdmIcons.Close, "Close add download", tint = SdmMuted, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -75,7 +75,7 @@ internal fun AddDownloadSheet(onDismiss: () -> Unit) {
                         }
                         if (url.isNotBlank()) {
                             Row(Modifier.fillMaxWidth().padding(top = 15.dp, bottom = 9.dp, start = 2.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(38.dp).background(Color(0xFF242218), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(38.dp).background(sdmColor(0xFF242218, 0xFFF3EDDD), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
                                     Text(fileType, color = SdmGoldHigh, fontSize = 9.sp, fontWeight = FontWeight.Black)
                                 }
                                 Spacer(Modifier.width(10.dp))

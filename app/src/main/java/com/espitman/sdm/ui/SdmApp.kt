@@ -69,6 +69,17 @@ import com.espitman.sdm.ui.theme.SdmSuccess
 import com.espitman.sdm.ui.theme.SdmSurface
 import com.espitman.sdm.ui.theme.SdmSurfaceAlt
 import com.espitman.sdm.ui.theme.SdmText
+import com.espitman.sdm.ui.theme.sdmColor
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.heightIn
+import kotlinx.coroutines.delay
 
 private enum class Destination(val label: String, val icon: ImageVector) {
     Downloads("Downloads", SdmIcons.Download),
@@ -99,6 +110,16 @@ private val sampleDownloads = listOf(
 fun SdmApp() {
     var destination by remember { mutableStateOf(Destination.Downloads) }
     var showAddDownload by remember { mutableStateOf(false) }
+    var toastMessage by remember { mutableStateOf("") }
+    var toastVisible by remember { mutableStateOf(false) }
+    var toastSequence by remember { mutableIntStateOf(0) }
+    LaunchedEffect(toastSequence) {
+        if (toastSequence > 0) {
+            toastVisible = true
+            delay(2200)
+            toastVisible = false
+        }
+    }
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = SdmBackground,
@@ -109,7 +130,7 @@ fun SdmApp() {
                 Destination.Downloads, Destination.Add -> DownloadsScreen()
                 Destination.Browser -> BrowserScreen()
                 Destination.Files -> FilesScreen()
-                Destination.Settings -> SettingsScreen()
+                Destination.Settings -> SettingsScreen { toastMessage = it; toastSequence++ }
             }
             BottomNavigation(
                 selected = destination,
@@ -118,6 +139,18 @@ fun SdmApp() {
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+            AnimatedVisibility(
+                visible = toastVisible,
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 88.dp),
+                enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { 18 },
+                exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { 18 },
+            ) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 50.dp).background(sdmColor(0xFF20211F, 0xFFFFFFFF), RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFD4AF37).copy(alpha = .35f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(24.dp).background(Color(0xFF373117), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Text("✓", color = SdmGoldHigh, fontWeight = FontWeight.Black) }
+                    Spacer(Modifier.width(10.dp))
+                    Text(toastMessage, fontSize = 12.sp, lineHeight = 16.2.sp)
+                }
+            }
         }
     }
     if (showAddDownload) {
@@ -153,14 +186,14 @@ internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Bo
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .height(64.dp)
+                .height(63.dp)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .background(Color(0xFF171712), RoundedCornerShape(11.dp))
+                    .background(sdmColor(0xFF171712, 0xFFF2EAD2), RoundedCornerShape(11.dp))
                     .border(1.dp, SdmGold.copy(alpha = .5f), RoundedCornerShape(11.dp)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -255,7 +288,7 @@ private fun CompactButton(label: String, icon: ImageVector, highlighted: Boolean
         onClick = {},
         shape = RoundedCornerShape(13.dp),
         border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .6f) else SdmLine),
-        colors = ButtonDefaults.buttonColors(containerColor = if (highlighted) Color(0xFF211F16) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted),
+        colors = ButtonDefaults.buttonColors(containerColor = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted),
         contentPadding = PaddingValues(horizontal = 10.dp),
         modifier = Modifier.height(38.dp),
     ) {
@@ -277,7 +310,7 @@ private fun DownloadFilters() {
     ) {
         listOf("Downloading", "Queued", "Completed").forEach { label ->
             val active = selected == label
-            val color by animateColorAsState(if (active) Color(0xFF25251F) else Color.Transparent, label = "filter")
+            val color by animateColorAsState(if (active) sdmColor(0xFF25251F, 0xFFF5EDD4) else Color.Transparent, label = "filter")
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -307,7 +340,7 @@ private fun DownloadCard(item: DownloadUi) {
                 Box(
                     modifier = Modifier
                         .size(width = 46.dp, height = 52.dp)
-                        .background(if (item.queued) Color(0xFF17181A) else Color(0xFF181813), RoundedCornerShape(12.dp))
+                        .background(if (item.queued) sdmColor(0xFF17181A, 0xFFF0ECE3) else sdmColor(0xFF181813, 0xFFF2EAD2), RoundedCornerShape(12.dp))
                         .border(1.dp, if (item.queued) SdmLine else SdmGold.copy(alpha = .38f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center,
                 ) { Text(item.type, color = if (item.queued) SdmMuted else SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.Black) }
@@ -330,7 +363,7 @@ private fun DownloadCard(item: DownloadUi) {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0xFF34332F), CircleShape)) {
+            Box(Modifier.fillMaxWidth().height(3.dp).background(sdmColor(0xFF34332F, 0xFFDED8CB), CircleShape)) {
                 Box(Modifier.fillMaxWidth(item.progress).height(3.dp).background(SdmGold, CircleShape))
             }
             Spacer(Modifier.height(9.dp))
@@ -350,8 +383,8 @@ private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> U
             .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .height(68.dp)
-            .background(Color(0xEF1B1F24), RoundedCornerShape(30.dp))
-            .border(1.dp, Color.White.copy(alpha = .08f), RoundedCornerShape(30.dp))
+            .background(sdmColor(0xE61B1F24, 0xE6FFFDF7), RoundedCornerShape(30.dp))
+            .border(1.dp, sdmColor(0x14FFFFFF, 0x17181713), RoundedCornerShape(30.dp))
             .padding(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -62,6 +62,7 @@ import com.espitman.sdm.ui.theme.SdmLine
 import com.espitman.sdm.ui.theme.SdmMuted
 import com.espitman.sdm.ui.theme.SdmSurface
 import com.espitman.sdm.ui.theme.SdmText
+import com.espitman.sdm.ui.theme.sdmColor
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -78,15 +79,15 @@ internal fun BrowserScreen() {
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         AppHeader("Browser", privateMode = true)
         Row(
-            Modifier.fillMaxWidth().background(Color(0xFF191A1D)).padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
+            Modifier.fillMaxWidth().background(sdmColor(0xFF191A1D, 0xFFF8F9FA)).padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             IconButton(onClick = {
                 if (webView?.canGoBack() == true) webView?.goBack() else currentUrl = null
-            }, modifier = Modifier.size(width = 38.dp, height = 44.dp)) { Icon(SdmIcons.Back, "Back", tint = Color(0xFFB7B9BD), modifier = Modifier.size(19.dp)) }
+            }, modifier = Modifier.size(width = 38.dp, height = 44.dp)) { Icon(SdmIcons.Back, "Back", tint = sdmColor(0xFFB7B9BD, 0xFF4D5156), modifier = Modifier.size(19.dp)) }
             Row(
-                Modifier.weight(1f).height(46.dp).background(Color(0xFF292B2F), CircleShape).padding(start = 13.dp, end = 4.dp),
+                Modifier.weight(1f).height(46.dp).background(sdmColor(0xFF292B2F, 0xFFE8EAED), CircleShape).padding(start = 13.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(SdmIcons.Lock, null, tint = Color(0xFF8AB4A0), modifier = Modifier.size(17.dp))
@@ -111,17 +112,17 @@ internal fun BrowserScreen() {
                     },
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { webView?.reload() }, modifier = Modifier.size(38.dp)) { Icon(SdmIcons.Refresh, "Reload", tint = Color(0xFFB7B9BD), modifier = Modifier.size(18.dp)) }
+                IconButton(onClick = { webView?.reload() }, modifier = Modifier.size(38.dp)) { Icon(SdmIcons.Refresh, "Reload", tint = sdmColor(0xFFB7B9BD, 0xFF4D5156), modifier = Modifier.size(18.dp)) }
             }
             Box(
                 Modifier.size(width = 36.dp, height = 42.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(Modifier.size(21.dp).border(2.dp, Color(0xFFC9CACF), RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                    Text("1", color = Color(0xFFC9CACF), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                Box(Modifier.size(21.dp).border(2.dp, sdmColor(0xFFC9CACF, 0xFF4D5156), RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                    Text("1", color = sdmColor(0xFFC9CACF, 0xFF4D5156), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
-            IconButton(onClick = {}, modifier = Modifier.size(width = 38.dp, height = 44.dp)) { Icon(SdmIcons.More, "Browser menu", tint = Color(0xFFB7B9BD), modifier = Modifier.size(19.dp)) }
+            IconButton(onClick = {}, modifier = Modifier.size(width = 38.dp, height = 44.dp)) { Icon(SdmIcons.More, "Browser menu", tint = sdmColor(0xFFB7B9BD, 0xFF4D5156), modifier = Modifier.size(19.dp)) }
         }
         androidx.compose.material3.HorizontalDivider(color = SdmLine, thickness = 1.dp)
 
@@ -164,7 +165,7 @@ private fun BrowserLanding(onOpen: (String) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier.size(58.dp).background(Color(0xFF14140F), CircleShape).border(1.dp, SdmGold.copy(alpha = .48f), CircleShape),
+            Modifier.size(58.dp).background(sdmColor(0xFF14140F, 0xFFF2EAD2), CircleShape).border(1.dp, SdmGold.copy(alpha = .48f), CircleShape),
             contentAlignment = Alignment.Center,
         ) { Text("SD", color = SdmGoldHigh, fontSize = 22.sp, fontWeight = FontWeight.Black) }
         Spacer(Modifier.height(12.dp))
@@ -184,7 +185,7 @@ private fun BrowserLanding(onOpen: (String) -> Unit) {
 @Composable
 private fun QuickTile(letter: String, label: String, url: String, modifier: Modifier, onOpen: (String) -> Unit) {
     Column(modifier.height(76.dp).clickable { onOpen(url) }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(Modifier.size(46.dp).background(Color(0xFF211F16), CircleShape).border(1.dp, SdmLine, CircleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(46.dp).background(sdmColor(0xFF211F16, 0xFFF2EAD2), CircleShape).border(1.dp, SdmLine, CircleShape), contentAlignment = Alignment.Center) {
                 Text(letter, color = SdmGoldHigh, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
             }
             Spacer(Modifier.height(8.dp))

@@ -49,6 +49,7 @@ import com.espitman.sdm.ui.theme.SdmLine
 import com.espitman.sdm.ui.theme.SdmMuted
 import com.espitman.sdm.ui.theme.SdmSuccess
 import com.espitman.sdm.ui.theme.SdmSurface
+import com.espitman.sdm.ui.theme.sdmColor
 
 private data class FileUi(val type: String, val name: String, val meta: String, val verified: Boolean = false)
 
@@ -74,7 +75,7 @@ internal fun FilesScreen() {
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     listOf("All", "Video", "Audio", "Documents", "APK", "Archives").forEach { label ->
                         Box(
-                            Modifier.height(38.dp).background(if (filter == label) Color(0xFF252218) else SdmSurface, RoundedCornerShape(11.dp))
+                            Modifier.height(38.dp).background(if (filter == label) sdmColor(0xFF252218, 0xFFF5EDD4) else SdmSurface, RoundedCornerShape(11.dp))
                                 .border(1.dp, if (filter == label) SdmGold.copy(alpha = .55f) else SdmLine, RoundedCornerShape(11.dp))
                                 .clickable { filter = label }.padding(horizontal = 13.dp),
                             contentAlignment = Alignment.Center,
@@ -104,7 +105,7 @@ private fun StorageCard() {
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(Color(0xFF34332F))) {
+            Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(sdmColor(0xFF34332F, 0xFFDED8CB))) {
                 Box(Modifier.fillMaxWidth(.64f).height(5.dp).background(SdmGold))
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -119,7 +120,7 @@ private fun StorageCard() {
 private fun FileRow(file: FileUi) {
     Card(colors = CardDefaults.cardColors(containerColor = SdmSurface), border = BorderStroke(1.dp, SdmLine), shape = RoundedCornerShape(14.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(width = 42.dp, height = 48.dp).background(Color(0xFF191914), RoundedCornerShape(11.dp)).border(1.dp, SdmGold.copy(alpha = .32f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(width = 42.dp, height = 48.dp).background(sdmColor(0xFF191914, 0xFFF2EAD2), RoundedCornerShape(11.dp)).border(1.dp, SdmGold.copy(alpha = .32f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
                 Text(file.type, color = SdmGoldHigh, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
             Spacer(Modifier.width(11.dp))
