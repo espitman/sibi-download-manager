@@ -1,7 +1,10 @@
 package com.espitman.sdm.data
 
 import android.content.Context
-
+import com.espitman.sdm.download.Clock
+import com.espitman.sdm.download.DownloadInterruptionRecovery
+import com.espitman.sdm.download.DownloadInterruptionTrigger
+import com.espitman.sdm.download.DownloadRecoveryOnceGate
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
 import com.espitman.sdm.download.DownloadTransferEngine
 import com.espitman.sdm.download.DownloadTransferService
@@ -26,6 +29,21 @@ object AppRepositories {
 
     fun transferEngine(): DownloadTransferEngine = transferEngine ?: synchronized(this) {
         transferEngine ?: DownloadTransferEngine().also { transferEngine = it }
+    }
+
+    suspend fun recoverInterruptedDownloads(
+        context: Context,
+        trigger: DownloadInterruptionTrigger,
+        gate: DownloadRecoveryOnceGate = DownloadRecoveryOnceGate.shared,
+        clock: Clock = Clock.SystemClock,
+    ) {
+        gate.runOnce {
+            DownloadInterruptionRecovery.recover(
+                repository = downloads(context),
+                clock = clock,
+                trigger = trigger,
+            )
+        }
     }
 
     fun submissionCoordinator(context: Context): DownloadSubmissionCoordinator = submissionCoordinator ?: synchronized(this) {

@@ -9,10 +9,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
+import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.download.DownloadInterruptionTrigger
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import com.espitman.sdm.ui.SdmApp
 import com.espitman.sdm.ui.SdmLaunchLayer
 import com.espitman.sdm.ui.theme.SdmTheme
+import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
     private val pendingRequest = mutableStateOf<TransferNotificationRequest?>(null)
@@ -28,6 +31,12 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = false
         }
         pendingRequest.value = parseTransferNotificationIntent(intent)
+        runBlocking {
+            AppRepositories.recoverInterruptedDownloads(
+                context = this@MainActivity,
+                trigger = DownloadInterruptionTrigger.PROCESS_RESTART,
+            )
+        }
         setContent {
             val request by pendingRequest
             SdmTheme {
