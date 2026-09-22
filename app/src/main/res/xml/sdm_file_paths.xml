@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- App-specific external Downloads (Context.getExternalFilesDir(DIRECTORY_DOWNLOADS)). -->
+    <external-files-path
+        name="external_downloads"
+        path="Download/" />
+    <!-- Internal filesDir/Downloads fallback and any SAF staging under it. -->
+    <files-path
+        name="internal_downloads"
+        path="Downloads/" />
+</paths>

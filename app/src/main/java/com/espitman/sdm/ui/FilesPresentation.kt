@@ -2,6 +2,7 @@ package com.espitman.sdm.ui
 
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.storage.CompletedFileIdentity
 import com.espitman.sdm.storage.CompletedFileProbe
 import java.time.Instant
 import java.time.ZoneId
@@ -31,6 +32,7 @@ internal data class FileRowModel(
     val category: FileTypeFilter?,
     val sizeBytes: Long,
     val completedAtEpochMillis: Long,
+    val identity: CompletedFileIdentity,
 )
 
 internal fun presentCompletedFiles(
@@ -70,6 +72,12 @@ internal fun mapCompletedFile(
         category = classifyCompletedFile(download.mimeType, download.fileName),
         sizeBytes = download.downloadedBytes,
         completedAtEpochMillis = completedAt,
+        identity = CompletedFileIdentity(
+            downloadId = download.id,
+            destinationPath = destination,
+            persistedMimeType = download.mimeType,
+            fileName = download.fileName,
+        ),
     )
 }
 

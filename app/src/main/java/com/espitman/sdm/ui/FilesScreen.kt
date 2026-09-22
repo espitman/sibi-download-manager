@@ -6,15 +6,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -30,7 +33,17 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import com.espitman.sdm.storage.CompletedFileAction
+import com.espitman.sdm.storage.CompletedFileIdentity
+import com.espitman.sdm.storage.CompletedFileShareAccess
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
@@ -189,6 +202,13 @@ internal fun FilesScreen(
     val files = remember(completedRows, uiState.filter, uiState.query, uiState.sort) {
         filterAndSortFiles(completedRows, uiState.filter, uiState.query, uiState.sort)
     }
+    val shareAccess = remember(context) { CompletedFileShareAccess(context) }
+    var selectedId by remember { mutableStateOf<String?>(null) }
+    var menuForId by remember { mutableStateOf<String?>(null) }
+    fun performFileAction(action: CompletedFileAction, identity: CompletedFileIdentity) {
+        menuForId = null
+        shareAccess.perform(action, identity).message?.let(onToast)
+    }
     val storage by produceState<Pair<Long, Long>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             runCatching { android.os.StatFs(android.os.Environment.getExternalStorageDirectory().absolutePath).let { it.totalBytes - it.availableBytes to it.totalBytes } }.getOrNull()
@@ -229,7 +249,27 @@ internal fun FilesScreen(
                     SdmEmptyState("No matching files", "Try another search or file type.")
                 }
             } else {
-                items(files.size) { FileRow(files[it]) }
+                items(files.size, key = { files[it].id }) { index ->
+                    val file = files[index]
+                    FileRow(
+                        file = file,
+                        selected = selectedId == file.id,
+                        menuOpen = menuForId == file.id,
+                        onToggleSelect = {
+                            if (selectedId == file.id) {
+                                selectedId = null
+                                onToast("Selection cleared")
+                            } else {
+                                selectedId = file.id
+                                onToast("File selected")
+                            }
+                        },
+                        onOpenMenu = { menuForId = file.id },
+                        onDismissMenu = { menuForId = null },
+                        onOpen = { performFileAction(CompletedFileAction.Open, file.identity) },
+                        onShare = { performFileAction(CompletedFileAction.Share, file.identity) },
+                    )
+                }
             }
         }
     }
@@ -300,20 +340,135 @@ private fun StorageCard(storage: Pair<Long, Long>?) {
 }
 
 @Composable
-private fun FileRow(file: FileRowModel) {
-    Card(colors = CardDefaults.cardColors(containerColor = SdmSurface), border = BorderStroke(1.dp, SdmLine), shape = RoundedCornerShape(14.dp)) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(width = 42.dp, height = 48.dp).background(sdmColor(0xFF191914, 0xFFF2EAD2), RoundedCornerShape(11.dp)).border(1.dp, SdmGold.copy(alpha = .32f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
-                Text(file.type, color = SdmGoldHigh, fontSize = 9.sp, fontWeight = FontWeight.Black)
+private fun FileRow(
+    file: FileRowModel,
+    selected: Boolean,
+    menuOpen: Boolean,
+    onToggleSelect: () -> Unit,
+    onOpenMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+) {
+    val density = LocalDensity.current
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) sdmColor(0xFF1D1C16, 0xFFF5EDD4) else SdmSurface,
+        ),
+        border = BorderStroke(1.dp, if (selected) SdmGold.copy(alpha = .62f) else SdmLine),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { this.selected = selected }
+            .clickable(onClick = onToggleSelect),
+    ) {
+        Box {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = 42.dp, height = 48.dp)
+                        .background(sdmColor(0xFF191914, 0xFFF2EAD2), RoundedCornerShape(11.dp))
+                        .border(1.dp, SdmGold.copy(alpha = .32f), RoundedCornerShape(11.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(file.type, color = SdmGoldHigh, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(file.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(file.meta, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
+                    Text(
+                        if (file.verified) "✓ Verified" else "✓ Complete",
+                        color = SdmSuccess,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+                Spacer(Modifier.width(11.dp))
+                Box {
+                    IconButton(onClick = { if (menuOpen) onDismissMenu() else onOpenMenu() }, modifier = Modifier.size(40.dp)) {
+                        Icon(SdmIcons.More, "File actions", tint = SdmMuted, modifier = Modifier.size(18.dp))
+                    }
+                    if (menuOpen) {
+                        Popup(
+                            alignment = Alignment.TopEnd,
+                            offset = IntOffset(0, with(density) { 40.dp.roundToPx() }),
+                            onDismissRequest = onDismissMenu,
+                            properties = PopupProperties(focusable = true),
+                        ) {
+                            FileActionMenu(onOpen = onOpen, onShare = onShare)
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(file.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(file.meta, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
-                Text(if (file.verified) "✓ Verified" else "✓ Complete", color = SdmSuccess, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 5.dp))
+            if (selected) {
+                Box(Modifier.matchParentSize()) {
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .fillMaxHeight()
+                            .width(3.dp)
+                            .background(SdmGold),
+                    )
+                }
             }
-            Spacer(Modifier.width(11.dp))
-            IconButton(onClick = {}, modifier = Modifier.size(40.dp)) { Icon(SdmIcons.More, "File actions", tint = SdmMuted, modifier = Modifier.size(18.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun FileActionMenu(onOpen: () -> Unit, onShare: () -> Unit) {
+    Surface(
+        color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF),
+        contentColor = SdmText,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, SdmLine),
+        shadowElevation = 18.dp,
+        modifier = Modifier.width(232.dp),
+    ) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            FileActionMenuItem(SdmIcons.Open, "Open", "Open with another app", onOpen)
+            FileActionMenuItem(SdmIcons.Share, "Share", "Send to another app", onShare)
+        }
+    }
+}
+
+@Composable
+private fun FileActionMenuItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 54.dp)
+            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier.size(34.dp).background(sdmColor(0xFF242318, 0xFFF2EAD2), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = SdmGoldHigh, modifier = Modifier.size(17.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(
+                subtitle,
+                color = SdmMuted,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

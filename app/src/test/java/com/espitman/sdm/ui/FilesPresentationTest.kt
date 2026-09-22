@@ -106,6 +106,8 @@ class FilesPresentationTest {
         )
         assertEquals(listOf("doc"), rows.map { it.id })
         assertEquals(FileTypeFilter.Documents, rows.single().category)
+        assertEquals(uri, rows.single().identity.destinationPath)
+        assertFalse(rows.single().meta.contains("content:"))
     }
 
     @Test
@@ -239,6 +241,12 @@ class FilesPresentationTest {
         assertEquals("✓ Complete", if (row.verified) "✓ Verified" else "✓ Complete")
         assertEquals(FileTypeFilter.Apk, row.category)
         assertEquals("APK", row.type)
+        assertEquals("apk", row.identity.downloadId)
+        assertEquals(file.absolutePath, row.identity.destinationPath)
+        assertEquals("application/vnd.android.package-archive", row.identity.persistedMimeType)
+        assertEquals("SDM.Premium.v4.8.2.apk", row.identity.fileName)
+        assertFalse(row.meta.contains(file.absolutePath))
+        assertFalse(row.name.contains("/"))
     }
 
     @Test

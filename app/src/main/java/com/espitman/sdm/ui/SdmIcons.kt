@@ -43,6 +43,8 @@ internal object SdmIcons {
     val Copy = outline("Copy", "M10 8h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM16 8V5H5v11h3")
     val FolderPlain = outline("FolderPlain", "M3 7h7l2 2h9v10H3z", 1.9f)
     val DownloadPreferences = outline("DownloadPreferences", "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0M5 12a7 7 0 1 1 14 0a7 7 0 1 1-14 0M12 2v3M12 19v3", 1.9f)
+    val Open = outline("Open", "M14 4h6v6M20 4l-8 8M10 5H5v14h14v-5", 1.9f)
+    val Share = outline("Share", "M18 5a2.5 2.5 0 1 1 0 .01M6 12a2.5 2.5 0 1 1 0 .01M18 19a2.5 2.5 0 1 1 0 .01M8.6 13.5l6.8 4M8.6 10.5l6.8-4", 1.9f)
 
     private fun outline(name: String, path: String, width: Float = 1.8f) =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
