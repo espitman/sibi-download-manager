@@ -46,6 +46,7 @@ class DownloadTransferEngine(
     private val onChunkRead: (Int) -> Unit = {},
     private val destinationPublisher: DownloadDestinationPublisher = DownloadDestinationPublisher.KeepLocal,
     private val storageCapacity: StorageCapacityProbe = StorageCapacityProbe.Unknown,
+    private val speedLimiter: SpeedLimiter = SpeedLimiter.Unlimited,
 ) {
     init {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
@@ -336,16 +337,26 @@ class DownloadTransferEngine(
                                 }
                                 if (allowedBytes <= 0) break
 
-                                fileOutputStream.write(buffer, 0, allowedBytes)
-                                totalBytesRead += allowedBytes
-                                onChunkRead(allowedBytes)
-                                currentCoroutineContext().ensureActive()
+                                var chunkOffset = 0
+                                while (chunkOffset < allowedBytes) {
+                                    currentCoroutineContext().ensureActive()
+                                    val remaining = allowedBytes - chunkOffset
+                                    val admitted = speedLimiter.acquire(remaining)
+                                    currentCoroutineContext().ensureActive()
+                                    require(admitted > 0) { "Speed limiter admitted no bytes" }
+                                    val toWrite = min(admitted, remaining)
+                                    fileOutputStream.write(buffer, chunkOffset, toWrite)
+                                    totalBytesRead += toWrite
+                                    onChunkRead(toWrite)
+                                    currentCoroutineContext().ensureActive()
+                                    chunkOffset += toWrite
 
-                                if (shouldPublishProgress(totalBytesRead, lastReportedBytes, lastReportedAtEpochMillis, expectedTotal)) {
-                                    fileOutputStream.flush()
-                                    updateProgress(repository, downloadId, totalBytesRead)
-                                    lastReportedBytes = totalBytesRead
-                                    lastReportedAtEpochMillis = clock.currentTimeMillis()
+                                    if (shouldPublishProgress(totalBytesRead, lastReportedBytes, lastReportedAtEpochMillis, expectedTotal)) {
+                                        fileOutputStream.flush()
+                                        updateProgress(repository, downloadId, totalBytesRead)
+                                        lastReportedBytes = totalBytesRead
+                                        lastReportedAtEpochMillis = clock.currentTimeMillis()
+                                    }
                                 }
                                 if (extraResumeBytes) break
                             }

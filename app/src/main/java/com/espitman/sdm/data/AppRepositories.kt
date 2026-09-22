@@ -3,6 +3,7 @@ package com.espitman.sdm.data
 import android.content.Context
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.domain.DownloadPauseCause
+import com.espitman.sdm.download.AggregateSpeedLimiter
 import com.espitman.sdm.download.AndroidValidatedConnectivityMonitor
 import com.espitman.sdm.download.Clock
 import com.espitman.sdm.download.DownloadInterruptionRecovery
@@ -15,6 +16,7 @@ import com.espitman.sdm.download.DownloadTransferEngine
 import com.espitman.sdm.download.DownloadTransferService
 import com.espitman.sdm.download.MutableTransferAllowance
 import com.espitman.sdm.download.NetworkRestrictionCoordinator
+import com.espitman.sdm.download.SpeedLimitPolicy
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import com.espitman.sdm.network.HttpDownloadMetadataRetriever
 import com.espitman.sdm.storage.AndroidStorageCapacityProbe
@@ -42,11 +44,13 @@ object AppRepositories {
     @Volatile private var downloadRepository: DownloadRepository? = null
     @Volatile private var metadataRetriever: DownloadMetadataRetriever? = null
     @Volatile private var transferEngine: DownloadTransferEngine? = null
+    @Volatile private var speedLimiter: AggregateSpeedLimiter? = null
     @Volatile private var queueScheduler: DownloadQueueScheduler? = null
     @Volatile private var transferAllowance: MutableTransferAllowance? = null
     @Volatile private var networkRestriction: NetworkRestrictionCoordinator? = null
     @Volatile private var connectivityMonitor: AndroidValidatedConnectivityMonitor? = null
     @Volatile private var restrictionCollectorStarted = false
+    @Volatile private var speedLimitCollectorStarted = false
     private val restrictionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var submissionCoordinator: DownloadSubmissionCoordinator? = null
     @Volatile private var saveLocationCoordinator: SaveLocationCoordinator? = null
@@ -89,17 +93,28 @@ object AppRepositories {
         }
     }
 
-    fun transferEngine(context: Context): DownloadTransferEngine = transferEngine ?: synchronized(this) {
-        transferEngine ?: run {
+    fun transferEngine(context: Context): DownloadTransferEngine {
+        transferEngine?.let { return it }
+        val limiter = speedLimiter(context)
+        synchronized(this) {
+            transferEngine?.let { return it }
             val appContext = context.applicationContext
-            DownloadTransferEngine(
+            return DownloadTransferEngine(
                 destinationPublisher = SafDownloadDestinationPublisher(
                     trees = DocumentsContractTreeAccess(appContext.contentResolver),
                     coordinator = saveLocation(appContext),
                     appSpecificDirectory = { AppSpecificDownloadsDirectory.from(appContext) },
                 ),
                 storageCapacity = storageCapacityProbe(appContext),
+                speedLimiter = limiter,
             ).also { transferEngine = it }
+        }
+    }
+
+    fun speedLimiter(context: Context): AggregateSpeedLimiter {
+        speedLimiter?.let { return it }
+        synchronized(this) {
+            return speedLimiterLocked(context.applicationContext)
         }
     }
 
@@ -164,6 +179,7 @@ object AppRepositories {
             if (connectivityMonitor == null) {
                 connectivityMonitor = AndroidValidatedConnectivityMonitor(appContext)
             }
+            speedLimiterLocked(appContext)
             if (networkRestriction == null) {
                 val monitor = connectivityMonitor!!
                 networkRestriction = NetworkRestrictionCoordinator(
@@ -199,6 +215,47 @@ object AppRepositories {
                 }
             }
         }
+    }
+
+    private fun speedLimiterLocked(appContext: Context): AggregateSpeedLimiter {
+        speedLimiter?.let { return it }
+        if (connectivityMonitor == null) {
+            connectivityMonitor = AndroidValidatedConnectivityMonitor(appContext)
+        }
+        val monitor = connectivityMonitor!!
+        val limiter = AggregateSpeedLimiter(
+            effectiveBytesPerSecond = {
+                val settings = SettingsRepository.get(appContext).settings.value
+                SpeedLimitPolicy.effectiveBytesPerSecond(
+                    unlimitedSpeed = settings.unlimitedSpeed,
+                    speedLimitMbps = settings.speedLimitMbps,
+                    speedLimitWifiOnly = settings.speedLimitWifiOnly,
+                    transport = monitor.current().transport,
+                )
+            },
+        )
+        speedLimiter = limiter
+        if (!speedLimitCollectorStarted) {
+            speedLimitCollectorStarted = true
+            restrictionScope.launch {
+                combine(
+                    SettingsRepository.get(appContext).settings
+                        .map { settings ->
+                            Triple(
+                                settings.unlimitedSpeed,
+                                settings.speedLimitMbps,
+                                settings.speedLimitWifiOnly,
+                            )
+                        }
+                        .distinctUntilChanged(),
+                    monitor.connectivity
+                        .map { it.transport }
+                        .distinctUntilChanged(),
+                ) { _, _ -> }
+                    .collect { limiter.notifyPolicyChanged() }
+            }
+        }
+        return limiter
     }
 
     fun submissionCoordinator(context: Context): DownloadSubmissionCoordinator = submissionCoordinator ?: synchronized(this) {
