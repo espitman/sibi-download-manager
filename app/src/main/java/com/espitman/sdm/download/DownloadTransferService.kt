@@ -3,6 +3,7 @@ package com.espitman.sdm.download
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -12,6 +13,7 @@ import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.notification.TransferNotificationCoordinator
+import com.espitman.sdm.notification.TransferNotificationPendingIntentSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -154,7 +156,8 @@ class DownloadTransferService : Service() {
             keepActiveClosed = true
             applyKeepActiveWakeLockLocked(shouldHold = false)
         }
-        notifications.cancelAllChildren()
+        val teardownSnapshot = AppRepositories.downloads(applicationContext).downloads.value
+        notifications.onServiceTeardown(teardownSnapshot)
         serviceJob.cancel()
         super.onDestroy()
     }
@@ -167,11 +170,7 @@ class DownloadTransferService : Service() {
                 SettingsRepository.get(applicationContext).settings,
             ) { downloads, settings -> downloads to settings }
                 .collectLatest { (downloads, settings) ->
-                    notifications.updateActiveTransfers(
-                        downloads.filter {
-                            it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING
-                        },
-                    )
+                    notifications.updateActiveTransfers(downloads)
                     val shouldHold = KeepActivePolicy.shouldHoldWakeLock(
                         keepActive = settings.keepActive,
                         keepActiveDuration = settings.keepActiveDuration,
@@ -309,44 +308,42 @@ class DownloadTransferService : Service() {
         }
 
         fun pauseTransfer(context: Context, downloadId: String) {
-            val appContext = context.applicationContext
-            val command = DownloadTransferCommand.parse(
-                action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER,
-                downloadId = downloadId,
-                tempFilePath = null,
-            ) as? PauseTransferCommand ?: return
-            val intent = Intent(appContext, DownloadTransferService::class.java).apply {
-                action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER
-                putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
-            }
-            ContextCompat.startForegroundService(appContext, intent)
+            startControl(context, downloadId, DownloadTransferCommand.ACTION_PAUSE_TRANSFER)
         }
 
         fun cancelTransfer(context: Context, downloadId: String) {
-            val appContext = context.applicationContext
-            val command = DownloadTransferCommand.parse(
-                action = DownloadTransferCommand.ACTION_CANCEL_TRANSFER,
-                downloadId = downloadId,
-                tempFilePath = null,
-            ) as? CancelTransferCommand ?: return
-            val intent = Intent(appContext, DownloadTransferService::class.java).apply {
-                action = DownloadTransferCommand.ACTION_CANCEL_TRANSFER
-                putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
-            }
-            ContextCompat.startForegroundService(appContext, intent)
+            startControl(context, downloadId, DownloadTransferCommand.ACTION_CANCEL_TRANSFER)
         }
 
         fun resumeTransfer(context: Context, downloadId: String) {
+            startControl(context, downloadId, DownloadTransferCommand.ACTION_RESUME_TRANSFER)
+        }
+
+        fun controlIntent(context: Context, downloadId: String, action: String): Intent? {
             val appContext = context.applicationContext
             val command = DownloadTransferCommand.parse(
-                action = DownloadTransferCommand.ACTION_RESUME_TRANSFER,
+                action = action,
                 downloadId = downloadId,
                 tempFilePath = null,
-            ) as? ResumeTransferCommand ?: return
-            val intent = Intent(appContext, DownloadTransferService::class.java).apply {
-                action = DownloadTransferCommand.ACTION_RESUME_TRANSFER
+            ) ?: return null
+            val resolvedAction = when (command) {
+                is PauseTransferCommand -> DownloadTransferCommand.ACTION_PAUSE_TRANSFER
+                is CancelTransferCommand -> DownloadTransferCommand.ACTION_CANCEL_TRANSFER
+                is ResumeTransferCommand -> DownloadTransferCommand.ACTION_RESUME_TRANSFER
+                is StartTransferCommand -> return null
+            }
+            val identity = TransferNotificationPendingIntentSpec.identity(command.downloadId, resolvedAction)
+                ?: return null
+            return Intent(appContext, DownloadTransferService::class.java).apply {
+                this.action = resolvedAction
+                data = Uri.parse(identity.data)
                 putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
             }
+        }
+
+        private fun startControl(context: Context, downloadId: String, action: String) {
+            val appContext = context.applicationContext
+            val intent = controlIntent(appContext, downloadId, action) ?: return
             ContextCompat.startForegroundService(appContext, intent)
         }
     }

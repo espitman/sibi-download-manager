@@ -15,10 +15,13 @@ import com.espitman.sdm.MainActivity
 import com.espitman.sdm.R
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.download.DownloadTransferService
 
 class TransferNotificationCoordinator(context: Context) {
     private val appContext = context.applicationContext
-    private val postedChildTags = linkedSetOf<String>()
+    private val postedChildStates = linkedMapOf<String, DownloadState>()
+    private val notificationGuard = Any()
+    private var serviceTornDown = false
 
     fun channelSpec(): TransferNotificationChannelSpec = TransferNotificationChannelSpec.create(
         name = appContext.getString(R.string.transfer_notification_channel_name),
@@ -80,44 +83,73 @@ class TransferNotificationCoordinator(context: Context) {
 
     fun updateActiveTransfers(downloads: List<Download>) {
         val manager = appContext.getSystemService(NotificationManager::class.java) ?: return
-        val active = downloads.filter {
-            it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING
-        }
-        val activeIds = active.map { it.id }.toSet()
-        val staleTags = postedChildTags.filter { it !in activeIds }
-        try {
-            staleTags.forEach { tag ->
-                manager.cancel(tag, CHILD_NOTIFICATION_ID)
-                postedChildTags.remove(tag)
-            }
-            active.forEach { download ->
-                manager.notify(download.id, CHILD_NOTIFICATION_ID, childNotification(download))
-                postedChildTags.add(download.id)
-            }
-            manager.notify(
-                TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID,
-                ongoingTransferNotification(active.size),
+        synchronized(notificationGuard) {
+            if (serviceTornDown) return
+            val children = TransferNotificationChildPolicy.childrenToPost(downloads)
+            val statesById = downloads.associate { it.id to it.state }
+            val staleTags = TransferNotificationChildPolicy.idsToCancel(
+                postedTags = postedChildStates.keys.toSet(),
+                systemChildTags = postedSystemChildTags(manager),
+                statesById = statesById,
             )
-        } catch (_: SecurityException) {
+            val activeCount = TransferNotificationChildPolicy.activeCount(statesById.values)
+            try {
+                staleTags.forEach { tag ->
+                    manager.cancel(tag, CHILD_NOTIFICATION_ID)
+                    postedChildStates.remove(tag)
+                }
+                children.forEach { download ->
+                    manager.notify(download.id, CHILD_NOTIFICATION_ID, childNotification(download))
+                    postedChildStates[download.id] = download.state
+                }
+                manager.notify(
+                    TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID,
+                    ongoingTransferNotification(activeCount),
+                )
+            } catch (_: SecurityException) {
+            }
         }
     }
 
-    fun cancelAllChildren() {
-        val tags = postedChildTags.toList()
-        postedChildTags.clear()
+    fun onServiceTeardown(downloads: List<Download>) {
         val manager = appContext.getSystemService(NotificationManager::class.java) ?: return
-        try {
-            tags.forEach { tag ->
-                manager.cancel(tag, CHILD_NOTIFICATION_ID)
+        synchronized(notificationGuard) {
+            serviceTornDown = true
+            val plan = TransferNotificationChildPolicy.teardownPlan(
+                postedTags = postedChildStates.keys.toSet(),
+                systemChildTags = postedSystemChildTags(manager),
+                downloads = downloads,
+            )
+            try {
+                plan.idsToCancel.forEach { tag ->
+                    manager.cancel(tag, CHILD_NOTIFICATION_ID)
+                    postedChildStates.remove(tag)
+                }
+                plan.childrenToPost.forEach { download ->
+                    manager.notify(download.id, CHILD_NOTIFICATION_ID, childNotification(download))
+                    postedChildStates[download.id] = download.state
+                }
+            } catch (_: SecurityException) {
             }
+        }
+    }
+
+    private fun postedSystemChildTags(manager: NotificationManager): Set<String> {
+        return try {
+            manager.activeNotifications
+                .asSequence()
+                .filter { it.id == CHILD_NOTIFICATION_ID && !it.tag.isNullOrBlank() }
+                .map { it.tag }
+                .toSet()
         } catch (_: SecurityException) {
+            emptySet()
         }
     }
 
     private fun childNotification(download: Download): Notification {
         val spec = channelSpec()
         val progress = TransferNotificationProgress.from(download.downloadedBytes, download.totalBytes)
-        return NotificationCompat.Builder(appContext, spec.id)
+        val builder = NotificationCompat.Builder(appContext, spec.id)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(download.fileName)
             .setContentText(progress.text)
@@ -127,9 +159,44 @@ class TransferNotificationCoordinator(context: Context) {
             .setSilent(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setGroup(GROUP_KEY)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
-            .build()
+        if (TransferNotificationPresentationPolicy.belongsToForegroundGroup(download.state)) {
+            builder.setGroup(GROUP_KEY)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+        }
+        TransferNotificationActions.forState(download.state).forEach { kind ->
+            val pendingIntent = actionPendingIntent(download.id, kind) ?: return@forEach
+            builder.addAction(
+                NotificationCompat.Action.Builder(
+                    actionIcon(kind),
+                    TransferNotificationActions.label(kind),
+                    pendingIntent,
+                ).setShowsUserInterface(false).build(),
+            )
+        }
+        return builder.build()
+    }
+
+    private fun actionPendingIntent(
+        downloadId: String,
+        kind: TransferNotificationActionKind,
+    ): PendingIntent? {
+        val serviceAction = TransferNotificationActions.serviceAction(kind)
+        val identity = TransferNotificationPendingIntentSpec.identity(downloadId, serviceAction)
+            ?: return null
+        val intent = DownloadTransferService.controlIntent(appContext, downloadId, serviceAction)
+            ?: return null
+        return PendingIntent.getForegroundService(
+            appContext,
+            identity.requestCode,
+            intent,
+            identity.flags,
+        )
+    }
+
+    private fun actionIcon(kind: TransferNotificationActionKind): Int = when (kind) {
+        TransferNotificationActionKind.PAUSE -> android.R.drawable.ic_media_pause
+        TransferNotificationActionKind.RESUME -> android.R.drawable.ic_media_play
+        TransferNotificationActionKind.CANCEL -> android.R.drawable.ic_menu_close_clear_cancel
     }
 
     private fun summaryText(activeCount: Int): String = when {
