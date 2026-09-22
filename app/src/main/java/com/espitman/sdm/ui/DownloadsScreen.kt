@@ -658,10 +658,10 @@ private fun SpeedRange(value: Float, enabled: Boolean, onValueChange: (Float) ->
 private fun PreferencesSheet(onDismiss: () -> Unit, onToast: (String) -> Unit, onOpenSettings: () -> Unit) {
     val repository = SettingsRepository.get(LocalContext.current)
     val settings by repository.settings.collectAsState()
-    var wifi by remember { mutableStateOf(settings.wifiOnly) }
-    var resume by remember { mutableStateOf(settings.autoResume) }
-    var notifications by remember { mutableStateOf(settings.downloadComplete) }
-    var connections by remember { mutableIntStateOf(settings.connections) }
+    var wifi by remember(settings.wifiOnly) { mutableStateOf(settings.wifiOnly) }
+    var resume by remember(settings.autoResume) { mutableStateOf(settings.autoResume) }
+    var notifications by remember(settings.downloadComplete) { mutableStateOf(settings.downloadComplete) }
+    var connections by remember(settings.connections) { mutableIntStateOf(settings.connections) }
     var connectionsOpen by remember { mutableStateOf(false) }
     fun save() { repository.update { it.copy(wifiOnly = wifi, autoResume = resume, downloadComplete = notifications, connections = connections) } }
     val saveLocation = rememberSaveLocationActions(onToast)
