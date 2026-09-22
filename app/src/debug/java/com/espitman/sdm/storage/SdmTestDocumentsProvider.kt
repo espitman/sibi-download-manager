@@ -18,6 +18,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
+        enforceAccess()
         val columns = projection ?: DEFAULT_ROOT_COLUMNS
         val cursor = MatrixCursor(columns)
         val row = cursor.newRow()
@@ -32,6 +33,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
+        enforceAccess()
         val columns = projection ?: DEFAULT_DOCUMENT_COLUMNS
         val cursor = MatrixCursor(columns)
         addDocument(cursor, requireDocument(documentId))
@@ -43,6 +45,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         projection: Array<out String>?,
         sortOrder: String?,
     ): Cursor {
+        enforceAccess()
         require(parentDocumentId == ROOT_DOC_ID) { "Unknown parent $parentDocumentId" }
         val columns = projection ?: DEFAULT_DOCUMENT_COLUMNS
         val cursor = MatrixCursor(columns)
@@ -57,12 +60,14 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         mode: String,
         signal: CancellationSignal?,
     ): ParcelFileDescriptor {
+        enforceAccess()
         val document = requireDocument(documentId)
         val parsedMode = ParcelFileDescriptor.parseMode(mode)
         return ParcelFileDescriptor.open(document.file, parsedMode)
     }
 
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        enforceAccess()
         require(parentDocumentId == ROOT_DOC_ID) { "Unknown parent $parentDocumentId" }
         if (catalog().values.any { it.displayName == displayName }) {
             throw IllegalArgumentException("A file with that name already exists")
@@ -74,6 +79,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun renameDocument(documentId: String, displayName: String): String {
+        enforceAccess()
         val current = requireDocument(documentId)
         if (catalog().values.any { it.id != documentId && it.displayName == displayName }) {
             throw IllegalArgumentException("A file with that name already exists")
@@ -89,11 +95,13 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun deleteDocument(documentId: String) {
+        enforceAccess()
         val current = catalog().remove(documentId) ?: throw java.io.FileNotFoundException(documentId)
         current.file.delete()
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        enforceAccess()
         if (parentDocumentId != ROOT_DOC_ID) return false
         return documentId == ROOT_DOC_ID || catalog().containsKey(documentId)
     }
@@ -134,6 +142,10 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         }
     }
 
+    private fun enforceAccess() {
+        if (accessRevoked) throw SecurityException("Test document tree access was revoked")
+    }
+
     private fun catalog(): ConcurrentHashMap<String, TestDocument> = DOCUMENTS
 
     private fun appContext(): Context = context ?: error("Provider is not attached")
@@ -154,6 +166,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         @Volatile var rootCapacityBytes: Long? = null
         @Volatile var queryRootId: String = ROOT_ID
         @Volatile var queryRootDocumentId: String = ROOT_DOC_ID
+        @Volatile var accessRevoked: Boolean = false
         private val DEFAULT_ROOT_COLUMNS = arrayOf(
             DocumentsContract.Root.COLUMN_ROOT_ID,
             DocumentsContract.Root.COLUMN_DOCUMENT_ID,
@@ -190,6 +203,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
             rootCapacityBytes = null
             queryRootId = ROOT_ID
             queryRootDocumentId = ROOT_DOC_ID
+            accessRevoked = false
         }
     }
 }
