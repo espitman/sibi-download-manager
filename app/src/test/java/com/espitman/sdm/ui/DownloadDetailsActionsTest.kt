@@ -2,6 +2,7 @@ package com.espitman.sdm.ui
 
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.download.ChecksumVerificationResult
 import com.espitman.sdm.download.DownloadRenameResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -55,6 +56,34 @@ class DownloadDetailsActionsTest {
         assertEquals(
             "Only queued downloads can be moved",
             moveToTopActionMessage(queued, queued.copy(state = DownloadState.DOWNLOADING)),
+        )
+    }
+
+    @Test
+    fun checksumToastsUseTypedVerifierMessages() {
+        assertEquals(
+            "No reference checksum available",
+            checksumVerificationMessage(ChecksumVerificationResult.NoReference),
+        )
+        assertEquals(
+            "Complete the download before verification",
+            checksumVerificationMessage(ChecksumVerificationResult.NotCompleted),
+        )
+        assertEquals(
+            "Downloaded file is missing",
+            checksumVerificationMessage(ChecksumVerificationResult.MissingFile),
+        )
+        assertEquals(
+            "Checksum verified",
+            checksumVerificationMessage(ChecksumVerificationResult.Match),
+        )
+        assertEquals(
+            "Checksum mismatch",
+            checksumVerificationMessage(ChecksumVerificationResult.Mismatch),
+        )
+        assertEquals(
+            "Could not verify checksum",
+            checksumVerificationMessage(ChecksumVerificationResult.Failure),
         )
     }
 

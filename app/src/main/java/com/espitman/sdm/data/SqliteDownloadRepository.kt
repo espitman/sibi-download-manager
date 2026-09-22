@@ -436,7 +436,7 @@ class SqliteDownloadRepository(
         val COLUMNS = arrayOf(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
-            "started_at", "completed_at", "accepts_ranges",
+            "started_at", "completed_at", "accepts_ranges", "reference_sha256",
         )
     }
 }
@@ -469,6 +469,7 @@ private fun Download.toValues() = ContentValues().apply {
     putNullable("started_at", startedAtEpochMillis)
     putNullable("completed_at", completedAtEpochMillis)
     putNullable("accepts_ranges", acceptsRanges)
+    putNullable("reference_sha256", referenceSha256)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -502,6 +503,7 @@ private fun Cursor.toDownload() = Download(
     startedAtEpochMillis = nullableLong("started_at"),
     completedAtEpochMillis = nullableLong("completed_at"),
     acceptsRanges = nullableBoolean("accepts_ranges"),
+    referenceSha256 = nullableString("reference_sha256"),
 )
 
 private fun Cursor.nullableString(column: String): String? =

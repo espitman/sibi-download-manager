@@ -76,6 +76,7 @@ import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.download.Clock
+import com.espitman.sdm.download.DownloadChecksumVerifier
 import com.espitman.sdm.download.DownloadRenameCoordinator
 import com.espitman.sdm.download.DownloadRenameResult
 import com.espitman.sdm.download.DownloadTransferService
@@ -680,6 +681,7 @@ private fun DownloadDetailsScreen(
     var cancelOpen by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var verifying by remember { mutableStateOf(false) }
     val speedTracker = remember(download.id) { DownloadDetailsSpeedTracker() }
     val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis)
     val telemetry = remember(download, nowEpochMillis) {
@@ -702,7 +704,19 @@ private fun DownloadDetailsScreen(
                                     menuOpen = false
                                     when (label) {
                                         "Rename" -> renameOpen = true
-                                        "Verify checksum" -> onToast("Integrity check scheduled")
+                                        "Verify checksum" -> {
+                                            if (verifying) return@clickable
+                                            verifying = true
+                                            val selected = download
+                                            actionScope.launch {
+                                                try {
+                                                    val result = DownloadChecksumVerifier.verify(selected)
+                                                    onToast(checksumVerificationMessage(result))
+                                                } finally {
+                                                    verifying = false
+                                                }
+                                            }
+                                        }
                                         "Move to top" -> onMoveToTop()
                                     }
                                 }.padding(horizontal = 10.dp),

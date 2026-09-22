@@ -65,6 +65,7 @@ class HttpDownloadMetadataRetrieverTest {
         assertEquals("Wed, 21 Oct 2025 07:28:00 GMT", metadata?.lastModified)
         assertTrue(metadata?.acceptsRanges == true)
         assertEquals(200, metadata?.statusCode)
+        assertNull(metadata?.referenceSha256)
 
         assertEquals(1, server.requestCount)
         val recordedRequest = server.takeRequest()
@@ -583,5 +584,95 @@ class HttpDownloadMetadataRetrieverTest {
         assertEquals(987654321L, metadata?.contentLength)
         assertEquals("video/mp4", metadata?.contentType)
         assertTrue(metadata?.acceptsRanges == true)
+    }
+
+    @Test
+    fun headReturnsNormalizedXChecksumWithoutGet() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Length", "1048576")
+                .setHeader("X-Checksum-Sha256", EMPTY_SHA256_HEX.uppercase())
+        )
+
+        val retriever = HttpDownloadMetadataRetriever()
+        val result = retriever.retrieve(server.url("/archive.zip").toString())
+
+        assertTrue(result.isSuccess)
+        assertEquals(EMPTY_SHA256_HEX, result.getOrNull()?.referenceSha256)
+        assertEquals(1, server.requestCount)
+        assertEquals("HEAD", server.takeRequest().method)
+    }
+
+    @Test
+    fun fallbackGetChecksumPreferredOverHeadFallback() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/octet-stream")
+                .setHeader("X-Checksum-Sha256", ZERO_SHA256_HEX)
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Length", "16")
+                .setHeader("Digest", "sha-256=$EMPTY_SHA256_BASE64")
+        )
+
+        val retriever = HttpDownloadMetadataRetriever()
+        val result = retriever.retrieve(server.url("/prefer-get.bin").toString())
+
+        assertTrue(result.isSuccess)
+        assertEquals(EMPTY_SHA256_HEX, result.getOrNull()?.referenceSha256)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun fallbackMergesHeadChecksumWhenGetOmitsIt() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/zip")
+                .setHeader("Content-Digest", "sha-256=:$EMPTY_SHA256_BASE64:")
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Length", "65536")
+                .setHeader("Content-Type", "application/zip")
+        )
+
+        val retriever = HttpDownloadMetadataRetriever()
+        val result = retriever.retrieve(server.url("/archive.zip").toString())
+
+        assertTrue(result.isSuccess)
+        assertEquals(EMPTY_SHA256_HEX, result.getOrNull()?.referenceSha256)
+        assertEquals(65536L, result.getOrNull()?.contentLength)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun malformedAndNonSha256ChecksumHeadersStayUnavailable() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Length", "8")
+                .setHeader("X-Checksum-Sha256", "not-a-sha256")
+                .setHeader("Digest", "sha-512=$EMPTY_SHA256_BASE64")
+        )
+
+        val retriever = HttpDownloadMetadataRetriever()
+        val result = retriever.retrieve(server.url("/no-checksum.bin").toString())
+
+        assertTrue(result.isSuccess)
+        assertNull(result.getOrNull()?.referenceSha256)
+    }
+
+    companion object {
+        private const val EMPTY_SHA256_HEX =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        private const val EMPTY_SHA256_BASE64 = "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+        private const val ZERO_SHA256_HEX =
+            "0000000000000000000000000000000000000000000000000000000000000000"
     }
 }

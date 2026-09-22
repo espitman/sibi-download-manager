@@ -13,6 +13,7 @@ data class DownloadMetadata(
     val acceptsRanges: Boolean = false,
     val statusCode: Int = 200,
     val suggestedFilename: String = DownloadFilenameResolver.resolveFilename(contentDisposition, url),
+    val referenceSha256: String? = null,
 ) {
     init {
         require(url.isNotBlank()) { "Metadata URL cannot be blank" }
@@ -23,6 +24,9 @@ data class DownloadMetadata(
         require(lastModified == null || lastModified.isNotBlank()) { "Last-Modified cannot be blank" }
         require(statusCode in 100..599) { "Status code must be a valid HTTP status code: $statusCode" }
         require(suggestedFilename.isNotBlank()) { "Suggested filename cannot be blank" }
+        require(referenceSha256 == null || ReferenceSha256Parser.isNormalized(referenceSha256)) {
+            "Reference SHA-256 must be 64 lowercase hexadecimal characters"
+        }
     }
 }
 

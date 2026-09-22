@@ -90,6 +90,7 @@ class HttpDownloadMetadataRetriever(
                         lastModified = getStep.lastModified ?: fallbackFromHead.lastModified,
                         acceptsRanges = getStep.acceptsRanges || fallbackFromHead.acceptsRanges,
                         statusCode = getStep.statusCode,
+                        referenceSha256 = getStep.referenceSha256 ?: fallbackFromHead.referenceSha256,
                     )
                     DownloadMetadataResult.Success(metadata)
                 } else {
@@ -218,6 +219,7 @@ class HttpDownloadMetadataRetriever(
                         acceptsRanges = resp.code == 206 ||
                             resp.header("Accept-Ranges")?.equals("bytes", ignoreCase = true) == true ||
                             resp.header("Content-Range") != null,
+                        referenceSha256 = parseReferenceSha256(resp),
                     )
                 }
             }
@@ -255,6 +257,19 @@ class HttpDownloadMetadataRetriever(
         return null
     }
 
+    private fun parseReferenceSha256(response: Response): String? =
+        ReferenceSha256Parser.fromHeaders(
+            xChecksumSha256 = joinedHeader(response, "X-Checksum-Sha256"),
+            contentDigest = joinedHeader(response, "Content-Digest"),
+            digest = joinedHeader(response, "Digest"),
+        )
+
+    private fun joinedHeader(response: Response, name: String): String? {
+        val values = response.headers(name)
+        if (values.isEmpty()) return null
+        return values.joinToString(",")
+    }
+
     private sealed interface HopStep {
         data class Terminal(
             val url: String,
@@ -266,6 +281,7 @@ class HttpDownloadMetadataRetriever(
             val etag: String?,
             val lastModified: String?,
             val acceptsRanges: Boolean,
+            val referenceSha256: String?,
         ) : HopStep {
             fun toMetadata() = DownloadMetadata(
                 url = url,
@@ -276,6 +292,7 @@ class HttpDownloadMetadataRetriever(
                 lastModified = lastModified,
                 acceptsRanges = acceptsRanges,
                 statusCode = statusCode,
+                referenceSha256 = referenceSha256,
             )
         }
 

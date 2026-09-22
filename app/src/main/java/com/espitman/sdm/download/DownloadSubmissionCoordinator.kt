@@ -164,6 +164,7 @@ class DownloadSubmissionCoordinator(
                 startedAtEpochMillis = null,
                 completedAtEpochMillis = null,
                 acceptsRanges = metadata.acceptsRanges,
+                referenceSha256 = metadata.referenceSha256,
             )
 
             // 3. Persist exactly one QUEUED download

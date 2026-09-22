@@ -2,6 +2,7 @@ package com.espitman.sdm.ui
 
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.download.ChecksumVerificationResult
 import com.espitman.sdm.download.DownloadRenameResult
 import java.io.File
 
@@ -74,6 +75,8 @@ internal fun downloadRenameActionMessage(result: DownloadRenameResult): String =
     is DownloadRenameResult.Failure -> result.message
     is DownloadRenameResult.PauseRequired -> result.message
 }
+
+internal fun checksumVerificationMessage(result: ChecksumVerificationResult): String = result.message
 
 internal fun shouldCloseRenameDialog(result: DownloadRenameResult): Boolean =
     result is DownloadRenameResult.Success

@@ -22,6 +22,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -682,5 +683,74 @@ class DownloadSubmissionCoordinatorTest {
         val persisted = (result as SubmissionResult.Success).download
         assertEquals(persisted.acceptsRanges, repository.insertedDownloads.single().acceptsRanges)
         return persisted
+    }
+
+    @Test
+    fun submissionPersistsNormalizedReferenceSha256FromMetadata() = runBlocking {
+        val persisted = submitWithReferenceSha256(EMPTY_SHA256_HEX)
+        assertEquals(EMPTY_SHA256_HEX, persisted.referenceSha256)
+    }
+
+    @Test
+    fun submissionLeavesReferenceSha256NullWhenMetadataOmitsIt() = runBlocking {
+        val persisted = submitWithReferenceSha256(null)
+        assertNull(persisted.referenceSha256)
+        assertNull(
+            Download(
+                id = "legacy-unknown",
+                url = "https://example.com/legacy.bin",
+                fileName = "legacy.bin",
+                createdAtEpochMillis = 1L,
+            ).referenceSha256,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            Download(
+                id = "bad-checksum",
+                url = "https://example.com/bad.bin",
+                fileName = "bad.bin",
+                createdAtEpochMillis = 1L,
+                referenceSha256 = EMPTY_SHA256_HEX.uppercase(),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            Download(
+                id = "short-checksum",
+                url = "https://example.com/short.bin",
+                fileName = "short.bin",
+                createdAtEpochMillis = 1L,
+                referenceSha256 = "abc",
+            )
+        }
+        return@runBlocking
+    }
+
+    private suspend fun submitWithReferenceSha256(referenceSha256: String?): Download {
+        val repository = FakeDownloadRepository()
+        val retriever = FakeMetadataRetriever(
+            DownloadMetadataResult.Success(
+                DownloadMetadata(
+                    url = "https://example.com/checksum.bin",
+                    contentLength = 128L,
+                    contentType = "application/octet-stream",
+                    suggestedFilename = "checksum.bin",
+                    referenceSha256 = referenceSha256,
+                )
+            )
+        )
+        val coordinator = coordinator(
+            repository = repository,
+            retriever = retriever,
+            transferStarter = FakeTransferStarter(),
+        )
+        val result = coordinator.submit("https://example.com/checksum.bin", startNow = true)
+        assertTrue("Expected Success, got $result", result is SubmissionResult.Success)
+        val persisted = (result as SubmissionResult.Success).download
+        assertEquals(persisted.referenceSha256, repository.insertedDownloads.single().referenceSha256)
+        return persisted
+    }
+
+    companion object {
+        private const val EMPTY_SHA256_HEX =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
 }

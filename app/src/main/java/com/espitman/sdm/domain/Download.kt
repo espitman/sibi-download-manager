@@ -36,6 +36,11 @@ data class Download(
      * advertise byte ranges, and `true` means it did.
      */
     val acceptsRanges: Boolean? = null,
+    /**
+     * Origin-advertised SHA-256 of the complete object, normalized to 64 lowercase hex.
+     * `null` means unavailable (legacy rows or no valid checksum header).
+     */
+    val referenceSha256: String? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }
@@ -70,5 +75,13 @@ data class Download(
         require(state != DownloadState.COMPLETED || completedAtEpochMillis != null) {
             "A completed download must include its completion time"
         }
+        require(referenceSha256 == null || isNormalizedReferenceSha256(referenceSha256)) {
+            "Reference SHA-256 must be 64 lowercase hexadecimal characters"
+        }
     }
+}
+
+private fun isNormalizedReferenceSha256(value: String): Boolean {
+    if (value.length != 64) return false
+    return value.all { ch -> ch in '0'..'9' || ch in 'a'..'f' }
 }

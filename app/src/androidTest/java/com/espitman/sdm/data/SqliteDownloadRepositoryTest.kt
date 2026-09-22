@@ -22,6 +22,10 @@ import java.time.ZoneOffset
 
 @RunWith(AndroidJUnit4::class)
 class SqliteDownloadRepositoryTest {
+    companion object {
+        private const val EMPTY_SHA256_HEX =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
     private lateinit var context: Context
     private lateinit var databaseName: String
     private var repository: SqliteDownloadRepository? = null
@@ -137,10 +141,25 @@ class SqliteDownloadRepositoryTest {
         val migrated = repository!!.downloads.value.single()
         assertEquals("legacy", migrated.id)
         assertNull(migrated.acceptsRanges)
+        assertNull(migrated.referenceSha256)
         assertEquals(0L, repository!!.transferredBytesForLocalDay(10L, ZoneOffset.UTC))
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
         assertDailyTransferTableExists()
         assertAcceptsRangesColumnExists()
+        assertReferenceSha256ColumnExists()
+    }
+
+    @Test
+    fun versionFiveDatabaseMigratesWithoutLosingRecords() = runBlocking {
+        seedLegacyDatabase(5)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        val migrated = repository!!.downloads.value.single()
+        assertEquals("legacy", migrated.id)
+        assertNull(migrated.referenceSha256)
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertReferenceSha256ColumnExists()
     }
 
     @Test
@@ -183,6 +202,40 @@ class SqliteDownloadRepositoryTest {
         repository!!.awaitInitialized()
         assertEquals(mapOf("unknown" to null, "supported" to true, "unsupported" to false), values())
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+    }
+
+    @Test
+    fun referenceSha256RoundTripsNullAndNormalizedHex() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "unknown",
+                url = "https://example.com/unknown.bin",
+                fileName = "unknown.bin",
+                createdAtEpochMillis = 100,
+                referenceSha256 = null,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "hashed",
+                url = "https://example.com/hashed.bin",
+                fileName = "hashed.bin",
+                createdAtEpochMillis = 101,
+                referenceSha256 = EMPTY_SHA256_HEX,
+            ),
+        )
+
+        fun values() = repository!!.downloads.value.associate { it.id to it.referenceSha256 }
+        assertEquals(mapOf("unknown" to null, "hashed" to EMPTY_SHA256_HEX), values())
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(mapOf("unknown" to null, "hashed" to EMPTY_SHA256_HEX), values())
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertReferenceSha256ColumnExists()
     }
 
     @Test
@@ -473,6 +526,7 @@ class SqliteDownloadRepositoryTest {
             if (version >= 2) DownloadDatabase.migrateOneToTwo(db)
             if (version >= 3) DownloadDatabase.migrateTwoToThree(db)
             if (version >= 4) DownloadDatabase.migrateThreeToFour(db)
+            if (version >= 5) DownloadDatabase.migrateFourToFive(db)
             db.execSQL(
                 """INSERT INTO downloads
                     (id,url,file_name,downloaded_bytes,state,priority,created_at,updated_at)
@@ -501,6 +555,22 @@ class SqliteDownloadRepositoryTest {
                     while (cursor.moveToNext()) add(cursor.getString(nameIndex))
                 }
                 assertEquals(true, names.contains("accepts_ranges"))
+            }
+        }
+    }
+
+    private fun assertReferenceSha256ColumnExists() {
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            db.rawQuery("PRAGMA table_info(downloads)", null).use { cursor ->
+                val names = buildList {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+                assertEquals(true, names.contains("reference_sha256"))
             }
         }
     }
