@@ -46,7 +46,9 @@ import com.espitman.sdm.storage.CompletedFileIdentity
 import com.espitman.sdm.storage.CompletedFileShareAccess
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.focus.FocusRequester
@@ -54,9 +56,16 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.download.Clock
+import com.espitman.sdm.download.CompletedFileDeleteCoordinator
+import com.espitman.sdm.download.DownloadRenameCoordinator
+import com.espitman.sdm.storage.CompletedFileReconciliation
 import com.espitman.sdm.storage.ContentResolverCompletedFileProbe
+import com.espitman.sdm.storage.DocumentsContractContentDocuments
+import com.espitman.sdm.ui.theme.SdmDanger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -183,12 +192,21 @@ internal fun FilesScreen(
     onToast: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val records by AppRepositories.downloads(context).downloads.collectAsState()
+    val repository = AppRepositories.downloads(context)
+    val records by repository.downloads.collectAsState()
     val probe = remember(context) { ContentResolverCompletedFileProbe(context) }
+    val contentDocuments = remember(context) { DocumentsContractContentDocuments(context) }
+    val actionScope = rememberCoroutineScope()
     var completedRows by remember { mutableStateOf<List<FileRowModel>>(emptyList()) }
-    LaunchedEffect(records, probe) {
+    var refreshEpoch by remember { mutableIntStateOf(0) }
+    LaunchedEffect(records, probe, contentDocuments, refreshEpoch) {
         val snapshot = records
         completedRows = withContext(Dispatchers.IO) {
+            CompletedFileReconciliation.reconcile(
+                records = snapshot,
+                repository = repository,
+                contentDocuments = contentDocuments,
+            )
             snapshot.mapNotNull { download ->
                 mapCompletedFile(
                     download = download,
@@ -205,6 +223,13 @@ internal fun FilesScreen(
     val shareAccess = remember(context) { CompletedFileShareAccess(context) }
     var selectedId by remember { mutableStateOf<String?>(null) }
     var menuForId by remember { mutableStateOf<String?>(null) }
+    var renameFor by remember { mutableStateOf<FileRowModel?>(null) }
+    var deleteFor by remember { mutableStateOf<FileRowModel?>(null) }
+    var renaming by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    fun refreshFiles() {
+        refreshEpoch += 1
+    }
     fun performFileAction(action: CompletedFileAction, identity: CompletedFileIdentity) {
         menuForId = null
         shareAccess.perform(action, identity).message?.let(onToast)
@@ -268,10 +293,78 @@ internal fun FilesScreen(
                         onDismissMenu = { menuForId = null },
                         onOpen = { performFileAction(CompletedFileAction.Open, file.identity) },
                         onShare = { performFileAction(CompletedFileAction.Share, file.identity) },
+                        onRename = {
+                            menuForId = null
+                            renameFor = file
+                        },
+                        onDelete = {
+                            menuForId = null
+                            deleteFor = file
+                        },
                     )
                 }
             }
         }
+    }
+    val renamingFile = renameFor
+    if (renamingFile != null) {
+        SdmRenameDialog(
+            fileName = renamingFile.name,
+            submitting = renaming,
+            onDismiss = { if (!renaming) renameFor = null },
+            onConfirm = { submittedName ->
+                if (renaming) return@SdmRenameDialog
+                renaming = true
+                actionScope.launch {
+                    try {
+                        val result = DownloadRenameCoordinator.rename(
+                            downloadId = renamingFile.id,
+                            rawFilename = submittedName,
+                            repository = repository,
+                            clock = Clock.SystemClock,
+                            contentDocuments = contentDocuments,
+                        )
+                        onToast(downloadRenameActionMessage(result))
+                        if (shouldCloseRenameDialog(result)) renameFor = null
+                    } finally {
+                        renaming = false
+                        refreshFiles()
+                    }
+                }
+            },
+        )
+    }
+    val deletingFile = deleteFor
+    if (deletingFile != null) {
+        SdmConfirmDialog(
+            title = "Delete file?",
+            message = "This permanently removes the downloaded file.",
+            dismissLabel = "Keep file",
+            confirmLabel = "Delete file",
+            submitting = deleting,
+            onDismiss = { if (!deleting) deleteFor = null },
+            onConfirm = {
+                if (deleting) return@SdmConfirmDialog
+                deleting = true
+                actionScope.launch {
+                    try {
+                        val result = CompletedFileDeleteCoordinator.delete(
+                            downloadId = deletingFile.id,
+                            repository = repository,
+                            contentDocuments = contentDocuments,
+                        )
+                        onToast(completedFileDeleteActionMessage(result))
+                        if (shouldCloseDeleteDialog(result)) {
+                            if (selectedId == deletingFile.id) selectedId = null
+                            deleteFor = null
+                        }
+                    } finally {
+                        deleting = false
+                        refreshFiles()
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -349,6 +442,8 @@ private fun FileRow(
     onDismissMenu: () -> Unit,
     onOpen: () -> Unit,
     onShare: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val density = LocalDensity.current
     Card(
@@ -400,7 +495,12 @@ private fun FileRow(
                             onDismissRequest = onDismissMenu,
                             properties = PopupProperties(focusable = true),
                         ) {
-                            FileActionMenu(onOpen = onOpen, onShare = onShare)
+                            FileActionMenu(
+                                onOpen = onOpen,
+                                onShare = onShare,
+                                onRename = onRename,
+                                onDelete = onDelete,
+                            )
                         }
                     }
                 }
@@ -421,7 +521,12 @@ private fun FileRow(
 }
 
 @Composable
-private fun FileActionMenu(onOpen: () -> Unit, onShare: () -> Unit) {
+private fun FileActionMenu(
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Surface(
         color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF),
         contentColor = SdmText,
@@ -433,6 +538,8 @@ private fun FileActionMenu(onOpen: () -> Unit, onShare: () -> Unit) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             FileActionMenuItem(SdmIcons.Open, "Open", "Open with another app", onOpen)
             FileActionMenuItem(SdmIcons.Share, "Share", "Send to another app", onShare)
+            FileActionMenuItem(SdmIcons.Rename, "Rename", "Change the file name", onRename)
+            FileActionMenuItem(SdmIcons.Delete, "Delete", "Remove this file", onDelete, danger = true)
         }
     }
 }
@@ -443,7 +550,11 @@ private fun FileActionMenuItem(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    danger: Boolean = false,
 ) {
+    val titleColor = if (danger) SdmDanger else SdmText
+    val iconTint = if (danger) SdmDanger else SdmGoldHigh
+    val iconBackground = if (danger) sdmColor(0xFF191414, 0xFFFFF4F2) else sdmColor(0xFF242318, 0xFFF2EAD2)
     Row(
         Modifier
             .fillMaxWidth()
@@ -454,16 +565,16 @@ private fun FileActionMenuItem(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
-            Modifier.size(34.dp).background(sdmColor(0xFF242318, 0xFFF2EAD2), RoundedCornerShape(10.dp)),
+            Modifier.size(34.dp).background(iconBackground, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, null, tint = SdmGoldHigh, modifier = Modifier.size(17.dp))
+            Icon(icon, null, tint = iconTint, modifier = Modifier.size(17.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(title, color = titleColor, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(
                 subtitle,
-                color = SdmMuted,
+                color = if (danger) SdmDanger.copy(alpha = .78f) else SdmMuted,
                 fontSize = 9.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

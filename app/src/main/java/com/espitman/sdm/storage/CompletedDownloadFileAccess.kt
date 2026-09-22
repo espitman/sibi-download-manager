@@ -34,7 +34,7 @@ class ContentResolverCompletedFileProbe(
 internal fun isReadableLocalFile(destinationPath: String): Boolean {
     if (destinationPath.isBlank()) return false
     val file = File(destinationPath)
-    return file.isFile && file.canRead()
+    return CompletedDestinationAccess.classifyLocal(file) == CompletedDestinationPresence.Readable
 }
 
 internal fun isReadableContentDocument(

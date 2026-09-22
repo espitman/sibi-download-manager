@@ -4,7 +4,12 @@ import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.network.DownloadFilenameResolver
+import com.espitman.sdm.storage.CompletedDestinationPresence
+import com.espitman.sdm.storage.CompletedFileUserMessages
+import com.espitman.sdm.storage.ContentDocumentMutation
+import com.espitman.sdm.storage.ContentDocumentStore
 import com.espitman.sdm.storage.DownloadDestinationRef
+import com.espitman.sdm.storage.renameMessage
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
@@ -36,36 +41,40 @@ object DownloadRenameCoordinator {
         rawFilename: String,
         repository: DownloadRepository,
         clock: Clock,
+        contentDocuments: ContentDocumentStore? = null,
     ): DownloadRenameResult = withContext(Dispatchers.IO) {
         val current = repository.get(downloadId)
-            ?: return@withContext DownloadRenameResult.Failure("Download not found")
+            ?: return@withContext DownloadRenameResult.Failure(CompletedFileUserMessages.DOWNLOAD_NOT_FOUND)
         if (current.state in ACTIVE) {
             return@withContext DownloadRenameResult.PauseRequired()
         }
         val destinationPath = current.destinationPath
         if (destinationPath.isNullOrBlank()) {
-            return@withContext DownloadRenameResult.Failure("Destination path is required")
+            return@withContext DownloadRenameResult.Failure(CompletedFileUserMessages.DESTINATION_REQUIRED)
         }
-        if (DownloadDestinationRef.isContentUri(destinationPath) || current.destinationTreeUri != null) {
-            return@withContext DownloadRenameResult.Failure(
-                "This file is in a shared folder and cannot be renamed here",
+        val validated = validateFilename(rawFilename)
+            ?: return@withContext filenameFailure(rawFilename)
+        if (DownloadDestinationRef.isContentUri(destinationPath)) {
+            return@withContext renameContentDocument(
+                current = current,
+                validated = validated,
+                repository = repository,
+                clock = clock,
+                contentDocuments = contentDocuments,
             )
         }
         val sourceDestination = File(destinationPath)
         val parent = sourceDestination.parentFile
-            ?: return@withContext DownloadRenameResult.Failure("Destination path is required")
-
-        val validated = validateFilename(rawFilename)
-            ?: return@withContext filenameFailure(rawFilename)
+            ?: return@withContext DownloadRenameResult.Failure(CompletedFileUserMessages.DESTINATION_REQUIRED)
         val targetDestination = File(parent, validated)
         if (!samePath(sourceDestination, targetDestination) && targetDestination.exists()) {
-            return@withContext DownloadRenameResult.Failure("A file with that name already exists")
+            return@withContext DownloadRenameResult.Failure(CompletedFileUserMessages.COLLISION)
         }
 
         val plannedMoves = plannedMoves(current.state, sourceDestination, targetDestination)
-            ?: return@withContext DownloadRenameResult.Failure("Completed file is missing")
+            ?: return@withContext DownloadRenameResult.Failure(CompletedFileUserMessages.MISSING)
         if (plannedMoves.any { (from, to) -> to.exists() && !samePath(from, to) }) {
-            return@withContext DownloadRenameResult.Failure("A file with that name already exists")
+            return@withContext DownloadRenameResult.Failure(CompletedFileUserMessages.COLLISION)
         }
 
         val completedMoves = ArrayList<Pair<File, File>>(plannedMoves.size)
@@ -86,7 +95,10 @@ object DownloadRenameCoordinator {
                 throw cancelled
             } catch (failure: Throwable) {
                 rollback(completedMoves)
-                return@withContext DownloadRenameResult.Failure("Could not update download record", failure)
+                return@withContext DownloadRenameResult.Failure(
+                    CompletedFileUserMessages.RECORD_UPDATE_FAILED,
+                    failure,
+                )
             }
             DownloadRenameResult.Success(updated)
         } catch (cancelled: CancellationException) {
@@ -95,12 +107,56 @@ object DownloadRenameCoordinator {
         } catch (failure: Throwable) {
             rollback(completedMoves)
             val message = if (failure is FileAlreadyExistsException) {
-                "A file with that name already exists"
+                CompletedFileUserMessages.COLLISION
             } else {
-                "Could not rename file"
+                CompletedFileUserMessages.RENAME_FAILED
             }
             DownloadRenameResult.Failure(message, failure)
         }
+    }
+
+    private suspend fun renameContentDocument(
+        current: Download,
+        validated: String,
+        repository: DownloadRepository,
+        clock: Clock,
+        contentDocuments: ContentDocumentStore?,
+    ): DownloadRenameResult {
+        val store = contentDocuments
+            ?: return DownloadRenameResult.Failure(CompletedFileUserMessages.ACCESS_UNAVAILABLE)
+        val destinationPath = current.destinationPath
+            ?: return DownloadRenameResult.Failure(CompletedFileUserMessages.DESTINATION_REQUIRED)
+        val presence = store.presence(destinationPath, current.destinationTreeUri)
+        when (presence) {
+            CompletedDestinationPresence.Missing ->
+                return DownloadRenameResult.Failure(CompletedFileUserMessages.MISSING)
+            CompletedDestinationPresence.AccessUnavailable ->
+                return DownloadRenameResult.Failure(CompletedFileUserMessages.ACCESS_UNAVAILABLE)
+            CompletedDestinationPresence.Readable -> Unit
+        }
+        if (validated == current.fileName) {
+            return DownloadRenameResult.Success(current)
+        }
+        val renamed = when (val mutation = store.rename(destinationPath, current.destinationTreeUri, validated)) {
+            is ContentDocumentMutation.Failure ->
+                return DownloadRenameResult.Failure(mutation.renameMessage(), mutation.cause)
+            is ContentDocumentMutation.Success -> mutation
+        }
+        val updated = try {
+            repository.renameRecord(
+                id = current.id,
+                fileName = validated,
+                destinationPath = renamed.documentUri,
+                nowEpochMillis = clock.currentTimeMillis(),
+            )
+        } catch (cancelled: CancellationException) {
+            store.rename(renamed.documentUri, current.destinationTreeUri, current.fileName)
+            throw cancelled
+        } catch (failure: Throwable) {
+            store.rename(renamed.documentUri, current.destinationTreeUri, current.fileName)
+            return DownloadRenameResult.Failure(CompletedFileUserMessages.RECORD_UPDATE_FAILED, failure)
+        }
+        return DownloadRenameResult.Success(updated)
     }
 
     private fun validateFilename(rawFilename: String): String? {
@@ -111,9 +167,9 @@ object DownloadRenameCoordinator {
 
     private fun filenameFailure(rawFilename: String): DownloadRenameResult.Failure {
         val message = when {
-            rawFilename.isBlank() -> "Filename cannot be blank"
-            '/' in rawFilename || '\\' in rawFilename -> "Filename cannot contain path separators"
-            else -> "Filename is unsafe"
+            rawFilename.isBlank() -> CompletedFileUserMessages.FILENAME_BLANK
+            '/' in rawFilename || '\\' in rawFilename -> CompletedFileUserMessages.FILENAME_SEPARATOR
+            else -> CompletedFileUserMessages.FILENAME_UNSAFE
         }
         return DownloadRenameResult.Failure(message)
     }

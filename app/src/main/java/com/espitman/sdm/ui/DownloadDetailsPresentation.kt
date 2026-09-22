@@ -3,6 +3,7 @@ package com.espitman.sdm.ui
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.download.ChecksumVerificationResult
+import com.espitman.sdm.download.CompletedFileDeleteResult
 import com.espitman.sdm.download.DownloadRenameResult
 import com.espitman.sdm.storage.DownloadDestinationRef
 import com.espitman.sdm.storage.SaveLocationLabels
@@ -98,6 +99,13 @@ internal fun checksumVerificationMessage(result: ChecksumVerificationResult): St
 
 internal fun shouldCloseRenameDialog(result: DownloadRenameResult): Boolean =
     result is DownloadRenameResult.Success
+
+internal fun completedFileDeleteActionMessage(result: CompletedFileDeleteResult): String =
+    result.message
+
+internal fun shouldCloseDeleteDialog(result: CompletedFileDeleteResult): Boolean =
+    result is CompletedFileDeleteResult.Deleted ||
+        result is CompletedFileDeleteResult.AlreadyMissing
 
 internal fun moveToTopActionMessage(before: Download, after: Download?): String {
     if (before.state != DownloadState.QUEUED) return "Only queued downloads can be moved"

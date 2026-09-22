@@ -3,7 +3,9 @@ package com.espitman.sdm.ui
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.download.ChecksumVerificationResult
+import com.espitman.sdm.download.CompletedFileDeleteResult
 import com.espitman.sdm.download.DownloadRenameResult
+import com.espitman.sdm.storage.CompletedFileUserMessages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,6 +41,31 @@ class DownloadDetailsActionsTest {
         assertTrue(shouldCloseRenameDialog(DownloadRenameResult.Success(success)))
         assertFalse(shouldCloseRenameDialog(DownloadRenameResult.Failure("Filename is unsafe")))
         assertFalse(shouldCloseRenameDialog(DownloadRenameResult.PauseRequired()))
+    }
+
+    @Test
+    fun deleteMessagesCloseOnlyAfterStorageAndRecordAgree() {
+        assertEquals(
+            CompletedFileUserMessages.DELETED,
+            completedFileDeleteActionMessage(CompletedFileDeleteResult.Deleted()),
+        )
+        assertEquals(
+            CompletedFileUserMessages.ALREADY_DELETED,
+            completedFileDeleteActionMessage(CompletedFileDeleteResult.AlreadyMissing()),
+        )
+        assertEquals(
+            CompletedFileUserMessages.ACCESS_UNAVAILABLE,
+            completedFileDeleteActionMessage(
+                CompletedFileDeleteResult.Failure(CompletedFileUserMessages.ACCESS_UNAVAILABLE),
+            ),
+        )
+        assertTrue(shouldCloseDeleteDialog(CompletedFileDeleteResult.Deleted()))
+        assertTrue(shouldCloseDeleteDialog(CompletedFileDeleteResult.AlreadyMissing()))
+        assertFalse(
+            shouldCloseDeleteDialog(
+                CompletedFileDeleteResult.Failure(CompletedFileUserMessages.DELETE_FAILED),
+            ),
+        )
     }
 
     @Test

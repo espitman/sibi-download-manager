@@ -81,6 +81,7 @@ import com.espitman.sdm.download.DownloadChecksumVerifier
 import com.espitman.sdm.download.DownloadRenameCoordinator
 import com.espitman.sdm.download.DownloadRenameResult
 import com.espitman.sdm.download.DownloadTransferService
+import com.espitman.sdm.storage.DocumentsContractContentDocuments
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -265,6 +266,7 @@ internal fun InteractiveDownloadsScreen(
                         rawFilename = fileName,
                         repository = repository,
                         clock = Clock.SystemClock,
+                        contentDocuments = DocumentsContractContentDocuments(context),
                     )
                 },
                 onMoveToTop = {
@@ -805,12 +807,12 @@ private fun DownloadDetailsScreen(
             returnToList = onBack,
         )
     }
-    if (renameOpen) RenameDownloadDialog(
+    if (renameOpen) SdmRenameDialog(
         fileName = download.fileName,
         submitting = renaming,
         onDismiss = { if (!renaming) renameOpen = false },
         onConfirm = { submittedName ->
-            if (renaming) return@RenameDownloadDialog
+            if (renaming) return@SdmRenameDialog
             renaming = true
             actionScope.launch {
                 try {
@@ -999,47 +1001,6 @@ private fun DisclosureInfo(
     }
 }
 @Composable private fun DisclosureRow(title:String,value:String,open:Boolean,onClick:()->Unit){Row(Modifier.fillMaxWidth().heightIn(min=54.dp).clickable(onClick=onClick).padding(horizontal=14.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically){Text(title,fontSize=12.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text(value,fontSize=12.sp);Icon(SdmIcons.Chevron,null,tint=SdmMuted,modifier=Modifier.padding(start=8.dp).size(16.dp).rotate(if(open)90f else 0f))}}
-
-@Composable
-private fun RenameDownloadDialog(
-    fileName: String,
-    submitting: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var value by remember { mutableStateOf(fileName) }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
-                Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
-                    Column(Modifier.padding(21.dp)) {
-                        Text("Rename", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        BasicTextField(
-                            value = value,
-                            onValueChange = { if (!submitting) value = it },
-                            singleLine = true,
-                            enabled = !submitting,
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 13.sp, lineHeight = 20.sp),
-                            cursorBrush = SolidColor(SdmGold),
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 20.dp).height(48.dp)
-                                .background(SdmSurface, RoundedCornerShape(14.dp))
-                                .border(1.dp, SdmLine, RoundedCornerShape(14.dp))
-                                .padding(horizontal = 14.dp, vertical = 14.dp),
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SheetActionButton("Cancel", false, Modifier.weight(1f), onDismiss)
-                            SheetActionButton("Rename", true, Modifier.weight(1f)) {
-                                if (!submitting) onConfirm(value)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable private fun CancelDownloadDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
