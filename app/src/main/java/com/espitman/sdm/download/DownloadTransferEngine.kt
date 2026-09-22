@@ -291,10 +291,10 @@ class DownloadTransferEngine(
                                 }
                                 if (allowedBytes <= 0) break
 
-                                onChunkRead(allowedBytes)
-
                                 fileOutputStream.write(buffer, 0, allowedBytes)
                                 totalBytesRead += allowedBytes
+                                onChunkRead(allowedBytes)
+                                currentCoroutineContext().ensureActive()
 
                                 if (
                                     totalBytesRead - lastReportedBytes >= progressUpdateIntervalBytes &&
