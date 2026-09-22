@@ -131,7 +131,7 @@ internal fun splitSpeedValue(bytesPerSecond: Long): String {
     return if (index == 0) {
         rate.toString()
     } else {
-        String.format(Locale.US, "%.1f", value)
+        String.format(Locale.US, "%.0f", value)
     }
 }
 

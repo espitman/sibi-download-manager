@@ -64,7 +64,7 @@ class DownloadDetailsTelemetryTest {
         assertEquals("—", presentation.metrics.sizeValue)
         assertEquals("—", presentation.metrics.sizeUnit)
         assertEquals("—", presentation.metrics.remaining)
-        assertEquals("1.0", presentation.metrics.speedValue)
+        assertEquals("1", presentation.metrics.speedValue)
         assertEquals("MB/s", presentation.metrics.speedUnit)
         assertEquals(listOf(0L, 1_048_576L), presentation.speedSamples)
     }
@@ -83,7 +83,7 @@ class DownloadDetailsTelemetryTest {
 
         assertEquals("1.57/2.18", presentation.metrics.sizeValue)
         assertEquals("GB", presentation.metrics.sizeUnit)
-        assertEquals("12.4", presentation.metrics.speedValue)
+        assertEquals("12", presentation.metrics.speedValue)
         assertEquals("MB/s", presentation.metrics.speedUnit)
     }
 

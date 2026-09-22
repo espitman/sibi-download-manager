@@ -124,6 +124,6 @@ internal fun formatCardSpeed(bytesPerSecond: Long): String {
     return if (unitIndex == 0) {
         "$bytesPerSecond B/s"
     } else {
-        String.format(Locale.US, "%.1f %s/s", value, units[unitIndex])
+        String.format(Locale.US, "%.0f %s/s", value, units[unitIndex])
     }
 }

@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
                 context = this@MainActivity,
                 trigger = DownloadInterruptionTrigger.PROCESS_RESTART,
             )
+            val repository = AppRepositories.downloads(this@MainActivity)
+            repository.awaitInitialized()
+            TransferNotificationCoordinator(this@MainActivity).clearOrphanSummary(repository.downloads.value)
         }
         setContent {
             val request by pendingRequest

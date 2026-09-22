@@ -50,6 +50,16 @@ class TransferNotificationCoordinator(context: Context) {
         manager.createNotificationChannel(channel)
     }
 
+    /** Remove a summary left by a previous process when no transfer still owns the foreground. */
+    fun clearOrphanSummary(downloads: List<Download>) {
+        if (downloads.any { it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING }) return
+        val manager = appContext.getSystemService(NotificationManager::class.java) ?: return
+        try {
+            manager.cancel(TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID)
+        } catch (_: SecurityException) {
+        }
+    }
+
     private fun ensureAlertChannel(manager: NotificationManager) {
         val spec = TransferAlertChannelSpec.create(
             name = appContext.getString(R.string.transfer_alert_channel_name),
@@ -125,10 +135,12 @@ class TransferNotificationCoordinator(context: Context) {
                     manager.notify(download.id, CHILD_NOTIFICATION_ID, childNotification(download))
                     postedChildStates[download.id] = download.state
                 }
-                manager.notify(
-                    TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID,
-                    ongoingTransferNotification(activeCount),
-                )
+                if (activeCount > 0) {
+                    manager.notify(
+                        TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID,
+                        ongoingTransferNotification(activeCount),
+                    )
+                }
                 applyAlertPlans(manager, downloads, settings, nowElapsedMs)
             } catch (_: SecurityException) {
             }
@@ -181,6 +193,7 @@ class TransferNotificationCoordinator(context: Context) {
                 downloads = downloads,
             )
             try {
+                manager.cancel(TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID)
                 if (completions.isNotEmpty()) ensureAlertChannel(manager)
                 completions.forEach { download ->
                     manager.notify(

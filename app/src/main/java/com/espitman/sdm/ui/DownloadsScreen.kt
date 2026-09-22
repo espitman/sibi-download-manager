@@ -203,6 +203,8 @@ internal fun InteractiveDownloadsScreen(
 ) {
     val context = LocalContext.current
     val repository = AppRepositories.downloads(context)
+    val completedVisibility = remember(context) { CompletedDownloadsVisibility(context) }
+    var hiddenCompletedIds by remember(context) { mutableStateOf(completedVisibility.hiddenIds()) }
     val records by repository.downloads.collectAsState()
     val speedTracker = remember { RecentTransferSpeedTracker() }
     var nowEpochMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -232,7 +234,25 @@ internal fun InteractiveDownloadsScreen(
     val recentBytesPerSecond = remember(records, nowEpochMillis) {
         speedTracker.aggregateBytesPerSecond(records, nowEpochMillis)
     }
-    val downloads = records.map { record -> mapDownloadToCard(record, nowEpochMillis) }
+    var displayedBytesPerSecond by remember { mutableLongStateOf(0L) }
+    val latestBytesPerSecond by rememberUpdatedState(recentBytesPerSecond)
+    LaunchedEffect(hasActive) {
+        if (!hasActive) {
+            displayedBytesPerSecond = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            displayedBytesPerSecond = latestBytesPerSecond
+            delay(STATUS_SPEED_DISPLAY_REFRESH_MILLIS)
+        }
+    }
+    val downloads = visibleDownloadCards(
+        records.map { record -> mapDownloadToCard(record, nowEpochMillis) },
+        hiddenCompletedIds,
+    )
+    var completedDeleteId by remember { mutableStateOf<String?>(null) }
+    var clearCompletedRequested by remember { mutableStateOf(false) }
+    var deletingCompleted by remember { mutableStateOf(false) }
     var overlayClosing by remember { mutableStateOf(false) }
     val overlayScope = rememberCoroutineScope()
     val dismissOverlay: () -> Unit = {
@@ -317,8 +337,8 @@ internal fun InteractiveDownloadsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
-            item { DownloadStatusCard(records, downloadedTodayBytes, recentBytesPerSecond) }
-            item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size,
+            item { DownloadStatusCard(records, downloadedTodayBytes, displayedBytesPerSecond) }
+            item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size, uiState.category,
                 onDownloadAll = {
                     overlayScope.launch {
                         AppRepositories.queueScheduler(context).downloadAll()
@@ -332,7 +352,11 @@ internal fun InteractiveDownloadsScreen(
                         }
                         onToast("All active downloads paused")
                     }
-                }) }
+                },
+                onClearCompleted = {
+                    if (downloads.any { it.category == DownloadCategory.Completed }) clearCompletedRequested = true
+                },
+            ) }
             item { Spacer(Modifier.height(8.dp)); DownloadTabs(uiState.category) { uiState.category = it; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
             val visibleDownloads = filterDownloadCards(downloads, uiState.category, uiState.query)
             if (visibleDownloads.isEmpty()) {
@@ -360,11 +384,61 @@ internal fun InteractiveDownloadsScreen(
                                 )
                             }
                         },
+                        onDeleteCompleted = { completedDeleteId = item.id },
                     )
                     Spacer(Modifier.height(10.dp))
                 }
             }
         }
+    }
+
+    val deleteTarget = completedDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state == DownloadState.COMPLETED } }
+    if (deleteTarget != null) {
+        SdmConfirmDialog(
+            title = "Remove from Completed?",
+            message = "This removes the download from the Completed list. The file stays in Files.",
+            dismissLabel = "Keep in list",
+            confirmLabel = "Remove",
+            submitting = deletingCompleted,
+            onDismiss = { if (!deletingCompleted) completedDeleteId = null },
+            onConfirm = {
+                if (deletingCompleted) return@SdmConfirmDialog
+                deletingCompleted = true
+                overlayScope.launch {
+                    try {
+                        hiddenCompletedIds = completedVisibility.hide(listOf(deleteTarget.id))
+                        onToast("Removed from Completed. File remains in Files.")
+                        completedDeleteId = null
+                    } finally {
+                        deletingCompleted = false
+                    }
+                }
+            },
+        )
+    }
+    if (clearCompletedRequested) {
+        val visibleCompletedIds = downloads.filter { it.category == DownloadCategory.Completed }.map { it.id }
+        SdmConfirmDialog(
+            title = "Clear Completed list?",
+            message = "This removes ${visibleCompletedIds.size} downloads from the list. Their files stay in Files.",
+            dismissLabel = "Keep in list",
+            confirmLabel = "Clear All",
+            submitting = deletingCompleted,
+            onDismiss = { if (!deletingCompleted) clearCompletedRequested = false },
+            onConfirm = {
+                if (deletingCompleted) return@SdmConfirmDialog
+                deletingCompleted = true
+                overlayScope.launch {
+                    try {
+                        hiddenCompletedIds = completedVisibility.hide(visibleCompletedIds)
+                        onToast("Completed list cleared. Files remain in Files.")
+                        clearCompletedRequested = false
+                    } finally {
+                        deletingCompleted = false
+                    }
+                }
+            },
+        )
     }
 
     CompositionLocalProvider(LocalHomeSheetVisible provides !overlayClosing) { when (uiState.overlay) {
@@ -495,8 +569,8 @@ private fun DownloadStatusCard(
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("${values.activeCount} active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                Row(Modifier.padding(top = 10.dp).height(40.dp), verticalAlignment = Alignment.Bottom) { Text(values.speedValue, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
-                Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
+                Row(Modifier.padding(top = 10.dp).height(44.dp), verticalAlignment = Alignment.Bottom) { Text(values.speedValue, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
+                Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 14.dp))
                 Row(Modifier.fillMaxWidth()) { DownloadStat(values.downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(values.remaining, "Remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(values.connections, "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
             }
         }
@@ -507,10 +581,14 @@ private fun DownloadStatusCard(
 @Composable private fun DownloadStat(value: String, label: String, modifier: Modifier) { Column(modifier.padding(end = 7.dp)) { Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(label, color = SdmMuted, fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp)) } }
 
 @Composable
-private fun DownloadToolbar(count: Int, onDownloadAll: () -> Unit, onPauseAll: () -> Unit) {
+private fun DownloadToolbar(count: Int, category: DownloadCategory, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text("Downloads", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold); Text("$count items", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp)) }
-        BulkButton("Download All", SdmIcons.DownloadAll, true, onDownloadAll); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, onPauseAll)
+        if (category == DownloadCategory.Completed) {
+            BulkButton("Clear All", SdmIcons.Delete, false, onClearCompleted)
+        } else {
+            BulkButton("Download All", SdmIcons.DownloadAll, true, onDownloadAll); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, onPauseAll)
+        }
     }
 }
 
@@ -560,7 +638,7 @@ internal fun SdmEmptyState(title: String, description: String) {
 }
 
 @Composable
-private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onAction: () -> Unit) {
+private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onAction: () -> Unit, onDeleteCompleted: () -> Unit) {
     val queued = item.category == DownloadCategory.Queued
     Surface(color = SdmSurface, contentColor = SdmText, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.fillMaxWidth().then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)) {
         Column(Modifier.padding(16.dp)) {
@@ -570,6 +648,10 @@ private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onActio
                 Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 18.9.sp, fontWeight = FontWeight.Bold); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
                 Spacer(Modifier.width(12.dp))
                 if (item.category == DownloadCategory.Completed) {
+                    Surface(onClick = onDeleteCompleted, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmMuted, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(SdmIcons.Delete, "Delete completed download", modifier = Modifier.size(18.dp)) }
+                    }
+                    Spacer(Modifier.width(6.dp))
                     Surface(color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
                         Box(contentAlignment = Alignment.Center) { Icon(SdmIcons.Check, "Completed", modifier = Modifier.size(19.dp)) }
                     }

@@ -4,7 +4,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import java.time.Instant
 import java.time.ZoneId
-import java.util.Locale
+import kotlin.math.roundToLong
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -33,7 +33,9 @@ internal fun downloadStatusCardValues(
     val speedValue = if (activeCount == 0) {
         "0"
     } else {
-        String.format(Locale.US, "%.1f", recentBytesPerSecond.coerceAtLeast(0L) / (1024.0 * 1024.0))
+        val mebibyte = 1024L * 1024L
+        val speed = recentBytesPerSecond.coerceAtLeast(0L)
+        if (speed < mebibyte) "0" else (speed.toDouble() / mebibyte).roundToLong().toString()
     }
     return DownloadStatusCardValues(
         activeCount = activeCount,
@@ -81,6 +83,7 @@ internal fun saturatingAdd(left: Long, right: Long): Long {
 }
 
 internal const val ACTIVE_STATUS_REFRESH_DELAY_MILLIS = 1_000L
+internal const val STATUS_SPEED_DISPLAY_REFRESH_MILLIS = 3_000L
 internal const val DEFAULT_IDLE_STATUS_REFRESH_MAX_DELAY_MILLIS = 15 * 60 * 1000L
 
 internal suspend fun transferredBytesForLocalDayOrZero(query: suspend () -> Long): Long {

@@ -62,7 +62,7 @@ class DownloadStatusCardMetricsTest {
 
         assertEquals(2, values.activeCount)
         assertEquals("1", values.connections)
-        assertEquals("0.0", values.speedValue)
+        assertEquals("0", values.speedValue)
     }
 
     @Test
@@ -79,7 +79,7 @@ class DownloadStatusCardMetricsTest {
             recentBytesPerSecond = 1_572_864L,
         )
         assertEquals("—", unknown.remaining)
-        assertEquals("1.5", unknown.speedValue)
+        assertEquals("2", unknown.speedValue)
 
         val remaining = downloadStatusCardValues(
             listOf(
@@ -136,7 +136,7 @@ class DownloadStatusCardMetricsTest {
             recentBytesPerSecond = 2_097_152L,
         )
         assertEquals(1, live.activeCount)
-        assertEquals("2.0", live.speedValue)
+        assertEquals("2", live.speedValue)
         assertEquals(formatBytes(250L), live.downloadedToday)
         assertEquals("—", live.remaining)
         assertEquals("1", live.connections)

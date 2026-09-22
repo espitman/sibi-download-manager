@@ -58,7 +58,7 @@ class DownloadCardMappingTest {
         )
 
         assertEquals(DownloadCategory.Downloading, card.category)
-        assertEquals("62.5 KB/s", card.metadataValue)
+        assertEquals("63 KB/s", card.metadataValue)
         assertEquals("50% · 62.50 KB", card.progressLabel)
         assertEquals("00:01 left", card.trailing)
         assertEquals(.5f, card.progress)
@@ -78,7 +78,7 @@ class DownloadCardMappingTest {
         )
 
         assertEquals("Unknown size", card.size)
-        assertEquals("2.0 KB/s", card.metadataValue)
+        assertEquals("2 KB/s", card.metadataValue)
         assertEquals("— · 2.00 KB", card.progressLabel)
         assertEquals("Calculating…", card.trailing)
         assertEquals(0f, card.progress)
@@ -265,10 +265,22 @@ class DownloadCardMappingTest {
     }
 
     @Test
-    fun cardSpeedUsesReferenceOneDecimalStyle() {
+    fun cardSpeedUsesWholeUnits() {
         assertEquals("—", formatCardSpeed(0L))
         assertEquals("500 B/s", formatCardSpeed(500L))
-        assertEquals("6.2 MB/s", formatCardSpeed((6.2 * 1024 * 1024).toLong()))
-        assertEquals("12.4 MB/s", formatCardSpeed((12.4 * 1024 * 1024).toLong()))
+        assertEquals("6 MB/s", formatCardSpeed((6.2 * 1024 * 1024).toLong()))
+        assertEquals("12 MB/s", formatCardSpeed((12.4 * 1024 * 1024).toLong()))
+    }
+
+    @Test
+    fun clearingCompletedHistoryDoesNotHideOtherCategories() {
+        val completed = mapDownloadToCard(recordFor(DownloadState.COMPLETED), 3_000L)
+        val paused = mapDownloadToCard(recordFor(DownloadState.PAUSED), 3_000L)
+        val queued = mapDownloadToCard(recordFor(DownloadState.QUEUED), 3_000L)
+
+        assertEquals(
+            listOf(paused, queued),
+            visibleDownloadCards(listOf(completed, paused, queued), setOf(completed.id, paused.id)),
+        )
     }
 }

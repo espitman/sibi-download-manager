@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import androidx.core.app.ServiceCompat
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.domain.Download
@@ -155,6 +156,7 @@ class DownloadTransferService : Service() {
             applyKeepActiveWakeLockLocked(shouldHold = false)
         }
         val teardownSnapshot = AppRepositories.downloads(applicationContext).downloads.value
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         notifications.onServiceTeardown(
             downloads = teardownSnapshot,
             settings = SettingsRepository.get(applicationContext).settings.value,
