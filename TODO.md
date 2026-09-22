@@ -208,6 +208,7 @@ Depends on the preceding stages.
   - Verification: `README.md` now describes real HTTP/HTTPS downloads, background/resume/queue behavior, Files/Browser, configuration, local builds/tests, release steps, and measured limitations. `docs/release.md` and `docs/release-validation.md` explain unsigned/distribution signing and QA outcomes (2026-09-23).
 - [x] SDM-069 — Prepare release configuration and versioning; build and test the release package without committing signing keys.
   - Verification: Version is `0.2.0` / code `2`; release APK and AAB built, and a QA-signed non-debuggable APK passed v2/v3 signature verification on API 36. Its direct HTTP download produced a collision-safe file with source-matching SHA-256; reinstall preserved two Completed records. Release artifacts and QA signature are outside git, and production signing/publication remain separate; see `docs/release.md` and `docs/release-validation.md` (2026-09-23).
-- [ ] SDM-070 — Commit and push verified changes with a delivery report; publish the package publicly only if requested by the user.
+- [x] SDM-070 — Commit and push verified changes with a delivery report; publish the package publicly only if requested by the user.
+  - Verification: Verified source was committed as `8636764` and pushed to GitHub `main`. The final delivery report in `docs/release-delivery.md` records tested devices, checks, artifacts, and remaining limits. The report and this checklist tick are committed and pushed as a follow-up documentation commit; no package was published publicly (2026-09-23).
 
 Acceptance: The complete download and recovery lifecycle is tested on-device, output files are intact, no placeholder controls remain, and actual limitations are documented.
