@@ -10,8 +10,8 @@ object DownloadFreshRestartMutation {
         lastModified: String?,
         totalBytes: Long?,
     ): Download {
-        require(current.state == DownloadState.CONNECTING) {
-            "Fresh restart can only begin while connecting"
+        require(current.state == DownloadState.CONNECTING || current.state == DownloadState.DOWNLOADING) {
+            "Fresh restart can only begin while active"
         }
         totalBytes?.let { require(it >= 0L) { "Restart total bytes cannot be negative" } }
         val cleanEtag = etag?.trim()?.takeIf { it.isNotEmpty() }

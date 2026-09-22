@@ -14,9 +14,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -100,6 +105,62 @@ class DownloadTransferEngine(
                 "Resume requires a stored strong ETag or Last-Modified",
             )
             return@withContext
+        }
+
+        val segmentPlan = SegmentedTransferPolicy.plan(existingDownload, resumeOffset)
+        if (segmentPlan != null) {
+            when (
+                TransferSpacePreflight.evaluate(
+                    knownFinalSizeBytes = existingDownload.totalBytes,
+                    existingValidPartBytes = 0L,
+                    restartingFresh = false,
+                    localCapacity = queryLocalCapacity(tempFile),
+                    destinationTreeUri = existingDownload.destinationTreeUri,
+                    treeCapacity = queryTreeCapacity(existingDownload.destinationTreeUri),
+                )
+            ) {
+                TransferSpacePreflightResult.Allowed -> Unit
+                is TransferSpacePreflightResult.Insufficient -> {
+                    reportFailure(repository, downloadId, TransferSpacePreflight.INSUFFICIENT_STORAGE_ERROR)
+                    return@withContext
+                }
+            }
+            val connecting = repository.get(downloadId)
+                ?: throw IllegalArgumentException("Download not found: $downloadId")
+            repository.transition(
+                id = downloadId,
+                to = DownloadState.DOWNLOADING,
+                nowEpochMillis = validTimestamp(connecting.updatedAtEpochMillis),
+            )
+            try {
+                val segmented = downloadSegments(
+                    url = url,
+                    ranges = segmentPlan,
+                    totalBytes = existingDownload.totalBytes!!,
+                    validators = storedValidators,
+                    tempFile = tempFile,
+                    repository = repository,
+                    downloadId = downloadId,
+                )
+                if (segmented) {
+                    withContext(NonCancellable) {
+                        updateProgress(repository, downloadId, existingDownload.totalBytes)
+                        finalizeCompletedPart(repository, downloadId, tempFile, destinationFile)
+                    }
+                    return@withContext
+                }
+            } catch (cancellation: CancellationException) {
+                persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested, pauseCause)
+                throw cancellation
+            } catch (e: Throwable) {
+                val safeMessage = if (e is IOException) {
+                    e.message?.takeIf { it.isNotBlank() } ?: "Network I/O failure"
+                } else {
+                    e.message?.takeIf { it.isNotBlank() } ?: "Segmented transfer failure"
+                }
+                reportFailure(repository, downloadId, safeMessage)
+                return@withContext
+            }
         }
 
         var writeFile = tempFile
@@ -285,11 +346,13 @@ class DownloadTransferEngine(
 
                     val connectingDownload = repository.get(downloadId)
                         ?: throw IllegalArgumentException("Download not found: $downloadId")
-                    repository.transition(
-                        id = downloadId,
-                        to = DownloadState.DOWNLOADING,
-                        nowEpochMillis = validTimestamp(connectingDownload.updatedAtEpochMillis),
-                    )
+                    if (connectingDownload.state != DownloadState.DOWNLOADING) {
+                        repository.transition(
+                            id = downloadId,
+                            to = DownloadState.DOWNLOADING,
+                            nowEpochMillis = validTimestamp(connectingDownload.updatedAtEpochMillis),
+                        )
+                    }
 
                     val tempParent = writeFile.parentFile
                     if (tempParent != null && !tempParent.exists() && !tempParent.mkdirs()) {
@@ -510,6 +573,200 @@ class DownloadTransferEngine(
         return requestBuilder.build()
     }
 
+    private suspend fun downloadSegments(
+        url: String,
+        ranges: List<TransferByteRange>,
+        totalBytes: Long,
+        validators: HttpRangeResume.ResumeValidators,
+        tempFile: File,
+        repository: DownloadRepository,
+        downloadId: String,
+    ): Boolean {
+        val segmentFiles = ranges.indices.map { File(tempFile.path + ".segment-$it") }
+        segmentFiles.forEach(::deleteQuietly)
+        deleteQuietly(tempFile)
+        val progress = LongArray(ranges.size)
+        val progressMutex = Mutex()
+        var lastReportedBytes = 0L
+        var lastReportedAt = clock.currentTimeMillis()
+        return try {
+            coroutineScope {
+                ranges.mapIndexed { index, range ->
+                    async {
+                        downloadSegment(
+                            url = url,
+                            range = range,
+                            totalBytes = totalBytes,
+                            validators = validators,
+                            output = segmentFiles[index],
+                        ) { written ->
+                            progressMutex.withLock {
+                                progress[index] += written
+                                val aggregate = progress.sum()
+                                if (shouldPublishProgress(aggregate, lastReportedBytes, lastReportedAt, totalBytes)) {
+                                    updateProgress(repository, downloadId, aggregate)
+                                    lastReportedBytes = aggregate
+                                    lastReportedAt = clock.currentTimeMillis()
+                                }
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            val parent = tempFile.parentFile
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                throw IOException("Could not create temporary download directory: ${parent.path}")
+            }
+            FileOutputStream(tempFile, false).use { merged ->
+                segmentFiles.forEach { segment ->
+                    segment.inputStream().use { it.copyTo(merged, bufferSizeBytes) }
+                    deleteQuietly(segment)
+                }
+                merged.flush()
+            }
+            if (tempFile.length() != totalBytes) {
+                throw IOException("Segment merge length mismatch: expected $totalBytes, received ${tempFile.length()}")
+            }
+            true
+        } catch (_: SegmentFallbackException) {
+            segmentFiles.forEach(::deleteQuietly)
+            deleteQuietly(tempFile)
+            val current = repository.get(downloadId)
+                ?: throw IllegalArgumentException("Download not found: $downloadId")
+            repository.beginFreshRestart(
+                id = downloadId,
+                nowEpochMillis = validTimestamp(current.updatedAtEpochMillis),
+                etag = validators.etag,
+                lastModified = validators.lastModified,
+                totalBytes = totalBytes,
+            )
+            false
+        } catch (cancellation: CancellationException) {
+            segmentFiles.forEach(::deleteQuietly)
+            deleteQuietly(tempFile)
+            throw cancellation
+        } catch (error: Throwable) {
+            segmentFiles.forEach(::deleteQuietly)
+            deleteQuietly(tempFile)
+            throw error
+        }
+    }
+
+    private suspend fun downloadSegment(
+        url: String,
+        range: TransferByteRange,
+        totalBytes: Long,
+        validators: HttpRangeResume.ResumeValidators,
+        output: File,
+        onBytesWritten: suspend (Long) -> Unit,
+    ) {
+        val validator = HttpRangeResume.ifRangeHeaderValue(validators)
+            ?: throw SegmentFallbackException()
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .header(HttpRangeResume.HEADER_RANGE, range.headerValue())
+            .header(HttpRangeResume.HEADER_IF_RANGE, validator)
+            .build()
+        val call = okHttpClient.newCall(request)
+        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
+            if (cause is CancellationException) call.cancel()
+        }
+        try {
+            call.execute().use { response ->
+                if (response.code != HttpRangeResume.HTTP_PARTIAL_CONTENT) {
+                    throw SegmentFallbackException()
+                }
+                val parsed = try {
+                    HttpRangeResume.validateContentRange(
+                        response.header(HttpRangeResume.HEADER_CONTENT_RANGE),
+                        range.start,
+                        totalBytes,
+                    )
+                } catch (_: IllegalArgumentException) {
+                    throw SegmentFallbackException()
+                }
+                if (parsed.end != range.endInclusive) throw SegmentFallbackException()
+                if (
+                    HttpRangeResume.validateStoredValidators(
+                        validators,
+                        response.header(HttpRangeResume.HEADER_ETAG),
+                        response.header(HttpRangeResume.HEADER_LAST_MODIFIED),
+                    ) !is HttpRangeResume.ResumeValidation.Ok
+                ) {
+                    throw SegmentFallbackException()
+                }
+                val body = response.body ?: throw SegmentFallbackException()
+                try {
+                    HttpRangeResume.validateDeclaredBodyLength(range.length, body.contentLength())
+                } catch (_: IllegalArgumentException) {
+                    throw SegmentFallbackException()
+                }
+                output.parentFile?.mkdirs()
+                var received = 0L
+                FileOutputStream(output, false).use { stream ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(bufferSizeBytes)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            if (received + read > range.length) throw SegmentFallbackException()
+                            var offset = 0
+                            while (offset < read) {
+                                val admitted = speedLimiter.acquire(read - offset)
+                                currentCoroutineContext().ensureActive()
+                                val written = min(admitted, read - offset)
+                                stream.write(buffer, offset, written)
+                                offset += written
+                                received += written
+                                onChunkRead(written)
+                                onBytesWritten(written.toLong())
+                            }
+                        }
+                        stream.flush()
+                    }
+                }
+                if (received != range.length) throw SegmentFallbackException()
+            }
+        } finally {
+            cancellationHandle.dispose()
+        }
+    }
+
+    private suspend fun finalizeCompletedPart(
+        repository: DownloadRepository,
+        downloadId: String,
+        tempFile: File,
+        destinationFile: File,
+    ) {
+        finalizeWithoutOverwrite(tempFile, destinationFile)
+        val downloading = repository.get(downloadId)
+            ?: throw IllegalArgumentException("Download not found: $downloadId")
+        val published = destinationPublisher.afterLocalFinalize(downloading, destinationFile)
+        val changed = published.destinationPath != downloading.destinationPath ||
+            published.destinationTreeUri != downloading.destinationTreeUri ||
+            published.destinationDisplayLabel != downloading.destinationDisplayLabel ||
+            published.fileName != downloading.fileName
+        val source = if (changed) {
+            repository.updateDestination(
+                id = downloadId,
+                destinationPath = published.destinationPath,
+                destinationTreeUri = published.destinationTreeUri,
+                destinationDisplayLabel = published.destinationDisplayLabel,
+                fileName = published.fileName,
+                nowEpochMillis = validTimestamp(downloading.updatedAtEpochMillis),
+            )
+        } else {
+            downloading
+        }
+        repository.transition(
+            id = downloadId,
+            to = DownloadState.COMPLETED,
+            nowEpochMillis = validTimestamp(source.updatedAtEpochMillis),
+        )
+    }
+
     private suspend fun beginFreshRestart(
         repository: DownloadRepository,
         downloadId: String,
@@ -688,3 +945,5 @@ class DownloadTransferEngine(
         const val DEFAULT_PROGRESS_UPDATE_INTERVAL_MILLIS = 1_000L
     }
 }
+
+private class SegmentFallbackException : IOException()
