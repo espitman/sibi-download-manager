@@ -207,6 +207,26 @@ class SqliteDownloadRepository(
         }
     }
 
+    override suspend fun resumeCancelled(id: String, nowEpochMillis: Long): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                if (current.state != DownloadState.CANCELLED) return@inTransaction
+                val queued = DownloadStateMachine.transition(
+                    current,
+                    DownloadState.QUEUED,
+                    maxOf(nowEpochMillis, current.updatedAtEpochMillis),
+                )
+                persistDownloadMutation(db, id, current, queued)
+                updated = queued
+            }
+            if (updated != null) refreshLocked(database.readableDatabase)
+            updated
+        }
+    }
+
     override suspend fun retryFailed(
         id: String,
         automatic: Boolean,

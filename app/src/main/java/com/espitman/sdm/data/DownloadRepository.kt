@@ -53,6 +53,7 @@ interface DownloadRepository {
     ): Download? = pauseAtExactOffset(id, fileLengthBytes, nowEpochMillis)
     suspend fun cancelAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun resumePaused(id: String, nowEpochMillis: Long): Download?
+    suspend fun resumeCancelled(id: String, nowEpochMillis: Long): Download? = null
     /**
      * Re-queues a FAILED record, preserving downloaded bytes and destination path.
      * Automatic retries increment [Download.automaticRetryCount] once; manual retries reset it to 0.

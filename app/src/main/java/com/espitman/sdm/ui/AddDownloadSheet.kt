@@ -55,7 +55,10 @@ internal fun AddDownloadSheet(
     requestContext: ScopedRequestContext? = null,
     coordinator: DownloadSubmissionCoordinator = AppRepositories.submissionCoordinator(LocalContext.current),
 ) {
-    var url by remember(initialUrl) { mutableStateOf(initialUrl) }
+    val clipboard = LocalClipboardManager.current
+    var url by remember(initialUrl) {
+        mutableStateOf(initialDownloadUrl(initialUrl, clipboard.getText()?.text))
+    }
     var urlError by remember { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     var savedHandoffPhase by rememberSaveable {
@@ -67,7 +70,6 @@ internal fun AddDownloadSheet(
         savedHandoffPhase = handoff.savedPhase
         savedHandoffUrl = handoff.savedPendingUrl
     }
-    val clipboard = LocalClipboardManager.current
     val fileName = suggestedFileName?.takeIf { it.isNotBlank() }
         ?: url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
@@ -254,6 +256,11 @@ internal fun AddDownloadSheet(
             }
         }
     }
+}
+
+internal fun initialDownloadUrl(explicitUrl: String, clipboardText: String?): String {
+    if (explicitUrl.isNotBlank()) return explicitUrl
+    return (DownloadUrl.validate(clipboardText.orEmpty()) as? DownloadUrlResult.Valid)?.url.orEmpty()
 }
 
 @Composable

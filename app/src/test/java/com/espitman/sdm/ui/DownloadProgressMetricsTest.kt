@@ -191,8 +191,8 @@ class DownloadProgressMetricsTest {
         // Speed formatting
         assertEquals("—", formatDownloadSpeed(0L))
         assertEquals("—", formatDownloadSpeed(-100L))
-        assertEquals("500 B/s", formatDownloadSpeed(500L))
-        assertEquals("1.00 KB/s", formatDownloadSpeed(1024L))
+        assertEquals("0 MB/s", formatDownloadSpeed(500L))
+        assertEquals("0 MB/s", formatDownloadSpeed(1024L))
 
         // ETA formatting
         assertEquals("—", formatEta(null))

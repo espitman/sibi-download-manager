@@ -80,12 +80,9 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.heightIn
 import kotlinx.coroutines.delay
@@ -161,14 +158,7 @@ fun SdmApp(
                     targetState = destination,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     transitionSpec = {
-                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                        slideInHorizontally(
-                            animationSpec = tween(170, easing = CubicBezierEasing(.2f, .82f, .24f, 1f)),
-                            initialOffsetX = { direction * it / 9 },
-                        ) togetherWith slideOutHorizontally(
-                            animationSpec = tween(150, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)),
-                            targetOffsetX = { -direction * it / 12 },
-                        )
+                        fadeIn(tween(110)) togetherWith fadeOut(tween(90))
                     },
                     label = "mainBodyTransition",
                 ) { targetDestination ->

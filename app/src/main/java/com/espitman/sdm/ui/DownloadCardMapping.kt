@@ -21,6 +21,7 @@ internal data class DownloadCardModel(
     val trailing: String,
     val category: DownloadCategory,
     val showPlayAction: Boolean,
+    val canCancel: Boolean,
 )
 
 internal fun mapDownloadToCard(
@@ -90,6 +91,7 @@ internal fun mapDownloadToCard(
             DownloadState.FAILED,
             DownloadState.CANCELLED,
         ),
+        canCancel = download.state == DownloadState.CONNECTING || download.state == DownloadState.DOWNLOADING,
     )
 }
 
@@ -115,16 +117,5 @@ internal fun formatClockEta(seconds: Long?): String {
 
 internal fun formatCardSpeed(bytesPerSecond: Long): String {
     if (bytesPerSecond <= 0L) return "—"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    var value = bytesPerSecond.toDouble()
-    var unitIndex = 0
-    while (value >= 1024.0 && unitIndex < units.lastIndex) {
-        value /= 1024.0
-        unitIndex++
-    }
-    return if (unitIndex == 0) {
-        "$bytesPerSecond B/s"
-    } else {
-        String.format(Locale.US, "%.0f %s/s", value, units[unitIndex])
-    }
+    return "${displayMegabytesPerSecond(bytesPerSecond)} MB/s"
 }

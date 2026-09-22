@@ -81,6 +81,7 @@ import com.espitman.sdm.download.DownloadChecksumVerifier
 import com.espitman.sdm.download.DownloadRenameCoordinator
 import com.espitman.sdm.download.DownloadRenameResult
 import com.espitman.sdm.download.DownloadTransferService
+import com.espitman.sdm.download.IncompleteDownloadDeleteCoordinator
 import com.espitman.sdm.storage.DocumentsContractContentDocuments
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
@@ -146,6 +147,7 @@ internal fun transferCardAction(state: DownloadState): TransferCardAction = when
     DownloadState.PAUSED -> TransferCardAction.Resume
     DownloadState.CONNECTING, DownloadState.DOWNLOADING -> TransferCardAction.Pause
     DownloadState.FAILED -> TransferCardAction.Retry
+    DownloadState.CANCELLED -> TransferCardAction.Resume
     else -> TransferCardAction.None
 }
 
@@ -266,6 +268,9 @@ internal fun InteractiveDownloadsScreen(
         hiddenCompletedIds,
     )
     var completedDeleteId by remember { mutableStateOf<String?>(null) }
+    var incompleteDeleteId by remember { mutableStateOf<String?>(null) }
+    var cancelId by remember { mutableStateOf<String?>(null) }
+    var deletingIncomplete by remember { mutableStateOf(false) }
     var clearCompletedRequested by remember { mutableStateOf(false) }
     var deletingCompleted by remember { mutableStateOf(false) }
     var overlayClosing by remember { mutableStateOf(false) }
@@ -330,6 +335,11 @@ internal fun InteractiveDownloadsScreen(
                 },
                 onCancel = {
                     DownloadTransferService.cancelTransfer(context, selectedRecord.id)
+                },
+                onDelete = {
+                    IncompleteDownloadDeleteCoordinator.delete(selectedRecord.id, repository) { id ->
+                        DownloadTransferService.cancelTransfer(context, id)
+                    }
                 },
                 onPriority = {
                     val previousPriority = selectedRecord.priority
@@ -399,7 +409,14 @@ internal fun InteractiveDownloadsScreen(
                                 )
                             }
                         },
-                        onDeleteCompleted = { completedDeleteId = item.id },
+                        onManage = {
+                            val record = records.firstOrNull { it.id == item.id } ?: return@DownloadCard
+                            when (record.state) {
+                                DownloadState.COMPLETED -> completedDeleteId = item.id
+                                DownloadState.CONNECTING, DownloadState.DOWNLOADING -> cancelId = item.id
+                                else -> incompleteDeleteId = item.id
+                            }
+                        },
                     )
                     Spacer(Modifier.height(10.dp))
                 }
@@ -408,6 +425,52 @@ internal fun InteractiveDownloadsScreen(
     }
 
     val deleteTarget = completedDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state == DownloadState.COMPLETED } }
+    val cancelTarget = cancelId?.let { id -> records.firstOrNull { it.id == id } }
+    if (cancelTarget != null) {
+        SdmConfirmDialog(
+            title = "Cancel download?",
+            message = "The partial file stays available if you resume this download later.",
+            dismissLabel = "Keep downloading",
+            confirmLabel = "Cancel",
+            onDismiss = { cancelId = null },
+            onConfirm = {
+                DownloadTransferService.cancelTransfer(context, cancelTarget.id)
+                cancelId = null
+            },
+        )
+    }
+    val incompleteDeleteTarget = incompleteDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state != DownloadState.COMPLETED } }
+    if (incompleteDeleteTarget != null) {
+        SdmConfirmDialog(
+            title = "Delete download?",
+            message = "This removes the download and its partial file. It cannot be resumed afterward.",
+            dismissLabel = "Keep",
+            confirmLabel = "Delete",
+            submitting = deletingIncomplete,
+            onDismiss = { if (!deletingIncomplete) incompleteDeleteId = null },
+            onConfirm = {
+                if (deletingIncomplete) return@SdmConfirmDialog
+                deletingIncomplete = true
+                overlayScope.launch {
+                    try {
+                        val deleted = IncompleteDownloadDeleteCoordinator.delete(
+                            incompleteDeleteTarget.id,
+                            repository,
+                        ) { id -> DownloadTransferService.cancelTransfer(context, id) }
+                        if (deleted) {
+                            if (selectedDownloadId == incompleteDeleteTarget.id) onSelectedDownloadIdChange(null)
+                            onToast("Download and partial file deleted")
+                            incompleteDeleteId = null
+                        } else {
+                            onToast("Unable to delete download. Please try again.")
+                        }
+                    } finally {
+                        deletingIncomplete = false
+                    }
+                }
+            },
+        )
+    }
     if (deleteTarget != null) {
         SdmConfirmDialog(
             title = "Remove from Completed?",
@@ -654,7 +717,7 @@ internal fun SdmEmptyState(title: String, description: String) {
 }
 
 @Composable
-private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onAction: () -> Unit, onDeleteCompleted: () -> Unit) {
+private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onAction: () -> Unit, onManage: () -> Unit) {
     val queued = item.category == DownloadCategory.Queued
     Surface(color = SdmSurface, contentColor = SdmText, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.fillMaxWidth().then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)) {
         Column(Modifier.padding(16.dp)) {
@@ -663,11 +726,21 @@ private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onActio
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 18.9.sp, fontWeight = FontWeight.Bold); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
                 Spacer(Modifier.width(12.dp))
-                if (item.category == DownloadCategory.Completed) {
-                    Surface(onClick = onDeleteCompleted, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmMuted, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(SdmIcons.Delete, "Delete completed download", modifier = Modifier.size(18.dp)) }
+                Surface(onClick = onManage, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmMuted, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (item.canCancel) SdmIcons.Close else SdmIcons.Delete,
+                            when {
+                                item.canCancel -> "Cancel download"
+                                item.category == DownloadCategory.Completed -> "Remove from Completed"
+                                else -> "Delete download"
+                            },
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
-                    Spacer(Modifier.width(6.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+                if (item.category == DownloadCategory.Completed) {
                     Surface(color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
                         Box(contentAlignment = Alignment.Center) { Icon(SdmIcons.Check, "Completed", modifier = Modifier.size(19.dp)) }
                     }
@@ -823,12 +896,15 @@ private fun DownloadDetailsScreen(
     onMoveToTop: () -> Unit,
     onPause: () -> Unit,
     onCancel: () -> Unit,
+    onDelete: suspend () -> Boolean,
     onPriority: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var headersOpen by remember(download.id) { mutableStateOf(false) }
     var segmentsOpen by remember(download.id) { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
+    var deleteOpen by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var verifying by remember { mutableStateOf(false) }
@@ -848,7 +924,8 @@ private fun DownloadDetailsScreen(
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        listOf("Rename", "Verify checksum", "Move to top").forEach { label ->
+                        (listOf("Rename", "Verify checksum", "Move to top") +
+                            if (download.state != DownloadState.COMPLETED) listOf("Delete download") else emptyList()).forEach { label ->
                             Box(
                                 Modifier.fillMaxWidth().height(54.dp).clickable {
                                     menuOpen = false
@@ -875,6 +952,7 @@ private fun DownloadDetailsScreen(
                                             }
                                         }
                                         "Move to top" -> onMoveToTop()
+                                        "Delete download" -> deleteOpen = true
                                     }
                                 }.padding(horizontal = 10.dp),
                                 contentAlignment = Alignment.CenterStart,
@@ -913,6 +991,31 @@ private fun DownloadDetailsScreen(
             returnToList = onBack,
         )
     }
+    if (deleteOpen) SdmConfirmDialog(
+        title = "Delete download?",
+        message = "This removes the download and its partial file. It cannot be resumed afterward.",
+        dismissLabel = "Keep",
+        confirmLabel = "Delete",
+        submitting = deleting,
+        onDismiss = { if (!deleting) deleteOpen = false },
+        onConfirm = {
+            if (deleting) return@SdmConfirmDialog
+            deleting = true
+            actionScope.launch {
+                try {
+                    if (onDelete()) {
+                        deleteOpen = false
+                        onBack()
+                        onToast("Download and partial file deleted")
+                    } else {
+                        onToast("Unable to delete download. Please try again.")
+                    }
+                } finally {
+                    deleting = false
+                }
+            }
+        },
+    )
     if (renameOpen) SdmRenameDialog(
         fileName = download.fileName,
         submitting = renaming,

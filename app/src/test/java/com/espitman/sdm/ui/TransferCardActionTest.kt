@@ -13,7 +13,7 @@ class TransferCardActionTest {
         assertEquals(TransferCardAction.Retry, transferCardAction(DownloadState.FAILED))
         assertEquals(TransferCardAction.Start, transferCardAction(DownloadState.QUEUED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.COMPLETED))
-        assertEquals(TransferCardAction.None, transferCardAction(DownloadState.CANCELLED))
+        assertEquals(TransferCardAction.Resume, transferCardAction(DownloadState.CANCELLED))
     }
 
     @Test
@@ -28,7 +28,7 @@ class TransferCardActionTest {
         assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.DOWNLOADING)))
         assertEquals("Start", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.QUEUED)))
         assertEquals(TransferCardAction.None, detailsPrimaryAction(DownloadState.COMPLETED))
-        assertEquals(TransferCardAction.None, detailsPrimaryAction(DownloadState.CANCELLED))
+        assertEquals(TransferCardAction.Resume, detailsPrimaryAction(DownloadState.CANCELLED))
     }
 
     @Test
@@ -50,7 +50,7 @@ class TransferCardActionTest {
         assertEquals("pause", capture(DownloadState.DOWNLOADING))
         assertEquals("start", capture(DownloadState.QUEUED))
         assertEquals("none", capture(DownloadState.COMPLETED))
-        assertEquals("none", capture(DownloadState.CANCELLED))
+        assertEquals("resume", capture(DownloadState.CANCELLED))
     }
 
     @Test

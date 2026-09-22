@@ -76,6 +76,7 @@ class DownloadQueueScheduler(
         val nowEpochMillis = max(clock.currentTimeMillis(), current.updatedAtEpochMillis)
         when (current.state) {
             DownloadState.PAUSED -> repository.resumePaused(id = downloadId, nowEpochMillis = nowEpochMillis)
+            DownloadState.CANCELLED -> repository.resumeCancelled(id = downloadId, nowEpochMillis = nowEpochMillis)
             DownloadState.FAILED -> repository.retryFailed(
                 id = downloadId,
                 automatic = false,

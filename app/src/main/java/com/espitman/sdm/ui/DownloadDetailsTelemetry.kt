@@ -126,18 +126,11 @@ internal fun detailsResumeSupportLabel(download: Download): String {
 }
 
 internal fun splitSpeedValue(bytesPerSecond: Long): String {
-    val rate = bytesPerSecond.coerceAtLeast(0L)
-    val (value, index) = scaledByteValue(rate)
-    return if (index == 0) {
-        rate.toString()
-    } else {
-        String.format(Locale.US, "%.0f", value)
-    }
+    return displayMegabytesPerSecond(bytesPerSecond).toString()
 }
 
-internal fun splitSpeedUnit(bytesPerSecond: Long): String {
-    val index = scaledByteValue(bytesPerSecond.coerceAtLeast(0L)).second
-    return BYTE_UNITS[index] + "/s"
+internal fun splitSpeedUnit(@Suppress("UNUSED_PARAMETER") bytesPerSecond: Long): String {
+    return "MB/s"
 }
 
 internal fun sharedSizeValue(downloadedBytes: Long, totalBytes: Long?): String {

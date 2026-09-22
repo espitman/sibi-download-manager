@@ -4,7 +4,6 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import java.time.Instant
 import java.time.ZoneId
-import kotlin.math.roundToLong
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -33,9 +32,7 @@ internal fun downloadStatusCardValues(
     val speedValue = if (activeCount == 0) {
         "0"
     } else {
-        val mebibyte = 1024L * 1024L
-        val speed = recentBytesPerSecond.coerceAtLeast(0L)
-        if (speed < mebibyte) "0" else (speed.toDouble() / mebibyte).roundToLong().toString()
+        displayMegabytesPerSecond(recentBytesPerSecond).toString()
     }
     return DownloadStatusCardValues(
         activeCount = activeCount,

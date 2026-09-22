@@ -59,7 +59,7 @@ class DownloadCardMappingTest {
         )
 
         assertEquals(DownloadCategory.Downloading, card.category)
-        assertEquals("63 KB/s", card.metadataValue)
+        assertEquals("0 MB/s", card.metadataValue)
         assertEquals("50% · 62.50 KB", card.progressLabel)
         assertEquals("00:01 left", card.trailing)
         assertEquals(.5f, card.progress)
@@ -80,7 +80,7 @@ class DownloadCardMappingTest {
         )
 
         assertEquals("Unknown size", card.size)
-        assertEquals("2 KB/s", card.metadataValue)
+        assertEquals("0 MB/s", card.metadataValue)
         assertEquals("— · 2.00 KB", card.progressLabel)
         assertEquals("Calculating…", card.trailing)
         assertEquals(0f, card.progress)
@@ -286,9 +286,9 @@ class DownloadCardMappingTest {
     @Test
     fun cardSpeedUsesWholeUnits() {
         assertEquals("—", formatCardSpeed(0L))
-        assertEquals("500 B/s", formatCardSpeed(500L))
-        assertEquals("6 MB/s", formatCardSpeed((6.2 * 1024 * 1024).toLong()))
-        assertEquals("12 MB/s", formatCardSpeed((12.4 * 1024 * 1024).toLong()))
+        assertEquals("0 MB/s", formatCardSpeed(500L))
+        assertEquals("7 MB/s", formatCardSpeed((6.2 * 1024 * 1024).toLong()))
+        assertEquals("13 MB/s", formatCardSpeed((12.4 * 1024 * 1024).toLong()))
     }
 
     @Test

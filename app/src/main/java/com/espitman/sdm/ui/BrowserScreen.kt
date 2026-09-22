@@ -15,6 +15,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,8 +76,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -115,7 +119,7 @@ internal fun BrowserScreen(
     var findQuery by remember { mutableStateOf("") }
     var privateReady by remember { mutableStateOf(false) }
     var desktopSite by remember { mutableStateOf(false) }
-    var address by remember { mutableStateOf(tabs.active.url.orEmpty()) }
+    var address by remember { mutableStateOf(TextFieldValue(tabs.active.url.orEmpty())) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     val webViews = remember { mutableMapOf<String, WebView>() }
@@ -126,7 +130,7 @@ internal fun BrowserScreen(
         normalizeBrowserInput(input)?.let { url ->
             loadFailure = null
             currentUrl = url
-            address = url
+            address = TextFieldValue(url)
             tabs = tabs.update(tabs.activeId, url, tabs.active.title)
         }
         focusManager.clearFocus()
@@ -138,7 +142,7 @@ internal fun BrowserScreen(
             webView?.goBack()
         } else {
             currentUrl = null
-            address = ""
+            address = TextFieldValue("")
             tabs = tabs.update(tabs.activeId, null, "New tab")
             loadFailure = null
         }
@@ -148,7 +152,7 @@ internal fun BrowserScreen(
         tabs = tabs.select(id)
         val active = tabs.active
         currentUrl = active.url
-        address = active.url.orEmpty()
+        address = TextFieldValue(active.url.orEmpty())
         webView = webViews[id]
         loadFailure = null
         tabsOpen = false
@@ -160,7 +164,7 @@ internal fun BrowserScreen(
         // follows the private-by-default policy shown in the reference.
         tabs = tabs.add(BrowserTab(id, if (isPrivate) "Private tab" else "New tab", null, isPrivate = true))
         currentUrl = null
-        address = ""
+        address = TextFieldValue("")
         webView = null
         loadFailure = null
         tabsOpen = false
@@ -172,7 +176,7 @@ internal fun BrowserScreen(
         tabs = tabs.close(id)
         val active = tabs.active
         currentUrl = active.url
-        address = active.url.orEmpty()
+        address = TextFieldValue(active.url.orEmpty())
         webView = webViews[active.id]
         loadFailure = null
     }
@@ -198,16 +202,20 @@ internal fun BrowserScreen(
                     onValueChange = { address = it },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = { navigate(address) }),
+                    keyboardActions = KeyboardActions(onGo = { navigate(address.text) }),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 12.sp),
                     cursorBrush = SolidColor(SdmGold),
                     decorationBox = { inner ->
                         Box {
-                            if (address.isEmpty()) Text("Search or enter address", color = SdmMuted, fontSize = 12.sp, maxLines = 1)
+                            if (address.text.isEmpty()) Text("Search or enter address", color = SdmMuted, fontSize = 12.sp, maxLines = 1)
                             inner()
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).pointerInput(address.text) {
+                        detectTapGestures(onDoubleTap = {
+                            address = address.copy(selection = TextRange(0, address.text.length))
+                        })
+                    },
                 )
                 IconButton(onClick = {
                     loadFailure = null
@@ -325,13 +333,13 @@ internal fun BrowserScreen(
                                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                                     loadFailure = null
                                     currentUrl = url
-                                    address = url
+                                    address = TextFieldValue(url)
                                     tabs = tabs.update(tabs.activeId, url, view.title ?: tabs.active.title)
                                 }
 
                                 override fun onPageFinished(view: WebView, url: String) {
                                     currentUrl = url
-                                    address = url
+                                    address = TextFieldValue(url)
                                     tabs = tabs.update(tabs.activeId, url, view.title ?: url)
                                 }
 
