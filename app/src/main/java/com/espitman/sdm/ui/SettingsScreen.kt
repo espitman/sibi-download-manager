@@ -63,6 +63,7 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
     }
 
     fun toast(message: String) = onToast(message)
+    val saveLocation = rememberSaveLocationActions(onToast)
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) AppHeader("Settings", showMore = false)
@@ -78,7 +79,7 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
                 }
             }
             item { SettingsGroup("NETWORK") { ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") } } }
-            item { SettingsGroup("STORAGE") { ValueRow(SdmIcons.Folder, "Save location", "/Download/SDM", chevron = true) { toast("Save location editor opened") } } }
+            item { SettingsGroup("STORAGE") { ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() } } }
             item {
                 SettingsGroup("NOTIFICATIONS") {
                     ToggleRow(SdmIcons.Notifications, "Download complete", "Notify when a transfer finishes", downloadComplete) { repository.update { current -> current.copy(downloadComplete = it) }; toast(if (it) "Completion alerts enabled" else "Completion alerts disabled") }

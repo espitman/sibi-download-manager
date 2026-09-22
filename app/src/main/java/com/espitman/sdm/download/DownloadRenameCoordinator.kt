@@ -4,6 +4,7 @@ import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.network.DownloadFilenameResolver
+import com.espitman.sdm.storage.DownloadDestinationRef
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
@@ -44,6 +45,11 @@ object DownloadRenameCoordinator {
         val destinationPath = current.destinationPath
         if (destinationPath.isNullOrBlank()) {
             return@withContext DownloadRenameResult.Failure("Destination path is required")
+        }
+        if (DownloadDestinationRef.isContentUri(destinationPath) || current.destinationTreeUri != null) {
+            return@withContext DownloadRenameResult.Failure(
+                "This file is in a shared folder and cannot be renamed here",
+            )
         }
         val sourceDestination = File(destinationPath)
         val parent = sourceDestination.parentFile

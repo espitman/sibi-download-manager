@@ -5,10 +5,11 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadUrl
 import com.espitman.sdm.domain.DownloadUrlResult
-import com.espitman.sdm.network.DownloadFilenameResolver
 import com.espitman.sdm.network.DownloadMetadata
 import com.espitman.sdm.network.DownloadMetadataResult
 import com.espitman.sdm.network.DownloadMetadataRetriever
+import com.espitman.sdm.storage.AppPrivateDestinationAllocator
+import com.espitman.sdm.storage.DestinationAllocator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +19,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
 import java.util.UUID
 
 sealed interface SubmissionResult {
@@ -49,6 +49,9 @@ class DownloadSubmissionCoordinator(
     private val queueScheduler: DownloadQueueScheduler,
     private val clock: Clock = Clock.SystemClock,
     private val idFactory: IdFactory = IdFactory.Default,
+    private val destinationAllocator: DestinationAllocator = AppPrivateDestinationAllocator(
+        directory = { directoryProvider.getDownloadsDirectory() },
+    ),
 ) {
     private val dedupeMutex = Mutex()
     private val inFlightSubmissions = mutableMapOf<String, Deferred<SubmissionResult>>()
@@ -121,38 +124,22 @@ class DownloadSubmissionCoordinator(
         var reservedTempFile: File? = null
         var persistedDownloadId: String? = null
         try {
-            val baseDir = withContext(Dispatchers.IO) {
-                val dir = directoryProvider.getDownloadsDirectory()
-                if (!dir.exists()) {
-                    val created = dir.mkdirs()
-                    if (!created && !dir.exists()) {
-                        throw IOException("Failed to create download directory: ${dir.absolutePath}")
-                    }
-                }
-                if (!dir.isDirectory) {
-                    throw IOException("Download target path is not a directory: ${dir.absolutePath}")
-                }
-                dir
+            val allocated = withContext(Dispatchers.IO) {
+                destinationAllocator.allocate(metadata.suggestedFilename)
             }
+            reservedTempFile = allocated.partFile
 
-            val candidateFilename = metadata.suggestedFilename
-            val (resolvedFilename, tempFile) = withContext(Dispatchers.IO) {
-                reserveFileReservation(baseDir, candidateFilename)
-            }
-            reservedTempFile = tempFile
-
-            val finalDestination = File(baseDir, resolvedFilename)
             val now = clock.currentTimeMillis()
             val downloadId = idFactory.createId()
 
             val download = Download(
                 id = downloadId,
                 url = validatedUrl,
-                fileName = resolvedFilename,
+                fileName = allocated.fileName,
                 mimeType = metadata.contentType,
                 etag = metadata.etag,
                 lastModified = metadata.lastModified,
-                destinationPath = finalDestination.absolutePath,
+                destinationPath = allocated.destinationPath,
                 totalBytes = metadata.contentLength,
                 downloadedBytes = 0L,
                 state = DownloadState.QUEUED,
@@ -165,6 +152,8 @@ class DownloadSubmissionCoordinator(
                 completedAtEpochMillis = null,
                 acceptsRanges = metadata.acceptsRanges,
                 referenceSha256 = metadata.referenceSha256,
+                destinationTreeUri = allocated.destinationTreeUri,
+                destinationDisplayLabel = allocated.destinationDisplayLabel,
             )
 
             // 3. Persist exactly one QUEUED download
@@ -198,58 +187,6 @@ class DownloadSubmissionCoordinator(
             val msg = e.message?.takeIf { it.isNotBlank() } ?: "Failed to submit download"
             return SubmissionResult.Failure(msg, e)
         }
-    }
-
-    private fun reserveFileReservation(
-        baseDir: File,
-        baseFilename: String,
-    ): Pair<String, File> {
-        if (!baseDir.exists()) {
-            val created = baseDir.mkdirs()
-            if (!created && !baseDir.exists()) {
-                throw IOException("Download directory does not exist and could not be created: ${baseDir.absolutePath}")
-            }
-        }
-        if (!baseDir.isDirectory) {
-            throw IOException("Download directory is not a directory: ${baseDir.absolutePath}")
-        }
-
-        val sanitized = DownloadFilenameResolver.sanitize(baseFilename) ?: DownloadFilenameResolver.DEFAULT_FALLBACK_FILENAME
-
-        val lastDotIndex = sanitized.lastIndexOf('.')
-        val (stem, extension) = if (lastDotIndex > 0 && lastDotIndex < sanitized.length - 1) {
-            Pair(sanitized.substring(0, lastDotIndex), sanitized.substring(lastDotIndex))
-        } else {
-            Pair(sanitized, "")
-        }
-
-        val maxAttempts = 1000
-        for (attempt in 0 until maxAttempts) {
-            val candidateFinalName = if (attempt == 0) {
-                sanitized
-            } else {
-                DownloadFilenameResolver.truncateUtf8CodePoints(stem, DownloadFilenameResolver.MAX_FILENAME_BYTES - " ($attempt)$extension".toByteArray(Charsets.UTF_8).size).trimEnd('.', ' ') + " ($attempt)$extension"
-            }
-
-            val finalFile = File(baseDir, candidateFinalName)
-            if (finalFile.exists()) {
-                continue
-            }
-
-            val partFile = DownloadPartFile.forResolvedFilename(baseDir, candidateFinalName)
-            try {
-                if (partFile.createNewFile()) {
-                    return Pair(candidateFinalName, partFile)
-                } else {
-                    // Collision: file already exists
-                    continue
-                }
-            } catch (ioe: IOException) {
-                throw IOException("Failed to reserve .part file in ${baseDir.absolutePath}: ${ioe.message}", ioe)
-            }
-        }
-
-        throw IOException("Failed to reserve a unique .part file for $baseFilename in ${baseDir.absolutePath} after $maxAttempts attempts")
     }
 
     private fun cleanupTempFile(file: File?) {

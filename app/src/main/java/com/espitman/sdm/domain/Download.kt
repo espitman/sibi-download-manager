@@ -43,6 +43,13 @@ data class Download(
     val referenceSha256: String? = null,
     /** Consecutive automatic requeues after failure; manual retry resets this to 0. */
     val automaticRetryCount: Int = 0,
+    /**
+     * OpenDocumentTree URI captured at submission when the active save location is a
+     * user-selected folder. `null` means the destination is an app-private file path.
+     */
+    val destinationTreeUri: String? = null,
+    /** Stable user-facing folder label for a user-selected tree; `null` for app-private files. */
+    val destinationDisplayLabel: String? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }
@@ -81,6 +88,12 @@ data class Download(
             "Reference SHA-256 must be 64 lowercase hexadecimal characters"
         }
         require(automaticRetryCount >= 0) { "Automatic retry count cannot be negative" }
+        require(destinationTreeUri == null || destinationTreeUri.isNotBlank()) {
+            "Destination tree URI cannot be blank"
+        }
+        require(destinationDisplayLabel == null || destinationDisplayLabel.isNotBlank()) {
+            "Destination display label cannot be blank"
+        }
     }
 }
 

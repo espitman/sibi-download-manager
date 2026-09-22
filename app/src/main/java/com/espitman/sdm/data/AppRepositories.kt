@@ -14,6 +14,13 @@ import com.espitman.sdm.download.DownloadTransferService
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import com.espitman.sdm.network.HttpDownloadMetadataRetriever
 import com.espitman.sdm.storage.AppSpecificDownloadsDirectory
+import com.espitman.sdm.storage.DocumentsContractTreeAccess
+import com.espitman.sdm.storage.DownloadDestinationRef
+import com.espitman.sdm.storage.PersistableTreeUriGrants
+import com.espitman.sdm.storage.SafDownloadDestinationPublisher
+import com.espitman.sdm.storage.SaveLocationCoordinator
+import com.espitman.sdm.storage.SaveLocationDestinationAllocator
+import com.espitman.sdm.storage.SaveLocationStore
 import java.io.File
 
 /** Application-owned dependencies; never retain an Activity. */
@@ -23,6 +30,7 @@ object AppRepositories {
     @Volatile private var transferEngine: DownloadTransferEngine? = null
     @Volatile private var queueScheduler: DownloadQueueScheduler? = null
     @Volatile private var submissionCoordinator: DownloadSubmissionCoordinator? = null
+    @Volatile private var saveLocationCoordinator: SaveLocationCoordinator? = null
 
     fun downloads(context: Context): DownloadRepository = downloadRepository ?: synchronized(this) {
         downloadRepository ?: SqliteDownloadRepository(context.applicationContext).also { downloadRepository = it }
@@ -32,8 +40,28 @@ object AppRepositories {
         metadataRetriever ?: HttpDownloadMetadataRetriever().also { metadataRetriever = it }
     }
 
-    fun transferEngine(): DownloadTransferEngine = transferEngine ?: synchronized(this) {
-        transferEngine ?: DownloadTransferEngine().also { transferEngine = it }
+    fun saveLocation(context: Context): SaveLocationCoordinator = saveLocationCoordinator ?: synchronized(this) {
+        saveLocationCoordinator ?: run {
+            val appContext = context.applicationContext
+            SaveLocationCoordinator(
+                store = SaveLocationStore.get(appContext),
+                grants = PersistableTreeUriGrants(appContext.contentResolver),
+                trees = DocumentsContractTreeAccess(appContext.contentResolver),
+            ).also { saveLocationCoordinator = it }
+        }
+    }
+
+    fun transferEngine(context: Context): DownloadTransferEngine = transferEngine ?: synchronized(this) {
+        transferEngine ?: run {
+            val appContext = context.applicationContext
+            DownloadTransferEngine(
+                destinationPublisher = SafDownloadDestinationPublisher(
+                    trees = DocumentsContractTreeAccess(appContext.contentResolver),
+                    coordinator = saveLocation(appContext),
+                    appSpecificDirectory = { AppSpecificDownloadsDirectory.from(appContext) },
+                ),
+            ).also { transferEngine = it }
+        }
     }
 
     suspend fun recoverInterruptedDownloads(
@@ -63,6 +91,9 @@ object AppRepositories {
                 starter = { download ->
                     val destination = download.destinationPath
                         ?: throw IllegalStateException("Download ${download.id} is missing a destination")
+                    if (DownloadDestinationRef.isContentUri(destination)) {
+                        throw IllegalStateException("Download ${download.id} is missing a local destination")
+                    }
                     DownloadTransferService.startTransfer(
                         appContext,
                         download.id,
@@ -84,6 +115,11 @@ object AppRepositories {
                 repository = repo,
                 directoryProvider = directoryProvider,
                 queueScheduler = queueScheduler(appContext),
+                destinationAllocator = SaveLocationDestinationAllocator(
+                    coordinator = saveLocation(appContext),
+                    appSpecificDirectory = directoryProvider,
+                    trees = DocumentsContractTreeAccess(appContext.contentResolver),
+                ),
             ).also { submissionCoordinator = it }
         }
     }

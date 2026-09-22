@@ -172,8 +172,26 @@ class SqliteDownloadRepositoryTest {
         val migrated = repository!!.downloads.value.single()
         assertEquals("legacy", migrated.id)
         assertEquals(0, migrated.automaticRetryCount)
+        assertNull(migrated.destinationTreeUri)
+        assertNull(migrated.destinationDisplayLabel)
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
         assertAutomaticRetryCountColumnExists()
+        assertDestinationColumnsExist()
+    }
+
+    @Test
+    fun versionSevenDatabaseMigratesDestinationColumnsToNull() = runBlocking {
+        seedLegacyDatabase(7)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        val migrated = repository!!.downloads.value.single()
+        assertEquals("legacy", migrated.id)
+        assertEquals(0, migrated.automaticRetryCount)
+        assertNull(migrated.destinationTreeUri)
+        assertNull(migrated.destinationDisplayLabel)
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertDestinationColumnsExist()
     }
 
     @Test
@@ -283,6 +301,50 @@ class SqliteDownloadRepositoryTest {
         assertEquals(mapOf("fresh" to 0, "retried" to 3), values())
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
         assertAutomaticRetryCountColumnExists()
+        assertDestinationColumnsExist()
+    }
+
+    @Test
+    fun destinationTreeUriAndLabelRoundTrip() = runBlocking {
+        val treeUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "local",
+                url = "https://example.com/local.bin",
+                fileName = "local.bin",
+                destinationPath = "/tmp/local.bin",
+                createdAtEpochMillis = 100,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "tree",
+                url = "https://example.com/tree.bin",
+                fileName = "tree.bin",
+                destinationPath = "/tmp/staging/tree.bin",
+                destinationTreeUri = treeUri,
+                destinationDisplayLabel = "Download",
+                createdAtEpochMillis = 101,
+            ),
+        )
+
+        fun values() = repository!!.downloads.value.associate { it.id to (it.destinationTreeUri to it.destinationDisplayLabel) }
+        assertEquals(
+            mapOf("local" to (null to null), "tree" to (treeUri to "Download")),
+            values(),
+        )
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(
+            mapOf("local" to (null to null), "tree" to (treeUri to "Download")),
+            values(),
+        )
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertDestinationColumnsExist()
     }
 
     @Test
@@ -633,6 +695,7 @@ class SqliteDownloadRepositoryTest {
             if (version >= 4) DownloadDatabase.migrateThreeToFour(db)
             if (version >= 5) DownloadDatabase.migrateFourToFive(db)
             if (version >= 6) DownloadDatabase.migrateFiveToSix(db)
+            if (version >= 7) DownloadDatabase.migrateSixToSeven(db)
             db.execSQL(
                 """INSERT INTO downloads
                     (id,url,file_name,downloaded_bytes,state,priority,created_at,updated_at)
@@ -693,6 +756,23 @@ class SqliteDownloadRepositoryTest {
                     while (cursor.moveToNext()) add(cursor.getString(nameIndex))
                 }
                 assertEquals(true, names.contains("automatic_retry_count"))
+            }
+        }
+    }
+
+    private fun assertDestinationColumnsExist() {
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            db.rawQuery("PRAGMA table_info(downloads)", null).use { cursor ->
+                val names = buildList {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+                assertEquals(true, names.contains("destination_tree_uri"))
+                assertEquals(true, names.contains("destination_display_label"))
             }
         }
     }

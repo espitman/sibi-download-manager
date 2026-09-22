@@ -28,7 +28,7 @@ All UI and notification commands will address the same record ID and coordinator
 
 ## Storage and privacy
 
-Database and preferences use private app storage. File destinations are represented as paths/URIs without assuming that `/Download/SDM` is already writable. Stage 6 uses a hybrid location model: the permission-free app-specific Downloads directory remains the default, and user-selected folders use Storage Access Framework persistable grants. See [storage-location.md](storage-location.md). Save-location UI and the active-folder setting are SDM-040. Do not log URL credentials or sensitive headers. Do not store browser credentials in the download model by default.
+Database and preferences use private app storage. File destinations are represented as paths/URIs without assuming that `/Download/SDM` is already writable. Stage 6 uses a hybrid location model: the permission-free app-specific Downloads directory remains the default, and user-selected folders use Storage Access Framework persistable grants. See [storage-location.md](storage-location.md). The active save location is the real destination for newly completed downloads. Do not log URL credentials or sensitive headers. Do not store browser credentials in the download model by default.
 
 ## Verification
 

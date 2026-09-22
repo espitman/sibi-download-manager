@@ -5,6 +5,8 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
+import com.espitman.sdm.storage.DownloadDestinationPublisher
+import com.espitman.sdm.storage.PublishedDownloadDestination
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -156,6 +158,26 @@ class DownloadTransferEngineTest {
                 etag = etag,
                 lastModified = lastModified,
                 totalBytes = totalBytes,
+            )
+            insert(updated)
+            return updated
+        }
+
+        override suspend fun updateDestination(
+            id: String,
+            destinationPath: String,
+            destinationTreeUri: String?,
+            destinationDisplayLabel: String?,
+            fileName: String,
+            nowEpochMillis: Long,
+        ): Download {
+            val current = get(id) ?: throw IllegalArgumentException("Download not found: $id")
+            val updated = current.copy(
+                fileName = fileName,
+                destinationPath = destinationPath,
+                destinationTreeUri = destinationTreeUri,
+                destinationDisplayLabel = destinationDisplayLabel,
+                updatedAtEpochMillis = maxOf(nowEpochMillis, current.updatedAtEpochMillis),
             )
             insert(updated)
             return updated
@@ -1529,6 +1551,56 @@ class DownloadTransferEngineTest {
 
         assertEquals(listOf(payload.size.toLong()), repo.progressUpdates.map { it.second })
         assertEquals(DownloadState.COMPLETED, repo.get(downloadId)!!.state)
+        assertArrayEquals(payload, destFile.readBytes())
+    }
+
+    @Test
+    fun completedTreePublishUpdatesTheStoredDestinationBeforeCompletion() = runBlocking {
+        val payload = ByteArray(32) { 4 }
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+        val destFile = File(tempDir, "publish.bin")
+        val treeUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+        val documentUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload/document/1"
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "publish",
+                    url = server.url("/publish.bin").toString(),
+                    fileName = "publish.bin",
+                    destinationPath = destFile.absolutePath,
+                    destinationTreeUri = treeUri,
+                    destinationDisplayLabel = "Download",
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            destinationPublisher = DownloadDestinationPublisher { download, localFile ->
+                assertEquals(destFile.canonicalFile, localFile.canonicalFile)
+                assertTrue(localFile.isFile)
+                PublishedDownloadDestination(
+                    destinationPath = documentUri,
+                    destinationTreeUri = download.destinationTreeUri,
+                    destinationDisplayLabel = download.destinationDisplayLabel,
+                    fileName = download.fileName,
+                )
+            },
+        )
+        engine.executeTransfer(
+            downloadId = "publish",
+            url = server.url("/publish.bin").toString(),
+            tempFile = File(tempDir, "publish.tmp"),
+            repository = repo,
+        )
+        val completed = repo.get("publish")!!
+        assertEquals(DownloadState.COMPLETED, completed.state)
+        assertEquals(documentUri, completed.destinationPath)
+        assertEquals(treeUri, completed.destinationTreeUri)
+        assertEquals("Download", completed.destinationDisplayLabel)
         assertArrayEquals(payload, destFile.readBytes())
     }
 }

@@ -194,6 +194,35 @@ class DownloadChecksumVerifierTest {
         }
     }
 
+    @Test
+    fun contentUriUsesInjectedOpenerAndReportsMissingWithoutOne() = runBlocking {
+        val bytes = byteArrayOf(9, 8, 7)
+        val digest = sha256Hex(bytes)
+        val download = Download(
+            id = "saf",
+            url = "https://example.com/saf.bin",
+            fileName = "saf.bin",
+            destinationPath = "content://com.android.externalstorage.documents/tree/primary%3ADownload/document/1",
+            destinationTreeUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload",
+            totalBytes = bytes.size.toLong(),
+            downloadedBytes = bytes.size.toLong(),
+            state = DownloadState.COMPLETED,
+            createdAtEpochMillis = 1_000L,
+            updatedAtEpochMillis = 2_000L,
+            completedAtEpochMillis = 2_000L,
+            referenceSha256 = digest,
+        )
+        assertEquals(
+            ChecksumVerificationResult.MissingFile,
+            DownloadChecksumVerifier.verify(download),
+        )
+        val matched = DownloadChecksumVerifier.verify(
+            download,
+            openContentUri = { bytes.inputStream() },
+        )
+        assertEquals(ChecksumVerificationResult.Match, matched)
+    }
+
     private fun record(
         file: File,
         state: DownloadState,

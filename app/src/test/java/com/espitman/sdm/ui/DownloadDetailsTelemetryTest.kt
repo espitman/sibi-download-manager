@@ -214,6 +214,11 @@ class DownloadDetailsTelemetryTest {
         val missing = mapDownloadDetailsTelemetry(record(destinationPath = null), speed())
         assertEquals("/storage/emulated/0/Download/SDM", withPath.technical.savePath)
         assertEquals("—", missing.technical.savePath)
+        val labeled = mapDownloadDetailsTelemetry(
+            record(destinationPath = "content://tree/doc").copy(destinationDisplayLabel = "Movies"),
+            speed(),
+        )
+        assertEquals("Movies", labeled.technical.savePath)
     }
 
     @Test

@@ -8,8 +8,8 @@ import android.provider.DocumentsContract
  * Standard-system folder picker for user-selected destinations.
  *
  * Builds [Intent.ACTION_OPEN_DOCUMENT_TREE] with persistable read/write
- * (and prefix) grants. Does not launch the picker or store the chosen URI
- * as the active save location.
+ * (and prefix) grants. Launching the picker and storing the chosen URI
+ * as the active save location is handled by [SaveLocationCoordinator].
  */
 object OpenDocumentTreeAccess {
     fun createPickerIntent(initialTreeUriString: String? = null): Intent {

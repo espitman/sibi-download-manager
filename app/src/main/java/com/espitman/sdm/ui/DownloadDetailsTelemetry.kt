@@ -77,7 +77,7 @@ internal fun mapDownloadDetailsTelemetry(
         speedSamples = speed.samples,
         technical = DownloadDetailsTechnicalValues(
             sourceHost = detailsSourceHost(download.url),
-            savePath = detailsDestinationDisplay(download.destinationPath),
+            savePath = detailsDestinationDisplay(download),
             security = detailsSecurityLabel(download.url),
             resumeSupport = detailsResumeSupportLabel(download),
             connectionThreads = if (connections == 1) "one active stream" else "zero active streams",

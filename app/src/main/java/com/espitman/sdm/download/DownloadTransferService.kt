@@ -14,6 +14,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import com.espitman.sdm.notification.TransferNotificationPendingIntentSpec
+import com.espitman.sdm.storage.DownloadDestinationRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -267,6 +268,7 @@ class DownloadTransferService : Service() {
             return if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
         }
         val destinationPath = download.destinationPath ?: return 0L
+        if (DownloadDestinationRef.isContentUri(destinationPath)) return 0L
         val partFile = try {
             DownloadPartFile.forDestination(File(destinationPath))
         } catch (_: IllegalArgumentException) {
@@ -282,7 +284,7 @@ class DownloadTransferService : Service() {
         val url = download.url
         val tempFile = File(command.tempFilePath)
         DownloadAutoRetryRunner(repository).run(downloadId) {
-            AppRepositories.transferEngine().executeTransfer(
+            AppRepositories.transferEngine(applicationContext).executeTransfer(
                 downloadId = downloadId,
                 url = url,
                 tempFile = tempFile,

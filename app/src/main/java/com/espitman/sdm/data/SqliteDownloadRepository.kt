@@ -343,6 +343,35 @@ class SqliteDownloadRepository(
         )
     }
 
+    override suspend fun updateDestination(
+        id: String,
+        destinationPath: String,
+        destinationTreeUri: String?,
+        destinationDisplayLabel: String?,
+        fileName: String,
+        nowEpochMillis: Long,
+    ): Download = mutate(id) { current ->
+        require(current.state == DownloadState.DOWNLOADING) {
+            "Destination can only be published while downloading"
+        }
+        require(destinationPath.isNotBlank()) { "Destination path cannot be blank" }
+        require(fileName.isNotBlank()) { "Filename cannot be blank" }
+        require('/' !in fileName && '\\' !in fileName) { "Filename cannot contain path separators" }
+        require(destinationTreeUri == null || destinationTreeUri.isNotBlank()) {
+            "Destination tree URI cannot be blank"
+        }
+        require(destinationDisplayLabel == null || destinationDisplayLabel.isNotBlank()) {
+            "Destination display label cannot be blank"
+        }
+        current.copy(
+            fileName = fileName,
+            destinationPath = destinationPath,
+            destinationTreeUri = destinationTreeUri,
+            destinationDisplayLabel = destinationDisplayLabel,
+            updatedAtEpochMillis = maxOf(nowEpochMillis, current.updatedAtEpochMillis),
+        )
+    }
+
     private suspend fun mutate(id: String, update: (Download) -> Download): Download = onIo {
         awaitInitialized()
         mutex.withLock {
@@ -460,6 +489,7 @@ class SqliteDownloadRepository(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
             "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count",
+            "destination_tree_uri", "destination_display_label",
         )
     }
 }
@@ -494,6 +524,8 @@ private fun Download.toValues() = ContentValues().apply {
     putNullable("accepts_ranges", acceptsRanges)
     putNullable("reference_sha256", referenceSha256)
     put("automatic_retry_count", automaticRetryCount)
+    putNullable("destination_tree_uri", destinationTreeUri)
+    putNullable("destination_display_label", destinationDisplayLabel)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -529,6 +561,8 @@ private fun Cursor.toDownload() = Download(
     acceptsRanges = nullableBoolean("accepts_ranges"),
     referenceSha256 = nullableString("reference_sha256"),
     automaticRetryCount = getInt(getColumnIndexOrThrow("automatic_retry_count")),
+    destinationTreeUri = nullableString("destination_tree_uri"),
+    destinationDisplayLabel = nullableString("destination_display_label"),
 )
 
 private fun Cursor.nullableString(column: String): String? =

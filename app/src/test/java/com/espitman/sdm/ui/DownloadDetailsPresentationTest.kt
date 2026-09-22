@@ -179,4 +179,22 @@ class DownloadDetailsPresentationTest {
             detailsOpenFolderToast("/storage/emulated/0/Download/beta-notes.txt"),
         )
     }
+
+    @Test
+    fun userTreeLabelAndContentUriUseThePersistedFolderName() {
+        val labeledRecord = record(
+            id = "labeled",
+            url = "https://example.com/clip.bin",
+            fileName = "clip.bin",
+            destinationPath = "content://com.android.externalstorage.documents/tree/primary%3ADownload/document/1",
+            state = DownloadState.COMPLETED,
+            totalBytes = 4L,
+            downloadedBytes = 4L,
+            completedAt = 2_000L,
+        ).copy(destinationDisplayLabel = "Download")
+        val labeled = mapDownloadToDetailsPresentation(labeledRecord, nowEpochMillis = 2_000L)
+        assertEquals("Download", labeled.destinationDisplay)
+        assertEquals("Selected folder", detailsDestinationDisplay(labeledRecord.destinationPath))
+        assertEquals("Opening Download", detailsOpenFolderToast(labeledRecord))
+    }
 }

@@ -72,5 +72,11 @@ class DownloadStateMachineTest {
         assertThrows(IllegalArgumentException::class.java) {
             queued().copy(url = "file:///private/file.zip")
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            queued().copy(destinationTreeUri = " ")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            queued().copy(destinationDisplayLabel = " ")
+        }
     }
 }

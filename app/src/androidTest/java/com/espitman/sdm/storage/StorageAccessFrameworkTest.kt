@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -106,5 +107,32 @@ class StorageAccessFrameworkTest {
         StorageAccessPolicy.DISALLOWED_BROAD_STORAGE_PERMISSIONS.forEach { permission ->
             assertFalse("declared $permission", requested.contains(permission))
         }
+    }
+
+    @Test
+    fun saveLocationStoreSurvivesProcessRecreationAndFallsBackWithoutAGrant() {
+        val preferences = context.getSharedPreferences("sdm-040-save-location", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val first = SaveLocationStore(preferences)
+        assertEquals(PersistedSaveLocation.DEFAULT, first.read())
+        first.persistUserTree(treeUri, "Download")
+        assertEquals(treeUri, first.read().treeUri)
+        assertEquals("Download", first.read().displayLabel)
+        assertTrue(preferences.edit().commit())
+
+        val restored = SaveLocationStore(preferences)
+        assertEquals(treeUri, restored.read().treeUri)
+        assertEquals("Download", restored.read().displayLabel)
+
+        val coordinator = SaveLocationCoordinator(
+            store = restored,
+            grants = PersistableTreeUriGrants(context.contentResolver),
+            trees = DocumentsContractTreeAccess(context.contentResolver),
+        )
+        val recovered = coordinator.validatePersisted()
+        assertEquals(SaveLocationRecovery.PermissionRevoked, recovered)
+        assertNull(restored.read().treeUri)
+        assertEquals(SaveLocationLabels.DEFAULT, restored.read().displayLabel)
+        preferences.edit().clear().commit()
     }
 }

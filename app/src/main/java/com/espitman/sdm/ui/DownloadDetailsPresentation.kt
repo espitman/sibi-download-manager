@@ -4,6 +4,8 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.download.ChecksumVerificationResult
 import com.espitman.sdm.download.DownloadRenameResult
+import com.espitman.sdm.storage.DownloadDestinationRef
+import com.espitman.sdm.storage.SaveLocationLabels
 import java.io.File
 
 internal enum class DownloadDetailsStateTone {
@@ -36,7 +38,7 @@ internal fun mapDownloadToDetailsPresentation(
         ringSweepDegrees = if (fraction == null) 0f else (fraction * 360f).coerceIn(0f, 360f),
         stateLabel = detailsStateLabel(download.state),
         stateTone = detailsStateTone(download.state),
-        destinationDisplay = detailsDestinationDisplay(download.destinationPath),
+        destinationDisplay = detailsDestinationDisplay(download),
         sourceUrl = download.url,
     )
 }
@@ -59,15 +61,31 @@ internal fun detailsStateTone(state: DownloadState): DownloadDetailsStateTone = 
     DownloadState.COMPLETED -> DownloadDetailsStateTone.Success
 }
 
+internal fun detailsDestinationDisplay(download: Download): String {
+    download.destinationDisplayLabel?.takeIf { it.isNotBlank() }?.let { return it }
+    return detailsDestinationDisplay(download.destinationPath)
+}
+
 internal fun detailsDestinationDisplay(destinationPath: String?): String {
     if (destinationPath == null) return "—"
+    if (DownloadDestinationRef.isContentUri(destinationPath)) {
+        return SaveLocationLabels.SELECTED_FOLDER_FALLBACK
+    }
     val parent = File(destinationPath).parent
     return if (parent.isNullOrBlank()) destinationPath else parent
 }
 
+internal fun detailsOpenFolderToast(download: Download): String =
+    detailsOpenFolderToast(download.destinationPath, detailsDestinationDisplay(download))
+
 internal fun detailsOpenFolderToast(destinationPath: String?): String {
     if (destinationPath == null) return "Destination folder unavailable"
     return "Opening ${detailsDestinationDisplay(destinationPath)}"
+}
+
+internal fun detailsOpenFolderToast(destinationPath: String?, display: String): String {
+    if (destinationPath == null) return "Destination folder unavailable"
+    return "Opening $display"
 }
 
 internal fun downloadRenameActionMessage(result: DownloadRenameResult): String = when (result) {

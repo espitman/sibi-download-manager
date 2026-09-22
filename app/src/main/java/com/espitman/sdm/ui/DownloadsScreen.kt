@@ -662,6 +662,7 @@ private fun PreferencesSheet(onDismiss: () -> Unit, onToast: (String) -> Unit, o
     var connections by remember { mutableIntStateOf(settings.connections) }
     var connectionsOpen by remember { mutableStateOf(false) }
     fun save() { repository.update { it.copy(wifiOnly = wifi, autoResume = resume, downloadComplete = notifications, connections = connections) } }
+    val saveLocation = rememberSaveLocationActions(onToast)
     HomeSheet(SdmIcons.DownloadPreferences, "QUICK SETUP", "Preferences", "Adjust the download controls you use most.", onDismiss) {
         Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SheetSetting("Wi-Fi only", "Pause downloads on mobile data", wifi) { wifi = it }; Spacer(Modifier.height(0.dp)); SheetSetting("Auto-resume", "Continue interrupted downloads", resume) { resume = it }; Spacer(Modifier.height(0.dp)); SheetSetting("Download notifications", "Alert when a transfer finishes", notifications) { notifications = it }; Spacer(Modifier.height(0.dp))
@@ -674,7 +675,7 @@ private fun PreferencesSheet(onDismiss: () -> Unit, onToast: (String) -> Unit, o
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).background(sdmColor(0xFF111214, 0xFFFBFAF6), RoundedCornerShape(14.dp)).border(1.dp, SdmLine, RoundedCornerShape(14.dp)).clickable { onToast("Save location editor opened") }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, tint = SdmGoldHigh, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(11.dp)); Column(Modifier.weight(1f)) { Text("Save location", fontSize = 12.sp, fontWeight = FontWeight.Bold); Text("/Download/SDM", color = SdmMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp)) }; Icon(SdmIcons.Chevron, null, tint = SdmMuted, modifier = Modifier.size(16.dp)) }
+            Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).background(sdmColor(0xFF111214, 0xFFFBFAF6), RoundedCornerShape(14.dp)).border(1.dp, SdmLine, RoundedCornerShape(14.dp)).clickable { saveLocation.openPicker() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, tint = SdmGoldHigh, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(11.dp)); Column(Modifier.weight(1f)) { Text("Save location", fontSize = 12.sp, fontWeight = FontWeight.Bold); Text(saveLocation.label, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp)) }; Icon(SdmIcons.Chevron, null, tint = SdmMuted, modifier = Modifier.size(16.dp)) }
             Surface(onClick = { save(); onDismiss(); onOpenSettings() }, color = sdmColor(0xFF1E1C13, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .46f)), modifier = Modifier.fillMaxWidth().height(48.dp)) { Box(contentAlignment = Alignment.Center) { Text("Open all settings", fontWeight = FontWeight.ExtraBold) } }
             Surface(onClick = { save(); onDismiss(); onToast("Preferences saved") }, color = sdmColor(0xFF191A1C, 0xFFECE8DF), contentColor = SdmText, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.fillMaxWidth().height(50.dp)) { Box(contentAlignment = Alignment.Center) { Text("Done", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } }
             Text("Changes here stay synchronized with the full Settings screen.", color = SdmMuted, fontSize = 9.sp, lineHeight = 13.sp, modifier = Modifier.padding(start = 2.dp, top = 1.dp, end = 2.dp))
@@ -729,6 +730,7 @@ private fun DownloadDetailsScreen(
         mapDownloadDetailsTelemetry(download, speedTracker.observe(download, nowEpochMillis))
     }
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
     val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + 58.dp.roundToPx() }
@@ -750,7 +752,14 @@ private fun DownloadDetailsScreen(
                                             val selected = download
                                             actionScope.launch {
                                                 try {
-                                                    val result = DownloadChecksumVerifier.verify(selected)
+                                                    val result = DownloadChecksumVerifier.verify(
+                                                        selected,
+                                                        openContentUri = { uriString ->
+                                                            context.contentResolver.openInputStream(
+                                                                android.net.Uri.parse(uriString),
+                                                            ) ?: throw java.io.FileNotFoundException(uriString)
+                                                        },
+                                                    )
                                                     onToast(checksumVerificationMessage(result))
                                                 } finally {
                                                     verifying = false
@@ -786,7 +795,7 @@ private fun DownloadDetailsScreen(
                     )
                 }
             }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast(detailsOpenFolderToast(download.destinationPath)) }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast(detailsOpenFolderToast(download)) }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
         }
     }
     if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) {

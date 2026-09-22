@@ -186,6 +186,7 @@ class DownloadSubmissionCoordinatorTest {
         clock: Clock = FakeClock(1000L),
         idFactory: IdFactory = SequentialIdFactory(),
         maxConcurrent: Int = 3,
+        destinationAllocator: com.espitman.sdm.storage.DestinationAllocator? = null,
     ): DownloadSubmissionCoordinator {
         val scheduler = DownloadQueueScheduler(
             repository = repository,
@@ -206,6 +207,10 @@ class DownloadSubmissionCoordinatorTest {
             queueScheduler = scheduler,
             clock = clock,
             idFactory = idFactory,
+            destinationAllocator = destinationAllocator
+                ?: com.espitman.sdm.storage.AppPrivateDestinationAllocator(
+                    directory = { directoryProvider.getDownloadsDirectory() },
+                ),
         )
     }
 
@@ -251,6 +256,8 @@ class DownloadSubmissionCoordinatorTest {
         assertEquals("archive.zip", persisted.fileName)
         assertEquals(DownloadState.QUEUED, persisted.state)
         assertEquals(File(tempDir, "archive.zip").absolutePath, persisted.destinationPath)
+        assertNull(persisted.destinationTreeUri)
+        assertNull(persisted.destinationDisplayLabel)
         assertEquals(4096L, persisted.totalBytes)
 
         // Final visible file does not exist yet; only .part file was reserved
@@ -747,6 +754,45 @@ class DownloadSubmissionCoordinatorTest {
         val persisted = (result as SubmissionResult.Success).download
         assertEquals(persisted.referenceSha256, repository.insertedDownloads.single().referenceSha256)
         return persisted
+    }
+
+    @Test
+    fun userTreeAllocatorPersistsTreeUriAndStagingPath() = runBlocking {
+        val repository = FakeDownloadRepository()
+        val retriever = FakeMetadataRetriever(
+            DownloadMetadataResult.Success(
+                DownloadMetadata(
+                    url = "https://example.com/tree.bin",
+                    contentLength = 8L,
+                    contentType = "application/octet-stream",
+                    suggestedFilename = "tree.bin",
+                ),
+            ),
+        )
+        val staging = File(tempDir, "staging").apply { mkdirs() }
+        val part = File(staging, "reserved.part").apply { createNewFile() }
+        val treeUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+        val coordinator = coordinator(
+            repository = repository,
+            retriever = retriever,
+            transferStarter = FakeTransferStarter(),
+            destinationAllocator = com.espitman.sdm.storage.DestinationAllocator {
+                com.espitman.sdm.storage.AllocatedDownloadDestination(
+                    fileName = "tree.bin",
+                    destinationPath = File(staging, "tree.bin").absolutePath,
+                    destinationTreeUri = treeUri,
+                    destinationDisplayLabel = "Download",
+                    partFile = part,
+                )
+            },
+        )
+        val result = coordinator.submit("https://example.com/tree.bin", startNow = true)
+        val persisted = (result as SubmissionResult.Success).download
+        assertEquals("tree.bin", persisted.fileName)
+        assertEquals(File(staging, "tree.bin").absolutePath, persisted.destinationPath)
+        assertEquals(treeUri, persisted.destinationTreeUri)
+        assertEquals("Download", persisted.destinationDisplayLabel)
+        assertEquals(treeUri, repository.insertedDownloads.single().destinationTreeUri)
     }
 
     companion object {

@@ -3,6 +3,8 @@ package com.espitman.sdm.download
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.storage.DownloadDestinationPublisher
+import com.espitman.sdm.storage.DownloadDestinationRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +39,7 @@ class DownloadTransferEngine(
     private val bufferSizeBytes: Int = DEFAULT_BUFFER_SIZE_BYTES,
     private val progressUpdateIntervalBytes: Long = DEFAULT_PROGRESS_UPDATE_INTERVAL_BYTES,
     private val onChunkRead: (Int) -> Unit = {},
+    private val destinationPublisher: DownloadDestinationPublisher = DownloadDestinationPublisher.KeepLocal,
 ) {
     init {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
@@ -65,7 +68,7 @@ class DownloadTransferEngine(
         )
 
         val destinationPath = existingDownload.destinationPath
-        if (destinationPath.isNullOrBlank()) {
+        if (destinationPath.isNullOrBlank() || DownloadDestinationRef.isContentUri(destinationPath)) {
             reportFailure(repository, downloadId, "Destination path is missing")
             return@withContext
         }
@@ -371,10 +374,31 @@ class DownloadTransferEngine(
                         }
                         val downloadingDownload = repository.get(downloadId)
                             ?: throw IllegalArgumentException("Download not found: $downloadId")
+                        val published = destinationPublisher.afterLocalFinalize(
+                            downloadingDownload,
+                            destinationFile,
+                        )
+                        val destinationChanged =
+                            published.destinationPath != downloadingDownload.destinationPath ||
+                                published.destinationTreeUri != downloadingDownload.destinationTreeUri ||
+                                published.destinationDisplayLabel != downloadingDownload.destinationDisplayLabel ||
+                                published.fileName != downloadingDownload.fileName
+                        val completedSource = if (destinationChanged) {
+                            repository.updateDestination(
+                                id = downloadId,
+                                destinationPath = published.destinationPath,
+                                destinationTreeUri = published.destinationTreeUri,
+                                destinationDisplayLabel = published.destinationDisplayLabel,
+                                fileName = published.fileName,
+                                nowEpochMillis = validTimestamp(downloadingDownload.updatedAtEpochMillis),
+                            )
+                        } else {
+                            downloadingDownload
+                        }
                         repository.transition(
                             id = downloadId,
                             to = DownloadState.COMPLETED,
-                            nowEpochMillis = validTimestamp(downloadingDownload.updatedAtEpochMillis),
+                            nowEpochMillis = validTimestamp(completedSource.updatedAtEpochMillis),
                         )
                     }
                     completedSuccessfully = true

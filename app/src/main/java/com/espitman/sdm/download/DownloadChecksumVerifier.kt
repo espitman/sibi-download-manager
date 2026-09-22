@@ -3,6 +3,7 @@ package com.espitman.sdm.download
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.network.ReferenceSha256Parser
+import com.espitman.sdm.storage.DownloadDestinationRef
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -50,6 +51,7 @@ object DownloadChecksumVerifier {
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         bufferSizeBytes: Int = DEFAULT_BUFFER_SIZE_BYTES,
         openStream: (File) -> InputStream = { FileInputStream(it) },
+        openContentUri: ((String) -> InputStream)? = null,
     ): ChecksumVerificationResult = withContext(ioDispatcher) {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
         val reference = ReferenceSha256Parser.parseHexHeader(download.referenceSha256)
@@ -61,14 +63,10 @@ object DownloadChecksumVerifier {
         if (path.isNullOrBlank()) {
             return@withContext ChecksumVerificationResult.MissingFile
         }
-        val file = File(path)
-        if (!file.isFile) {
-            return@withContext ChecksumVerificationResult.MissingFile
-        }
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(bufferSizeBytes)
-            openStream(file).use { input ->
+            openCompletedStream(path, openStream, openContentUri).use { input ->
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val read = input.read(buffer, 0, buffer.size)
@@ -86,11 +84,31 @@ object DownloadChecksumVerifier {
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: MissingCompletedFile) {
+            ChecksumVerificationResult.MissingFile
         } catch (_: Throwable) {
             ChecksumVerificationResult.Failure
         }
     }
+
+    private fun openCompletedStream(
+        path: String,
+        openStream: (File) -> InputStream,
+        openContentUri: ((String) -> InputStream)?,
+    ): InputStream {
+        if (DownloadDestinationRef.isContentUri(path)) {
+            val opener = openContentUri ?: throw MissingCompletedFile()
+            return opener(path)
+        }
+        val file = File(path)
+        if (!file.isFile) {
+            throw MissingCompletedFile()
+        }
+        return openStream(file)
+    }
 }
+
+private class MissingCompletedFile : Exception()
 
 private fun ByteArray.toHexLower(): String {
     val out = CharArray(size * 2)

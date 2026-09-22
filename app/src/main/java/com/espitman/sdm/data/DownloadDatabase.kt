@@ -22,6 +22,7 @@ internal class DownloadDatabase(
         migrateFourToFive(db)
         migrateFiveToSix(db)
         migrateSixToSeven(db)
+        migrateSevenToEight(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -50,12 +51,16 @@ internal class DownloadDatabase(
             migrateSixToSeven(db)
             version = 7
         }
+        if (version == 7 && newVersion >= 8) {
+            migrateSevenToEight(db)
+            version = 8
+        }
         check(version == newVersion) { "Missing database migration from $version to $newVersion" }
     }
 
     companion object {
         const val DATABASE_NAME = "sdm-downloads.db"
-        const val DATABASE_VERSION = 7
+        const val DATABASE_VERSION = 8
 
         internal fun createVersionOne(db: SQLiteDatabase) {
             db.execSQL(
@@ -117,6 +122,11 @@ internal class DownloadDatabase(
             db.execSQL(
                 "ALTER TABLE downloads ADD COLUMN automatic_retry_count INTEGER NOT NULL DEFAULT 0",
             )
+        }
+
+        internal fun migrateSevenToEight(db: SQLiteDatabase) {
+            db.execSQL("ALTER TABLE downloads ADD COLUMN destination_tree_uri TEXT")
+            db.execSQL("ALTER TABLE downloads ADD COLUMN destination_display_label TEXT")
         }
     }
 }

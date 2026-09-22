@@ -7,14 +7,15 @@ import android.net.Uri
 /**
  * Persistable read/write grants for an OpenDocumentTree folder URI.
  *
- * Survives process death while the system still holds the grant. Does not
- * record the URI as the app's active save location, and does not recover
- * from a later user or OS revocation (SDM-040).
+ * Survives process death while the system still holds the grant.
  */
-class PersistableTreeUriGrants(private val contentResolver: ContentResolver) {
-    fun takeReadWrite(
+class PersistableTreeUriGrants(private val contentResolver: ContentResolver) : TreeUriGrantStore {
+    fun takeReadWrite(uriString: String): PersistableGrantResult =
+        takeReadWrite(uriString, StorageAccessPolicy.TAKE_PERSISTABLE_FLAGS)
+
+    override fun takeReadWrite(
         uriString: String,
-        takeFlags: Int = StorageAccessPolicy.TAKE_PERSISTABLE_FLAGS,
+        takeFlags: Int,
     ): PersistableGrantResult {
         val valid = validated(uriString) ?: return invalid(uriString)
         val uri = Uri.parse(valid)
@@ -38,7 +39,7 @@ class PersistableTreeUriGrants(private val contentResolver: ContentResolver) {
         }
     }
 
-    fun releaseReadWrite(uriString: String): PersistableGrantResult {
+    override fun releaseReadWrite(uriString: String): PersistableGrantResult {
         val valid = validated(uriString) ?: return invalid(uriString)
         if (!hasReadWrite(valid)) return PersistableGrantResult.Success(valid)
         val uri = Uri.parse(valid)
@@ -57,7 +58,7 @@ class PersistableTreeUriGrants(private val contentResolver: ContentResolver) {
         }
     }
 
-    fun hasReadWrite(uriString: String): Boolean {
+    override fun hasReadWrite(uriString: String): Boolean {
         val valid = validated(uriString) ?: return false
         val uri = Uri.parse(valid)
         return contentResolver.persistedUriPermissions.any { permission ->

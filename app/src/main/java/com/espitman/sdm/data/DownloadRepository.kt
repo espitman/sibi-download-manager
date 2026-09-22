@@ -82,6 +82,19 @@ interface DownloadRepository {
         totalBytes: Long?,
     ): Download
 
+    /**
+     * Updates the finalized destination after a local transfer when a user-selected
+     * folder is published, or after a safe fallback to app-private storage.
+     */
+    suspend fun updateDestination(
+        id: String,
+        destinationPath: String,
+        destinationTreeUri: String?,
+        destinationDisplayLabel: String?,
+        fileName: String,
+        nowEpochMillis: Long,
+    ): Download = error("updateDestination is not implemented")
+
     /** Bytes newly transferred on the local calendar day containing [nowEpochMillis] in [zoneId]. */
     suspend fun transferredBytesForLocalDay(
         nowEpochMillis: Long,

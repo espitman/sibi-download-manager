@@ -10,8 +10,6 @@ import java.net.URISyntaxException
  * (no storage permission). User-selected folders use
  * [OPEN_DOCUMENT_TREE_ACTION] plus persistable read/write URI grants.
  * Broad media/storage permissions are not part of this model.
- *
- * This policy does not persist the active save location; that is SDM-040.
  */
 object StorageAccessPolicy {
     const val OPEN_DOCUMENT_TREE_ACTION = "android.intent.action.OPEN_DOCUMENT_TREE"
