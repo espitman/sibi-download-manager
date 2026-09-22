@@ -13,6 +13,10 @@ data class PauseTransferCommand(
     override val downloadId: String,
 ) : TransferCommand
 
+data class CancelTransferCommand(
+    override val downloadId: String,
+) : TransferCommand
+
 data class ResumeTransferCommand(
     override val downloadId: String,
 ) : TransferCommand
@@ -20,6 +24,7 @@ data class ResumeTransferCommand(
 object DownloadTransferCommand {
     const val ACTION_START_TRANSFER = "com.espitman.sdm.download.action.START_TRANSFER"
     const val ACTION_PAUSE_TRANSFER = "com.espitman.sdm.download.action.PAUSE_TRANSFER"
+    const val ACTION_CANCEL_TRANSFER = "com.espitman.sdm.download.action.CANCEL_TRANSFER"
     const val ACTION_RESUME_TRANSFER = "com.espitman.sdm.download.action.RESUME_TRANSFER"
     const val EXTRA_DOWNLOAD_ID = "com.espitman.sdm.download.extra.DOWNLOAD_ID"
     const val EXTRA_TEMP_FILE_PATH = "com.espitman.sdm.download.extra.TEMP_FILE_PATH"
@@ -37,6 +42,7 @@ object DownloadTransferCommand {
                 if (path.isEmpty()) null else StartTransferCommand(downloadId = id, tempFilePath = path)
             }
             ACTION_PAUSE_TRANSFER -> PauseTransferCommand(downloadId = id)
+            ACTION_CANCEL_TRANSFER -> CancelTransferCommand(downloadId = id)
             ACTION_RESUME_TRANSFER -> ResumeTransferCommand(downloadId = id)
             else -> null
         }

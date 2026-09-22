@@ -9,16 +9,19 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
@@ -63,6 +66,7 @@ class DownloadTransferService : Service() {
                     } catch (_: Throwable) {
                         // Transfer failures are recorded by the engine; missing records are ignored.
                     } finally {
+                        persistCancelledIfRequested(result.command.downloadId)
                         session.onTransferFinished(result.command.downloadId)?.let { stopSelf(it) }
                     }
                 }
@@ -71,7 +75,16 @@ class DownloadTransferService : Service() {
                 }
             }
             is SessionCommandResult.CancelJob -> result.job.cancel()
-            SessionCommandResult.None -> session.startIdIfIdle()?.let { stopSelf(it) }
+            SessionCommandResult.None -> {
+                if (command is CancelTransferCommand && !session.isCancelRequested(command.downloadId)) {
+                    serviceScope.launch {
+                        persistCancelledNow(command.downloadId)
+                        session.startIdIfIdle()?.let { stopSelf(it) }
+                    }
+                } else {
+                    session.startIdIfIdle()?.let { stopSelf(it) }
+                }
+            }
         }
         return START_NOT_STICKY
     }
@@ -157,6 +170,35 @@ class DownloadTransferService : Service() {
         keepActiveAcquiredAtElapsedMs = null
     }
 
+    private suspend fun persistCancelledIfRequested(downloadId: String) {
+        if (!session.isCancelRequested(downloadId)) return
+        persistCancelledNow(downloadId)
+    }
+
+    private suspend fun persistCancelledNow(downloadId: String) = withContext(NonCancellable) {
+        val repository = AppRepositories.downloads(applicationContext)
+        val download = repository.get(downloadId) ?: return@withContext
+        repository.cancelAtExactOffset(
+            id = download.id,
+            fileLengthBytes = onDiskPartLength(download, session.tempFilePath(downloadId)),
+            nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
+        )
+    }
+
+    private fun onDiskPartLength(download: Download, tempFilePath: String?): Long {
+        val tempFile = tempFilePath?.let(::File)
+        if (tempFile != null) {
+            return if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
+        }
+        val destinationPath = download.destinationPath ?: return 0L
+        val partFile = try {
+            DownloadPartFile.forDestination(File(destinationPath))
+        } catch (_: IllegalArgumentException) {
+            return 0L
+        }
+        return if (partFile.exists()) partFile.length().coerceAtLeast(0L) else 0L
+    }
+
     private suspend fun executeTransfer(command: StartTransferCommand) {
         val repository = AppRepositories.downloads(applicationContext)
         val download = repository.get(command.downloadId) ?: return
@@ -226,6 +268,20 @@ class DownloadTransferService : Service() {
             ) as? PauseTransferCommand ?: return
             val intent = Intent(appContext, DownloadTransferService::class.java).apply {
                 action = DownloadTransferCommand.ACTION_PAUSE_TRANSFER
+                putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
+            }
+            ContextCompat.startForegroundService(appContext, intent)
+        }
+
+        fun cancelTransfer(context: Context, downloadId: String) {
+            val appContext = context.applicationContext
+            val command = DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_CANCEL_TRANSFER,
+                downloadId = downloadId,
+                tempFilePath = null,
+            ) as? CancelTransferCommand ?: return
+            val intent = Intent(appContext, DownloadTransferService::class.java).apply {
+                action = DownloadTransferCommand.ACTION_CANCEL_TRANSFER
                 putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
             }
             ContextCompat.startForegroundService(appContext, intent)

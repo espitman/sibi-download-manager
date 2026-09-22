@@ -152,4 +152,110 @@ class DownloadTransferSessionTest {
         assertEquals(SessionCommandResult.StartJob(resume), session.handleCommand(5, resume))
         assertEquals(5, session.onTransferFinished("dl-1"))
     }
+
+    @Test
+    fun cancelCancelsTheAttachedJobAndKeepsTheSessionAliveUntilFinish() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        val job = Job()
+
+        session.handleCommand(1, command)
+        assertFalse(session.attachJob(command.downloadId, job))
+        assertNull(session.startIdIfIdle())
+
+        val cancel = session.handleCommand(2, CancelTransferCommand(command.downloadId))
+        check(cancel is SessionCommandResult.CancelJob)
+        assertEquals(command.downloadId, cancel.downloadId)
+        assertSame(job, cancel.job)
+        assertTrue(session.isCancelRequested(command.downloadId))
+        assertFalse(session.isPauseRequested(command.downloadId))
+        assertEquals("/tmp/a.part", session.tempFilePath(command.downloadId))
+        assertNull(session.startIdIfIdle())
+
+        val duplicate = session.handleCommand(3, CancelTransferCommand(command.downloadId))
+        assertEquals(SessionCommandResult.None, duplicate)
+        assertTrue(session.isCancelRequested(command.downloadId))
+        assertNull(session.startIdIfIdle())
+
+        assertEquals(3, session.onTransferFinished(command.downloadId))
+        assertFalse(session.isCancelRequested(command.downloadId))
+    }
+
+    @Test
+    fun cancelBeforeAttachMarksTheJobSoTheCallerCancelsAfterLaunch() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        session.handleCommand(1, command)
+
+        assertEquals(
+            SessionCommandResult.None,
+            session.handleCommand(2, CancelTransferCommand(command.downloadId)),
+        )
+        assertTrue(session.isCancelRequested(command.downloadId))
+        assertFalse(session.isPauseRequested(command.downloadId))
+        assertNull(session.startIdIfIdle())
+
+        val job = Job()
+        assertTrue(session.attachJob(command.downloadId, job))
+        assertNull(session.startIdIfIdle())
+        assertEquals(2, session.onTransferFinished(command.downloadId))
+    }
+
+    @Test
+    fun cancelWinsAPauseVersusCancelRace() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        val job = Job()
+        session.handleCommand(1, command)
+        session.attachJob(command.downloadId, job)
+
+        session.handleCommand(2, PauseTransferCommand(command.downloadId))
+        assertTrue(session.isPauseRequested(command.downloadId))
+        assertFalse(session.isCancelRequested(command.downloadId))
+
+        val cancel = session.handleCommand(3, CancelTransferCommand(command.downloadId))
+        check(cancel is SessionCommandResult.CancelJob)
+        assertSame(job, cancel.job)
+        assertTrue(session.isCancelRequested(command.downloadId))
+        assertFalse(session.isPauseRequested(command.downloadId))
+
+        session.handleCommand(4, PauseTransferCommand(command.downloadId))
+        assertTrue(session.isCancelRequested(command.downloadId))
+        assertFalse(session.isPauseRequested(command.downloadId))
+        assertEquals(SessionCommandResult.None, session.handleCommand(5, CancelTransferCommand(command.downloadId)))
+        assertEquals(5, session.onTransferFinished(command.downloadId))
+    }
+
+    @Test
+    fun cancelThenPauseStillTreatsTheTransferAsCancelled() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        val job = Job()
+        session.handleCommand(1, command)
+        session.attachJob(command.downloadId, job)
+
+        val cancel = session.handleCommand(2, CancelTransferCommand(command.downloadId))
+        check(cancel is SessionCommandResult.CancelJob)
+        session.handleCommand(3, PauseTransferCommand(command.downloadId))
+        assertTrue(session.isCancelRequested(command.downloadId))
+        assertFalse(session.isPauseRequested(command.downloadId))
+        assertEquals(3, session.onTransferFinished(command.downloadId))
+    }
+
+    @Test
+    fun cancelForMissingCompletedOrIdleIdsDoesNotCorruptActiveWork() {
+        val session = DownloadTransferSession()
+        val active = StartTransferCommand("active", "/tmp/a.part")
+        session.handleCommand(1, active)
+        session.attachJob(active.downloadId, Job())
+
+        assertEquals(SessionCommandResult.None, session.handleCommand(2, CancelTransferCommand("missing")))
+        assertFalse(session.isCancelRequested("missing"))
+        assertNull(session.startIdIfIdle())
+
+        session.onTransferFinished(active.downloadId)
+        assertEquals(SessionCommandResult.None, session.handleCommand(4, CancelTransferCommand(active.downloadId)))
+        assertEquals(4, session.startIdIfIdle())
+        assertFalse(session.isCancelRequested(active.downloadId))
+    }
 }

@@ -110,6 +110,16 @@ internal fun transferCardAction(state: DownloadState): TransferCardAction = when
     else -> TransferCardAction.None
 }
 
+internal fun confirmCancelDownload(
+    dispatchCancel: () -> Unit,
+    closeDialog: () -> Unit,
+    returnToList: () -> Unit,
+) {
+    dispatchCancel()
+    closeDialog()
+    returnToList()
+}
+
 @Composable
 internal fun InteractiveDownloadsScreen(
     uiState: DownloadsUiState,
@@ -169,6 +179,9 @@ internal fun InteractiveDownloadsScreen(
                             DownloadTransferService.resumeTransfer(context, selectedRecord.id)
                         TransferCardAction.None -> Unit
                     }
+                },
+                onCancel = {
+                    DownloadTransferService.cancelTransfer(context, selectedRecord.id)
                 },
             )
         }
@@ -550,7 +563,7 @@ private fun SheetActions(onCancel: () -> Unit, primaryLabel: String = "Save", on
 private fun SheetActionButton(label: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) { Surface(onClick = onClick, color = if (primary) SdmGold else sdmColor(0xFF191A1C, 0xFFECE8DF), contentColor = if (primary) Color(0xFF080808) else SdmText, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, if (primary) SdmGold else SdmLine), modifier = modifier.height(50.dp)) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
 
 @Composable
-private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, onToast: (String) -> Unit, onPause: () -> Unit) {
+private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, onToast: (String) -> Unit, onPause: () -> Unit, onCancel: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }; var headersOpen by remember { mutableStateOf(false) }; var segmentsOpen by remember { mutableStateOf(false) }; var cancelOpen by remember { mutableStateOf(false) }
     var priorityActive by remember { mutableStateOf(false) }
     val paused = item.metadataValue == "Paused"
@@ -578,7 +591,13 @@ private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, o
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast("Opening /Download/SDM") }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
         }
     }
-    if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) { cancelOpen = false; onBack(); onToast("Download canceled · Partial file kept") }
+    if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) {
+        confirmCancelDownload(
+            dispatchCancel = onCancel,
+            closeDialog = { cancelOpen = false },
+            returnToList = onBack,
+        )
+    }
 }
 
 @Composable

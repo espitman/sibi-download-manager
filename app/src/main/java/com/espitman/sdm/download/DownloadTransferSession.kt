@@ -24,12 +24,14 @@ class DownloadTransferSession {
             is PauseTransferCommand -> {
                 val transfer = active[command.downloadId] ?: return@synchronized SessionCommandResult.None
                 transfer.pauseRequested = true
-                val job = transfer.job
-                if (job != null && !job.isCompleted) {
-                    SessionCommandResult.CancelJob(command.downloadId, job)
-                } else {
-                    SessionCommandResult.None
-                }
+                cancelAttachedJobIfNeeded(command.downloadId, transfer)
+            }
+            is CancelTransferCommand -> {
+                val transfer = active[command.downloadId] ?: return@synchronized SessionCommandResult.None
+                val alreadyCancelRequested = transfer.cancelRequested
+                transfer.cancelRequested = true
+                if (alreadyCancelRequested) return@synchronized SessionCommandResult.None
+                cancelAttachedJobIfNeeded(command.downloadId, transfer)
             }
             null -> SessionCommandResult.None
         }
@@ -38,11 +40,16 @@ class DownloadTransferSession {
     fun attachJob(downloadId: String, job: Job): Boolean = synchronized(lock) {
         val transfer = active[downloadId] ?: return false
         transfer.job = job
-        transfer.pauseRequested
+        transfer.pauseRequested || transfer.cancelRequested
     }
 
     fun isPauseRequested(downloadId: String): Boolean = synchronized(lock) {
-        active[downloadId]?.pauseRequested == true
+        val transfer = active[downloadId] ?: return false
+        transfer.pauseRequested && !transfer.cancelRequested
+    }
+
+    fun isCancelRequested(downloadId: String): Boolean = synchronized(lock) {
+        active[downloadId]?.cancelRequested == true
     }
 
     fun tempFilePath(downloadId: String): String? = synchronized(lock) {
@@ -58,9 +65,19 @@ class DownloadTransferSession {
         if (active.isEmpty()) latestStartId else null
     }
 
+    private fun cancelAttachedJobIfNeeded(downloadId: String, transfer: ActiveTransfer): SessionCommandResult {
+        val job = transfer.job
+        return if (job != null && !job.isCompleted) {
+            SessionCommandResult.CancelJob(downloadId, job)
+        } else {
+            SessionCommandResult.None
+        }
+    }
+
     private class ActiveTransfer(
         val command: TransferCommand,
         var job: Job? = null,
         var pauseRequested: Boolean = false,
+        var cancelRequested: Boolean = false,
     )
 }

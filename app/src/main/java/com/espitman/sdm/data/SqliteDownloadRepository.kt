@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
@@ -120,6 +121,33 @@ class SqliteDownloadRepository(
                 updated = paused
             }
             if (updated != null && updated!!.state == DownloadState.PAUSED) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun cancelAtExactOffset(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val cancelled = DownloadCancelMutation.apply(current, fileLengthBytes, nowEpochMillis)
+                if (cancelled === current || cancelled == current) {
+                    updated = current
+                    return@inTransaction
+                }
+                check(db.update("downloads", cancelled.toValues(), "id = ?", arrayOf(id)) == 1) {
+                    "Concurrent update failed for download $id"
+                }
+                updated = cancelled
+            }
+            if (updated != null && updated!!.state == DownloadState.CANCELLED) {
                 refreshLocked(database.readableDatabase)
             }
             updated

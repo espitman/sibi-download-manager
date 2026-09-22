@@ -362,6 +362,21 @@ class DownloadInterruptionRecoveryTest {
             return paused
         }
 
+        override suspend fun cancelAtExactOffset(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+        ): Download? {
+            val current = get(id) ?: return null
+            val cancelled = com.espitman.sdm.domain.DownloadCancelMutation.apply(
+                current,
+                fileLengthBytes,
+                nowEpochMillis,
+            )
+            if (cancelled != current) insert(cancelled)
+            return cancelled
+        }
+
         override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? {
             val current = get(id) ?: return null
             if (current.state != DownloadState.PAUSED) return null

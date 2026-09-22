@@ -85,7 +85,8 @@ Depends on stage 3.
   - Verification: Resume sends validated Range/If-Range, rejects missing or mismatched ETag/Last-Modified versions, appends only matching Content-Range bytes without silently accepting extras or mutating the original part on pre-append failure, and wires paused card/details Resume plus active Pause to the real transfer service; 47 focused tests, 196 JVM tests, assembleDebug, lintDebug, and git diff --check passed.
 - [x] SDM-025 — Handle unsupported resume, HTTP 200 responses to Range requests, and HTTP 416 errors; restart clearly without corrupting files.
   - Verification: HTTP 200 to Range is a full restart body and HTTP 416 triggers one bounded non-Range GET onto a separate restart temp; progress and ETag/Last-Modified/total are replaced atomically, obsolete parts are removed only after success, cancellation keeps a usable new partial without mixing versions, and SHA-256 of the fresh body matches; 36 focused tests, 204 JVM tests, assembleDebug, lintDebug, and git diff --check passed.
-- [ ] SDM-026 — Implement Cancel, stop active work, and handle temporary files according to the approved deletion interaction.
+- [x] SDM-026 — Implement Cancel, stop active work, and handle temporary files according to the approved deletion interaction.
+  - Verification: 215 JVM tests passed with zero failures, assembleDebug and lintDebug passed, git diff --check passed, and the resulting debug APK installed successfully and launched into com.espitman.sdm/.MainActivity on the connected Xiaomi Android 14 device.
 - [ ] SDM-027 — Connect Queue in Add to a real scheduler respecting priority and concurrent download limits.
 - [ ] SDM-028 — Implement Download All and Pause All with correct handling of queued, active, and completed downloads.
 - [ ] SDM-029 — Connect notification Pause, Resume, and Cancel actions to the same engine and shared UI state.
