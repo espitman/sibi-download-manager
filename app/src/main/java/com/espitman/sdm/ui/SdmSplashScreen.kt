@@ -142,7 +142,7 @@ private fun SdmSplashScreen(onAnimationFinished: () -> Unit) {
         Box(
             Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp).width(220.dp).height(2.dp).background(Color(0xFF242424), CircleShape),
         ) {
-            Box(Modifier.fillMaxWidth(.22f * loading.value).height(2.dp).background(SplashGold, CircleShape))
+            Box(Modifier.fillMaxWidth(loading.value).height(2.dp).background(SplashGold, CircleShape))
         }
     }
 }
