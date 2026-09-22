@@ -25,6 +25,7 @@ data class Download(
     val state: DownloadState = DownloadState.QUEUED,
     val error: String? = null,
     val priority: Int = 0,
+    val sortOrder: Long = 0,
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long = createdAtEpochMillis,
     val startedAtEpochMillis: Long? = null,

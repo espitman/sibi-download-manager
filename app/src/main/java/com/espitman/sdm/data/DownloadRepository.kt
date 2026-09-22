@@ -55,6 +55,15 @@ interface DownloadRepository {
         return updated
     }
     suspend fun togglePriority(id: String, nowEpochMillis: Long): Download?
+    /** Moves a QUEUED record first within its priority tier via a lower sortOrder; no-op if missing, non-queued, or already first. */
+    suspend fun moveToTop(id: String, nowEpochMillis: Long): Download? = null
+    /** Atomically updates fileName and destinationPath for a non-active record. */
+    suspend fun renameRecord(
+        id: String,
+        fileName: String,
+        destinationPath: String,
+        nowEpochMillis: Long,
+    ): Download = error("renameRecord is not implemented")
     suspend fun beginFreshRestart(
         id: String,
         nowEpochMillis: Long,

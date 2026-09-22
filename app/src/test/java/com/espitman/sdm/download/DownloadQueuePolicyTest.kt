@@ -22,6 +22,20 @@ class DownloadQueuePolicyTest {
     }
 
     @Test
+    fun usesSortOrderBeforeCreationWithinPriority() {
+        val laterLowerSort = queued("later", priority = 1, createdAt = 50, sortOrder = -1)
+        val earlier = queued("earlier", priority = 1, createdAt = 10, sortOrder = 0)
+        val highPriority = queued("high", priority = 5, createdAt = 90, sortOrder = 9)
+
+        val selected = DownloadQueuePolicy.select(
+            downloads = listOf(laterLowerSort, earlier, highPriority),
+            maxConcurrent = 3,
+        )
+
+        assertEquals(listOf("high", "later", "earlier"), selected.map { it.id })
+    }
+
+    @Test
     fun usesCreationThenIdForStableQueueOrder() {
         val later = queued("b", priority = 1, createdAt = 20)
         val earlier = queued("a", priority = 1, createdAt = 10)
@@ -109,12 +123,14 @@ class DownloadQueuePolicyTest {
         id: String,
         priority: Int = 0,
         createdAt: Long = 1_000L,
+        sortOrder: Long = 0,
     ) = Download(
         id = id,
         url = "https://example.com/$id",
         fileName = "$id.bin",
         destinationPath = "/tmp/$id.bin",
         priority = priority,
+        sortOrder = sortOrder,
         createdAtEpochMillis = createdAt,
     )
 }

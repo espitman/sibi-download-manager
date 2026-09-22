@@ -1,6 +1,7 @@
 package com.espitman.sdm.download
 
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadQueueOrder
 import com.espitman.sdm.domain.DownloadState
 
 object DownloadQueuePolicy {
@@ -38,8 +39,5 @@ object DownloadQueuePolicy {
             .take(freeSlots)
     }
 
-    val queueOrder: Comparator<Download> =
-        compareByDescending<Download> { it.priority }
-            .thenBy { it.createdAtEpochMillis }
-            .thenBy { it.id }
+    val queueOrder: Comparator<Download> = DownloadQueueOrder.comparator
 }

@@ -158,6 +158,7 @@ class DownloadSubmissionCoordinator(
                 state = DownloadState.QUEUED,
                 error = null,
                 priority = 0,
+                sortOrder = now,
                 createdAtEpochMillis = now,
                 updatedAtEpochMillis = now,
                 startedAtEpochMillis = null,

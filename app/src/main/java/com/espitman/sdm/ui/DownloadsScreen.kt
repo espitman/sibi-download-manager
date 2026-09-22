@@ -75,8 +75,12 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.download.Clock
+import com.espitman.sdm.download.DownloadRenameCoordinator
+import com.espitman.sdm.download.DownloadRenameResult
 import com.espitman.sdm.download.DownloadTransferService
 import java.time.ZoneId
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
@@ -218,8 +222,27 @@ internal fun InteractiveDownloadsScreen(
                 download = selectedRecord,
                 nowEpochMillis = nowEpochMillis,
                 priorityActive = DownloadPriorityMutation.isHigh(selectedRecord.priority),
+                actionScope = overlayScope,
                 onBack = { onSelectedDownloadIdChange(null) },
                 onToast = onToast,
+                onRename = { fileName ->
+                    DownloadRenameCoordinator.rename(
+                        downloadId = selectedRecord.id,
+                        rawFilename = fileName,
+                        repository = repository,
+                        clock = Clock.SystemClock,
+                    )
+                },
+                onMoveToTop = {
+                    overlayScope.launch {
+                        val after = repository.moveToTop(
+                            selectedRecord.id,
+                            System.currentTimeMillis(),
+                        )
+                        AppRepositories.queueScheduler(context).schedule()
+                        onToast(moveToTopActionMessage(selectedRecord, after))
+                    }
+                },
                 onPause = {
                     when (transferCardAction(selectedRecord.state)) {
                         TransferCardAction.Pause ->
@@ -642,8 +665,11 @@ private fun DownloadDetailsScreen(
     download: Download,
     nowEpochMillis: Long,
     priorityActive: Boolean,
+    actionScope: CoroutineScope,
     onBack: () -> Unit,
     onToast: (String) -> Unit,
+    onRename: suspend (String) -> DownloadRenameResult,
+    onMoveToTop: () -> Unit,
     onPause: () -> Unit,
     onCancel: () -> Unit,
     onPriority: () -> Unit,
@@ -652,6 +678,8 @@ private fun DownloadDetailsScreen(
     var headersOpen by remember(download.id) { mutableStateOf(false) }
     var segmentsOpen by remember(download.id) { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
+    var renameOpen by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     val speedTracker = remember(download.id) { DownloadDetailsSpeedTracker() }
     val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis)
     val telemetry = remember(download, nowEpochMillis) {
@@ -666,7 +694,23 @@ private fun DownloadDetailsScreen(
         Box(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp)) }; Text("Download details", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
-                Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) { Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) { listOf("Rename" to "Download renamed", "Verify checksum" to "Integrity check scheduled", "Move to top" to "Download moved to top").forEach { (label, message) -> Box(Modifier.fillMaxWidth().height(54.dp).clickable { menuOpen = false; onToast(message) }.padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) { Text(label, fontSize = 16.sp) } } } }
+                Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
+                    Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        listOf("Rename", "Verify checksum", "Move to top").forEach { label ->
+                            Box(
+                                Modifier.fillMaxWidth().height(54.dp).clickable {
+                                    menuOpen = false
+                                    when (label) {
+                                        "Rename" -> renameOpen = true
+                                        "Verify checksum" -> onToast("Integrity check scheduled")
+                                        "Move to top" -> onMoveToTop()
+                                    }
+                                }.padding(horizontal = 10.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) { Text(label, fontSize = 16.sp) }
+                        }
+                    }
+                }
             }
         }
         HorizontalDivider(color = SdmGold.copy(alpha = .14f))
@@ -698,6 +742,24 @@ private fun DownloadDetailsScreen(
             returnToList = onBack,
         )
     }
+    if (renameOpen) RenameDownloadDialog(
+        fileName = download.fileName,
+        submitting = renaming,
+        onDismiss = { if (!renaming) renameOpen = false },
+        onConfirm = { submittedName ->
+            if (renaming) return@RenameDownloadDialog
+            renaming = true
+            actionScope.launch {
+                try {
+                    val result = onRename(submittedName)
+                    onToast(downloadRenameActionMessage(result))
+                    if (shouldCloseRenameDialog(result)) renameOpen = false
+                } finally {
+                    renaming = false
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -818,6 +880,47 @@ private fun DisclosureInfo(
     }
 }
 @Composable private fun DisclosureRow(title:String,value:String,open:Boolean,onClick:()->Unit){Row(Modifier.fillMaxWidth().heightIn(min=54.dp).clickable(onClick=onClick).padding(horizontal=14.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically){Text(title,fontSize=12.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text(value,fontSize=12.sp);Icon(SdmIcons.Chevron,null,tint=SdmMuted,modifier=Modifier.padding(start=8.dp).size(16.dp).rotate(if(open)90f else 0f))}}
+
+@Composable
+private fun RenameDownloadDialog(
+    fileName: String,
+    submitting: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember { mutableStateOf(fileName) }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val view = LocalView.current
+        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
+            Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+                Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
+                    Column(Modifier.padding(21.dp)) {
+                        Text("Rename", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        BasicTextField(
+                            value = value,
+                            onValueChange = { if (!submitting) value = it },
+                            singleLine = true,
+                            enabled = !submitting,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 13.sp, lineHeight = 20.sp),
+                            cursorBrush = SolidColor(SdmGold),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 20.dp).height(48.dp)
+                                .background(SdmSurface, RoundedCornerShape(14.dp))
+                                .border(1.dp, SdmLine, RoundedCornerShape(14.dp))
+                                .padding(horizontal = 14.dp, vertical = 14.dp),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SheetActionButton("Cancel", false, Modifier.weight(1f), onDismiss)
+                            SheetActionButton("Rename", true, Modifier.weight(1f)) {
+                                if (!submitting) onConfirm(value)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable private fun CancelDownloadDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {

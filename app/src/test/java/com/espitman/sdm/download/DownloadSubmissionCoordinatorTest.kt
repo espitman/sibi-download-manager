@@ -615,6 +615,31 @@ class DownloadSubmissionCoordinatorTest {
     }
 
     @Test
+    fun submissionPersistsSortOrderFromCreationClock() = runBlocking {
+        val repository = FakeDownloadRepository()
+        val retriever = FakeMetadataRetriever(
+            DownloadMetadataResult.Success(
+                DownloadMetadata(
+                    url = "https://example.com/sort.bin",
+                    contentLength = 64L,
+                    contentType = "application/octet-stream",
+                    suggestedFilename = "sort.bin",
+                )
+            )
+        )
+        val coordinator = coordinator(
+            repository = repository,
+            retriever = retriever,
+            transferStarter = FakeTransferStarter(),
+            clock = FakeClock(12_345L),
+        )
+
+        val result = coordinator.submit("https://example.com/sort.bin", startNow = false)
+        assertTrue("Expected Success, got $result", result is SubmissionResult.Success)
+        assertEquals(12_345L, repository.insertedDownloads.single().sortOrder)
+    }
+
+    @Test
     fun submissionPersistsAcceptsRangesTrueFromMetadata() = runBlocking {
         val persisted = submitWithAcceptsRanges(acceptsRanges = true)
         assertEquals(true, persisted.acceptsRanges)

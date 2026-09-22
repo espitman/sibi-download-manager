@@ -2,6 +2,7 @@ package com.espitman.sdm.ui
 
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.download.DownloadRenameResult
 import java.io.File
 
 internal enum class DownloadDetailsStateTone {
@@ -66,4 +67,23 @@ internal fun detailsDestinationDisplay(destinationPath: String?): String {
 internal fun detailsOpenFolderToast(destinationPath: String?): String {
     if (destinationPath == null) return "Destination folder unavailable"
     return "Opening ${detailsDestinationDisplay(destinationPath)}"
+}
+
+internal fun downloadRenameActionMessage(result: DownloadRenameResult): String = when (result) {
+    is DownloadRenameResult.Success -> "Download renamed"
+    is DownloadRenameResult.Failure -> result.message
+    is DownloadRenameResult.PauseRequired -> result.message
+}
+
+internal fun shouldCloseRenameDialog(result: DownloadRenameResult): Boolean =
+    result is DownloadRenameResult.Success
+
+internal fun moveToTopActionMessage(before: Download, after: Download?): String {
+    if (before.state != DownloadState.QUEUED) return "Only queued downloads can be moved"
+    if (after == null || after.state != DownloadState.QUEUED) {
+        return "Only queued downloads can be moved"
+    }
+    val changed = after.sortOrder != before.sortOrder ||
+        after.updatedAtEpochMillis != before.updatedAtEpochMillis
+    return if (changed) "Download moved to top" else "Already at the top"
 }

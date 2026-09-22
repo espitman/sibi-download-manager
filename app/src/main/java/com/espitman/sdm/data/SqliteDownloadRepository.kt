@@ -8,7 +8,9 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadMoveToTopMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
+import com.espitman.sdm.domain.DownloadRenameMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
 import com.espitman.sdm.domain.DownloadAllMutation
 import com.espitman.sdm.domain.PauseQueuedMutation
@@ -242,6 +244,66 @@ class SqliteDownloadRepository(
         }
     }
 
+    override suspend fun moveToTop(
+        id: String,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            var changed = false
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val peers = queryQueuedSamePriority(db, current.priority)
+                val nextRecords = DownloadMoveToTopMutation.apply(current, peers, nowEpochMillis)
+                if (nextRecords.isEmpty()) {
+                    updated = current
+                    return@inTransaction
+                }
+                val previousById = peers.associateBy { it.id } + (current.id to current)
+                for (next in nextRecords) {
+                    val previous = previousById.getValue(next.id)
+                    check(previous.priority == next.priority)
+                    check(previous.downloadedBytes == next.downloadedBytes)
+                    check(previous.state == next.state)
+                    persistIdentity(db, next.id, next)
+                }
+                updated = nextRecords.first { it.id == id }
+                changed = true
+            }
+            if (changed) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun renameRecord(
+        id: String,
+        fileName: String,
+        destinationPath: String,
+        nowEpochMillis: Long,
+    ): Download = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            lateinit var updated: Download
+            var changed = false
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: error("Download $id does not exist")
+                updated = DownloadRenameMutation.apply(current, fileName, destinationPath, nowEpochMillis)
+                check(current.downloadedBytes == updated.downloadedBytes)
+                if (updated != current) {
+                    persistIdentity(db, id, updated)
+                    changed = true
+                }
+            }
+            if (changed) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
     override suspend fun beginFreshRestart(
         id: String,
         nowEpochMillis: Long,
@@ -294,6 +356,12 @@ class SqliteDownloadRepository(
         addDailyTransferLocked(db, current.downloadedBytes, next.downloadedBytes, next.updatedAtEpochMillis)
     }
 
+    private fun persistIdentity(db: SQLiteDatabase, id: String, next: Download) {
+        check(db.update("downloads", next.toValues(), "id = ?", arrayOf(id)) == 1) {
+            "Concurrent update failed for download $id"
+        }
+    }
+
     private fun addDailyTransferLocked(
         db: SQLiteDatabase,
         previousBytes: Long,
@@ -335,9 +403,19 @@ class SqliteDownloadRepository(
             null,
             null,
             null,
-            "priority DESC, sort_order ASC, created_at ASC",
+            "priority DESC, sort_order ASC, created_at ASC, id ASC",
         ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toDownload()) } }
     }
+
+    private fun queryQueuedSamePriority(db: SQLiteDatabase, priority: Int): List<Download> = db.query(
+        "downloads",
+        COLUMNS,
+        "state = ? AND priority = ?",
+        arrayOf(DownloadState.QUEUED.name, priority.toString()),
+        null,
+        null,
+        null,
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toDownload()) } }
 
     private fun queryOne(db: SQLiteDatabase, id: String): Download? = db.query(
         "downloads",
@@ -357,7 +435,7 @@ class SqliteDownloadRepository(
     private companion object {
         val COLUMNS = arrayOf(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
-            "downloaded_bytes", "state", "error", "priority", "created_at", "updated_at",
+            "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
             "started_at", "completed_at", "accepts_ranges",
         )
     }
@@ -385,7 +463,7 @@ private fun Download.toValues() = ContentValues().apply {
     put("state", state.name)
     putNullable("error", error)
     put("priority", priority)
-    put("sort_order", createdAtEpochMillis)
+    put("sort_order", sortOrder)
     put("created_at", createdAtEpochMillis)
     put("updated_at", updatedAtEpochMillis)
     putNullable("started_at", startedAtEpochMillis)
@@ -418,6 +496,7 @@ private fun Cursor.toDownload() = Download(
     state = DownloadState.valueOf(getString(getColumnIndexOrThrow("state"))),
     error = nullableString("error"),
     priority = getInt(getColumnIndexOrThrow("priority")),
+    sortOrder = getLong(getColumnIndexOrThrow("sort_order")),
     createdAtEpochMillis = getLong(getColumnIndexOrThrow("created_at")),
     updatedAtEpochMillis = getLong(getColumnIndexOrThrow("updated_at")),
     startedAtEpochMillis = nullableLong("started_at"),

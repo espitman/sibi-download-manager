@@ -278,6 +278,73 @@ class SqliteDownloadRepositoryTest {
     }
 
     @Test
+    fun moveToTopReordersQueuedPeersWithoutChangingPriorityOrDailyBytes() = runBlocking {
+        val zone = ZoneOffset.UTC
+        repository = SqliteDownloadRepository(
+            context,
+            databaseName = databaseName,
+            localZoneId = zone,
+        )
+        repository!!.awaitInitialized()
+        repository!!.insert(queued("first", createdAt = 100, sortOrder = 0))
+        repository!!.insert(queued("second", createdAt = 200, sortOrder = 0))
+        repository!!.insert(queued("high", createdAt = 50, sortOrder = 0, priority = 1))
+        startDownloading("active", totalBytes = 100, createdAt = 10)
+        repository!!.updateProgress("active", 40, 400)
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(400, zone))
+
+        assertNull(repository!!.moveToTop("missing", 500))
+        val paused = repository!!.pauseAtExactOffset("active", fileLengthBytes = 40, nowEpochMillis = 500)
+        val pausedMove = repository!!.moveToTop("active", 600)
+        assertEquals(paused, pausedMove)
+        assertEquals(DownloadState.PAUSED, pausedMove!!.state)
+
+        val alreadyFirst = repository!!.moveToTop("first", 700)
+        assertEquals(0L, alreadyFirst!!.sortOrder)
+        assertEquals(100L, alreadyFirst.updatedAtEpochMillis)
+
+        val moved = repository!!.moveToTop("second", 800)
+        assertEquals(-1L, moved!!.sortOrder)
+        assertEquals(800L, moved.updatedAtEpochMillis)
+        assertEquals(0, moved.priority)
+        assertEquals(DownloadState.QUEUED, moved.state)
+        assertEquals(listOf("high", "second", "first"), queuedIds())
+        assertEquals(1, repository!!.get("high")!!.priority)
+        assertEquals(0L, repository!!.get("high")!!.sortOrder)
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(800, zone))
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(
+            context,
+            databaseName = databaseName,
+            localZoneId = zone,
+        )
+        repository!!.awaitInitialized()
+        assertEquals(-1L, repository!!.get("second")!!.sortOrder)
+        assertEquals(listOf("high", "second", "first"), queuedIds())
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(800, zone))
+    }
+
+    @Test
+    fun moveToTopRebasesQueuedSortOrdersWhenMinimumIsLongMinValue() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(queued("first", createdAt = 30, sortOrder = Long.MIN_VALUE))
+        repository!!.insert(queued("second", createdAt = 40, sortOrder = Long.MIN_VALUE))
+        repository!!.insert(queued("third", createdAt = 10, sortOrder = 9))
+        repository!!.insert(queued("other-priority", createdAt = 1, sortOrder = Long.MIN_VALUE, priority = 1))
+
+        val moved = repository!!.moveToTop("third", 2_000)
+        assertEquals(0L, moved!!.sortOrder)
+        assertEquals(2_000L, moved.updatedAtEpochMillis)
+        assertEquals(listOf("other-priority", "third", "first", "second"), queuedIds())
+        assertEquals(1L, repository!!.get("first")!!.sortOrder)
+        assertEquals(2L, repository!!.get("second")!!.sortOrder)
+        assertEquals(Long.MIN_VALUE, repository!!.get("other-priority")!!.sortOrder)
+        assertEquals(1, repository!!.get("other-priority")!!.priority)
+    }
+
+    @Test
     fun dailyTotalsCountOnlyPositiveDeltasAndSurviveRecreation() = runBlocking {
         val zone = ZoneOffset.UTC
         repository = SqliteDownloadRepository(
@@ -368,6 +435,23 @@ class SqliteDownloadRepositoryTest {
         assertEquals(Long.MAX_VALUE, repository!!.transferredBytesForLocalDay(dayStart, zone))
         assertEquals(0L, repository!!.transferredBytesForLocalDay(dayStart + 86_400_000L, zone))
     }
+
+    private fun queued(
+        id: String,
+        createdAt: Long,
+        sortOrder: Long = 0,
+        priority: Int = 0,
+    ) = Download(
+        id = id,
+        url = "https://example.com/$id.bin",
+        fileName = "$id.bin",
+        priority = priority,
+        sortOrder = sortOrder,
+        createdAtEpochMillis = createdAt,
+    )
+
+    private fun queuedIds(): List<String> =
+        repository!!.downloads.value.filter { it.state == DownloadState.QUEUED }.map { it.id }
 
     private suspend fun startDownloading(id: String, totalBytes: Long, createdAt: Long) {
         repository!!.insert(
