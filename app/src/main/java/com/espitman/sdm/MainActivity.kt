@@ -14,14 +14,20 @@ import com.espitman.sdm.download.DownloadInterruptionTrigger
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import com.espitman.sdm.ui.SdmApp
 import com.espitman.sdm.ui.SdmLaunchLayer
+import com.espitman.sdm.ui.SplashLaunchPolicy
 import com.espitman.sdm.ui.theme.SdmTheme
 import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
     private val pendingRequest = mutableStateOf<TransferNotificationRequest?>(null)
 
+    companion object {
+        private val splashLaunchPolicy = SplashLaunchPolicy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val showSplash = splashLaunchPolicy.shouldShow(restoredActivity = savedInstanceState != null)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashView -> splashView.remove() }
         }
@@ -30,7 +36,7 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
-        pendingRequest.value = parseTransferNotificationIntent(intent)
+        pendingRequest.value = if (savedInstanceState == null) parseTransferNotificationIntent(intent) else null
         runBlocking {
             AppRepositories.recoverInterruptedDownloads(
                 context = this@MainActivity,
@@ -43,7 +49,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val request by pendingRequest
             SdmTheme {
-                SdmLaunchLayer {
+                SdmLaunchLayer(showSplash = showSplash) {
                     SdmApp(
                         openDownloads = request?.openDownloads == true,
                         openDownloadId = request?.openDownloadId,

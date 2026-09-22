@@ -104,8 +104,8 @@ fun SdmApp(
     val downloadsStateHolder = rememberSaveableStateHolder()
     val downloadsUiState = rememberDownloadsUiState()
     val filesUiState = rememberFilesUiState()
-    var destination by remember { mutableStateOf(Destination.Downloads) }
-    var showAddDownload by remember { mutableStateOf(false) }
+    var destination by rememberSaveable { mutableStateOf(Destination.Downloads) }
+    var showAddDownload by rememberSaveable { mutableStateOf(false) }
     var browserDownloadRequest by remember { mutableStateOf<BrowserDownloadRequest?>(null) }
     var selectedDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
     var toastMessage by remember { mutableStateOf("") }

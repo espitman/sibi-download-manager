@@ -48,8 +48,8 @@ private val SplashGold = Color(0xFFD4AF37)
 private val SplashGoldHigh = Color(0xFFF3D675)
 
 @Composable
-internal fun SdmLaunchLayer(content: @Composable () -> Unit) {
-    var splashVisible by remember { mutableStateOf(true) }
+internal fun SdmLaunchLayer(showSplash: Boolean = true, content: @Composable () -> Unit) {
+    var splashVisible by remember(showSplash) { mutableStateOf(showSplash) }
 
     Box(Modifier.fillMaxSize()) {
         content()
