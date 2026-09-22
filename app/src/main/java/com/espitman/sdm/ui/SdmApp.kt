@@ -143,7 +143,7 @@ fun SdmApp(
                     Crossfade(
                         targetState = destination,
                         modifier = Modifier.fillMaxWidth(),
-                        animationSpec = tween(160),
+                        animationSpec = tween(120),
                         label = "mainHeaderTransition",
                     ) { targetDestination ->
                         when (targetDestination) {
@@ -163,11 +163,11 @@ fun SdmApp(
                     transitionSpec = {
                         val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
                         slideInHorizontally(
-                            animationSpec = tween(240, easing = CubicBezierEasing(.2f, .82f, .24f, 1f)),
-                            initialOffsetX = { direction * it / 11 },
+                            animationSpec = tween(170, easing = CubicBezierEasing(.2f, .82f, .24f, 1f)),
+                            initialOffsetX = { direction * it / 9 },
                         ) togetherWith slideOutHorizontally(
-                            animationSpec = tween(210, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)),
-                            targetOffsetX = { -direction * it / 14 },
+                            animationSpec = tween(150, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)),
+                            targetOffsetX = { -direction * it / 12 },
                         )
                     },
                     label = "mainBodyTransition",

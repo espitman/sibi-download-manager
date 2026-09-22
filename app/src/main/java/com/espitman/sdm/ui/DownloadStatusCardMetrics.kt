@@ -21,10 +21,10 @@ internal fun downloadStatusCardValues(
     records: List<Download>,
     downloadedTodayBytes: Long,
     recentBytesPerSecond: Long,
+    connectionsPerDownload: Int = 16,
 ): DownloadStatusCardValues {
     val activeRecords = records.filter { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
     val activeCount = activeRecords.size
-    val connections = activeRecords.count { it.state == DownloadState.DOWNLOADING }
     val remaining = when {
         activeRecords.isEmpty() -> formatBytes(0L)
         activeRecords.any { it.totalBytes == null } -> "—"
@@ -42,7 +42,7 @@ internal fun downloadStatusCardValues(
         speedValue = speedValue,
         downloadedToday = formatBytes(downloadedTodayBytes.coerceAtLeast(0L)),
         remaining = remaining,
-        connections = connections.toString(),
+        connections = connectionsPerDownload.coerceAtLeast(1).toString(),
     )
 }
 

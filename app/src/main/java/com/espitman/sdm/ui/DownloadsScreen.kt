@@ -352,7 +352,7 @@ internal fun InteractiveDownloadsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
-            item { DownloadStatusCard(records, downloadedTodayBytes, displayedBytesPerSecond) }
+            item { DownloadStatusCard(records, downloadedTodayBytes, displayedBytesPerSecond, settings.connections) }
             item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size, uiState.category,
                 onDownloadAll = {
                     overlayScope.launch {
@@ -577,8 +577,9 @@ private fun DownloadStatusCard(
     records: List<Download>,
     downloadedTodayBytes: Long,
     recentBytesPerSecond: Long,
+    connectionsPerDownload: Int,
 ) {
-    val values = downloadStatusCardValues(records, downloadedTodayBytes, recentBytesPerSecond)
+    val values = downloadStatusCardValues(records, downloadedTodayBytes, recentBytesPerSecond, connectionsPerDownload)
     Surface(color = SdmSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .34f)), modifier = Modifier.fillMaxWidth()) {
         Box {
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))

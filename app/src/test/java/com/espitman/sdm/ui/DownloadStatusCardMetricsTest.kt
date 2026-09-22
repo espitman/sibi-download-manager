@@ -37,18 +37,18 @@ class DownloadStatusCardMetricsTest {
     )
 
     @Test
-    fun emptyRecordsShowZeroForAllFiveValues() {
+    fun emptyRecordsKeepConfiguredConnectionLimitVisible() {
         val values = downloadStatusCardValues(emptyList(), downloadedTodayBytes = 0L, recentBytesPerSecond = 0L)
 
         assertEquals(0, values.activeCount)
         assertEquals("0", values.speedValue)
         assertEquals("0 B", values.downloadedToday)
         assertEquals("0 B", values.remaining)
-        assertEquals("0", values.connections)
+        assertEquals("16", values.connections)
     }
 
     @Test
-    fun mixedConnectingAndDownloadingCountActiveAndLiveStreamsSeparately() {
+    fun mixedConnectingAndDownloadingDoNotChangeConfiguredConnections() {
         val values = downloadStatusCardValues(
             listOf(
                 record(id = "connecting", state = DownloadState.CONNECTING, downloadedBytes = 0L),
@@ -58,10 +58,11 @@ class DownloadStatusCardMetricsTest {
             ),
             downloadedTodayBytes = 0L,
             recentBytesPerSecond = 0L,
+            connectionsPerDownload = 8,
         )
 
         assertEquals(2, values.activeCount)
-        assertEquals("1", values.connections)
+        assertEquals("8", values.connections)
         assertEquals("0", values.speedValue)
     }
 
@@ -128,7 +129,7 @@ class DownloadStatusCardMetricsTest {
         assertEquals("0", idle.speedValue)
         assertEquals(formatBytes(8_192L), idle.downloadedToday)
         assertEquals("0 B", idle.remaining)
-        assertEquals("0", idle.connections)
+        assertEquals("16", idle.connections)
 
         val live = downloadStatusCardValues(
             listOf(record(id = "live", state = DownloadState.DOWNLOADING, totalBytes = null, downloadedBytes = 50L)),
@@ -139,7 +140,7 @@ class DownloadStatusCardMetricsTest {
         assertEquals("2", live.speedValue)
         assertEquals(formatBytes(250L), live.downloadedToday)
         assertEquals("—", live.remaining)
-        assertEquals("1", live.connections)
+        assertEquals("16", live.connections)
     }
 
     @Test
