@@ -31,6 +31,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import javax.net.ssl.SSLException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -79,7 +80,7 @@ class DownloadTransferEngine(
         require(downloadId.isNotBlank()) { "Download ID cannot be blank" }
         require(url.isNotBlank()) { "URL cannot be blank" }
 
-        val existingDownload = repository.get(downloadId)
+        var existingDownload = repository.get(downloadId)
             ?: throw IllegalArgumentException("Download not found: $downloadId")
         val scopedRequestContext = requestContext(downloadId)
 
@@ -103,6 +104,37 @@ class DownloadTransferEngine(
 
         recoverSegmentArtifacts(tempFile)
         val resumeOffset = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
+        existingDownload = repository.alignDownloadedBytes(
+            downloadId,
+            resumeOffset,
+            validTimestamp(existingDownload.updatedAtEpochMillis),
+        )
+        if (
+            resumeOffset > 0L &&
+            existingDownload.totalBytes == resumeOffset &&
+            existingDownload.downloadedBytes == resumeOffset
+        ) {
+            val connecting = repository.get(downloadId)
+                ?: throw IllegalArgumentException("Download not found: $downloadId")
+            repository.transition(
+                id = downloadId,
+                to = DownloadState.DOWNLOADING,
+                nowEpochMillis = validTimestamp(connecting.updatedAtEpochMillis),
+            )
+            try {
+                finalizeCompletedPart(repository, downloadId, tempFile, destinationFile)
+                BrowserRequestContextRegistry.remove(downloadId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (e: Throwable) {
+                reportFailure(
+                    repository,
+                    downloadId,
+                    e.message?.takeIf { it.isNotBlank() } ?: "Could not save completed download",
+                )
+            }
+            return@withContext
+        }
         val isResume = resumeOffset > 0L
         val storedValidators = HttpRangeResume.ResumeValidators(
             etag = existingDownload.etag,
@@ -123,9 +155,11 @@ class DownloadTransferEngine(
             segmentCount = segmentCount(),
         )
         if (segmentPlan != null) {
+            val segmentedTotalBytes = existingDownload.totalBytes
+                ?: throw IllegalStateException("Segmented transfer requires a known size")
             val localCapacity = queryLocalCapacity(tempFile)
             val requiredLocal = SegmentedTransferPolicy.requiredLocalBytes(
-                existingDownload.totalBytes!!,
+                segmentedTotalBytes,
                 segmentPlan,
             )
             if (localCapacity.availableBytes?.let { it < requiredLocal } == true) {
@@ -134,7 +168,7 @@ class DownloadTransferEngine(
             }
             when (
                 TransferSpacePreflight.evaluate(
-                    knownFinalSizeBytes = existingDownload.totalBytes,
+                    knownFinalSizeBytes = segmentedTotalBytes,
                     existingValidPartBytes = 0L,
                     restartingFresh = false,
                     localCapacity = localCapacity,
@@ -159,7 +193,7 @@ class DownloadTransferEngine(
                 val segmented = downloadSegments(
                     url = url,
                     ranges = segmentPlan,
-                    totalBytes = existingDownload.totalBytes,
+                    totalBytes = segmentedTotalBytes,
                     validators = storedValidators,
                     tempFile = tempFile,
                     repository = repository,
@@ -168,7 +202,7 @@ class DownloadTransferEngine(
                 )
                 if (segmented) {
                     withContext(NonCancellable) {
-                        updateProgress(repository, downloadId, existingDownload.totalBytes)
+                        updateProgress(repository, downloadId, segmentedTotalBytes)
                         finalizeCompletedPart(repository, downloadId, tempFile, destinationFile)
                         BrowserRequestContextRegistry.remove(downloadId)
                     }
@@ -178,12 +212,7 @@ class DownloadTransferEngine(
                 persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested, pauseCause)
                 throw cancellation
             } catch (e: Throwable) {
-                val safeMessage = if (e is IOException) {
-                    e.message?.takeIf { it.isNotBlank() } ?: "Network I/O failure"
-                } else {
-                    e.message?.takeIf { it.isNotBlank() } ?: "Segmented transfer failure"
-                }
-                reportFailure(repository, downloadId, safeMessage)
+                reportFailure(repository, downloadId, transferFailureMessage(e, "Segmented transfer failure"))
                 return@withContext
             }
         }
@@ -572,12 +601,8 @@ class DownloadTransferEngine(
                 commitRestartPartial(tempFile, restartFile, restartAccepted)
                 throw cancellation
             }
-            val safeMessage = when (e) {
-                is IOException -> e.message?.takeIf { it.isNotBlank() } ?: "Network I/O failure"
-                else -> e.message?.takeIf { it.isNotBlank() } ?: "Download transfer failure"
-            }
             try {
-                reportFailure(repository, downloadId, safeMessage)
+                reportFailure(repository, downloadId, transferFailureMessage(e, "Download transfer failure"))
             } catch (_: Throwable) {
                 // Ignore secondary failure on repository reporting
             }
@@ -985,6 +1010,18 @@ class DownloadTransferEngine(
             storageCapacity.queryTree(treeUri)
         } catch (_: Exception) {
             StorageCapacity.Unknown
+        }
+    }
+
+    private fun transferFailureMessage(error: Throwable, fallback: String): String {
+        val detail = error.message?.takeIf { it.isNotBlank() }
+        return when (error) {
+            is SSLException -> {
+                val typeName = error.javaClass.simpleName
+                if (detail == null) typeName else "$typeName: $detail"
+            }
+            is IOException -> detail ?: "Network I/O failure"
+            else -> detail ?: fallback
         }
     }
 

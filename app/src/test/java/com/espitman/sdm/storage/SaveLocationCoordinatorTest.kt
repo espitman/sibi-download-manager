@@ -55,6 +55,20 @@ class SaveLocationCoordinatorTest {
     }
 
     @Test
+    fun providerRevocationClearsTheSettingAndReleasesThePersistedGrant() {
+        store.persistUserTree(treeUri, "Download")
+        grants.granted.add(treeUri)
+        trees.inspections[treeUri] = UserTreeInspection(UserTreeState.PermissionRevoked, "Download")
+
+        val resolved = coordinator.resolveForNewDownload()
+
+        assertEquals(SaveLocationRecovery.PermissionRevoked, resolved.recovery)
+        assertEquals(ActiveSaveLocation.AppSpecific(), resolved.location)
+        assertNull(store.read().treeUri)
+        assertFalse(grants.granted.contains(treeUri))
+    }
+
+    @Test
     fun deletedTreeClearsTheSettingAndReleasesTheGrant() {
         store.persistUserTree(treeUri, "Download")
         grants.granted.add(treeUri)

@@ -9,6 +9,7 @@ import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadProgressAlignment
 import com.espitman.sdm.domain.DownloadMoveToTopMutation
 import com.espitman.sdm.domain.RequeueNetworkPausedMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
@@ -101,6 +102,14 @@ class SqliteDownloadRepository(
         error: String?,
     ): Download = mutate(id) { current ->
         DownloadStateMachine.transition(current, to, nowEpochMillis, error)
+    }
+
+    override suspend fun alignDownloadedBytes(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+    ): Download = mutate(id) { current ->
+        DownloadProgressAlignment.apply(current, fileLengthBytes, nowEpochMillis)
     }
 
     override suspend fun updateProgress(

@@ -5,6 +5,8 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadFailure
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadProgressAlignment
+import com.espitman.sdm.domain.DownloadRetryFailedMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import com.espitman.sdm.storage.DownloadDestinationPublisher
@@ -36,6 +38,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
+import javax.net.ssl.SSLHandshakeException
 import java.util.concurrent.TimeUnit
 
 class DownloadTransferEngineTest {
@@ -99,6 +102,37 @@ class DownloadTransferEngineTest {
             )
             insert(updated)
             return updated
+        }
+
+        override suspend fun alignDownloadedBytes(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+        ): Download {
+            val current = get(id) ?: throw IllegalArgumentException("Download not found: $id")
+            val aligned = DownloadProgressAlignment.apply(
+                current,
+                fileLengthBytes,
+                nowEpochMillis,
+            )
+            if (aligned != current) insert(aligned)
+            return aligned
+        }
+
+        override suspend fun retryFailed(
+            id: String,
+            automatic: Boolean,
+            nowEpochMillis: Long,
+        ): Download? {
+            val current = get(id) ?: return null
+            val queued = DownloadRetryFailedMutation.apply(
+                current,
+                automatic,
+                nowEpochMillis,
+            ) ?: return null
+            transitions.add(Triple(id, DownloadState.QUEUED, null))
+            insert(queued)
+            return queued
         }
 
         override suspend fun pauseAtExactOffset(
@@ -1908,6 +1942,93 @@ class DownloadTransferEngineTest {
             listOf(DownloadState.CONNECTING, DownloadState.FAILED),
             repo.transitions.map { it.second },
         )
+    }
+
+    @Test
+    fun tlsHandshakeFailureKeepsDestinationAbsentAndReportsReason() = runBlocking {
+        val destination = File(tempDir, "tls-failure.bin")
+        val part = File(tempDir, "tls-failure.part")
+        val url = server.url("/tls-failure.bin").toString()
+        val repo = FakeDownloadRepository(listOf(
+            Download(
+                id = "tls-failure",
+                url = url,
+                fileName = destination.name,
+                destinationPath = destination.absolutePath,
+                state = DownloadState.QUEUED,
+                createdAtEpochMillis = 1_000L,
+            ),
+        ))
+        val failingClient = OkHttpClient.Builder()
+            .addInterceptor { throw SSLHandshakeException("certificate validation failed") }
+            .build()
+
+        DownloadTransferEngine(failingClient, ioDispatcher = Dispatchers.IO).executeTransfer(
+            downloadId = "tls-failure",
+            url = url,
+            tempFile = part,
+            repository = repo,
+        )
+
+        val failed = repo.get("tls-failure")!!
+        assertEquals(DownloadState.FAILED, failed.state)
+        assertTrue(failed.error.orEmpty().contains("certificate validation failed"))
+        assertFalse(destination.exists())
+        assertFalse(part.exists())
+    }
+
+    @Test
+    fun missingDestinationDirectoryBlockedByFileKeepsDownloadedPartForRecovery() = runBlocking {
+        val payload = byteArrayOf(1, 2, 3, 4, 5, 6)
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+        val blockedParent = File(tempDir, "removed-folder")
+        blockedParent.writeText("folder was replaced by a file")
+        val destination = File(blockedParent, "recovery.bin")
+        val part = File(tempDir, "recovery.part")
+        val url = server.url("/recovery.bin").toString()
+        val repo = FakeDownloadRepository(listOf(
+            Download(
+                id = "missing-folder",
+                url = url,
+                fileName = destination.name,
+                destinationPath = destination.absolutePath,
+                totalBytes = payload.size.toLong(),
+                state = DownloadState.QUEUED,
+                createdAtEpochMillis = 1_000L,
+            ),
+        ))
+
+        val engine = DownloadTransferEngine(OkHttpClient(), ioDispatcher = Dispatchers.IO)
+        engine.executeTransfer(
+            downloadId = "missing-folder",
+            url = url,
+            tempFile = part,
+            repository = repo,
+        )
+
+        val failed = repo.get("missing-folder")!!
+        assertEquals(DownloadState.FAILED, failed.state)
+        assertTrue(failed.error.orEmpty().contains("not a directory"))
+        assertArrayEquals(payload, part.readBytes())
+        assertFalse(destination.exists())
+
+        assertTrue(blockedParent.delete())
+        assertTrue(blockedParent.mkdirs())
+        repo.transition(
+            "missing-folder",
+            DownloadState.QUEUED,
+            nowEpochMillis = failed.updatedAtEpochMillis + 1L,
+        )
+        engine.executeTransfer(
+            downloadId = "missing-folder",
+            url = url,
+            tempFile = part,
+            repository = repo,
+        )
+        assertEquals(DownloadState.COMPLETED, repo.get("missing-folder")!!.state)
+        assertArrayEquals(payload, destination.readBytes())
+        assertFalse(part.exists())
+        assertEquals(1, server.requestCount)
     }
 
     private class RecordingStorageCapacityProbe(

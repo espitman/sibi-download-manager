@@ -4,6 +4,7 @@ import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadProgressAlignment
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.CancellationException
@@ -86,6 +87,17 @@ class DownloadPausePersistenceTest {
             val updated = current.copy(downloadedBytes = downloadedBytes, updatedAtEpochMillis = nowEpochMillis)
             insert(updated)
             return updated
+        }
+
+        override suspend fun alignDownloadedBytes(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+        ): Download {
+            val current = get(id) ?: throw IllegalArgumentException("Download not found: $id")
+            val aligned = DownloadProgressAlignment.apply(current, fileLengthBytes, nowEpochMillis)
+            if (aligned != current) insert(aligned)
+            return aligned
         }
 
         override suspend fun pauseAtExactOffset(

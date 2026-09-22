@@ -22,6 +22,7 @@ enum class DownloadFailure(val label: String) {
                 in 100..399, in 400..499 -> return HTTP_ERROR
             }
             val lowered = text.lowercase()
+            if (containsTlsPhrase(lowered)) return OTHER
             if (containsTimeoutPhrase(lowered)) return TIMEOUT
             if (containsInsufficientStoragePhrase(lowered)) return INSUFFICIENT_STORAGE
             if (containsNetworkLossPhrase(lowered)) return NETWORK_LOSS
@@ -39,6 +40,22 @@ enum class DownloadFailure(val label: String) {
                 "insufficient storage" in lowered ||
                 "not enough storage" in lowered ||
                 "not enough space" in lowered
+
+        private fun containsTlsPhrase(lowered: String): Boolean =
+            "sslhandshake" in lowered ||
+                "ssl handshake" in lowered ||
+                "sslpeerunverified" in lowered ||
+                "certificateexception" in lowered ||
+                "certpathvalidator" in lowered ||
+                "trust anchor" in lowered ||
+                "certificate pinning" in lowered ||
+                "chain validation failed" in lowered ||
+                "handshake failed" in lowered ||
+                "handshake_failure" in lowered ||
+                "unrecognized ssl" in lowered ||
+                "plaintext connection" in lowered ||
+                "cleartext communication" in lowered ||
+                "cleartext http traffic" in lowered
 
         private fun containsNetworkLossPhrase(lowered: String): Boolean =
             "unknownhost" in lowered ||

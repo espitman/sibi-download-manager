@@ -604,6 +604,36 @@ class SqliteDownloadRepositoryTest {
     }
 
     @Test
+    fun shorterPartialAlignmentPersistsAcrossRepositoryRecreation() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "shortened-part",
+                url = "https://example.com/shortened-part.bin",
+                fileName = "shortened-part.bin",
+                totalBytes = 100,
+                createdAtEpochMillis = 100,
+            ),
+        )
+        repository!!.transition("shortened-part", DownloadState.CONNECTING, 200)
+        repository!!.transition("shortened-part", DownloadState.DOWNLOADING, 300)
+        repository!!.updateProgress("shortened-part", 80, 400)
+
+        val aligned = repository!!.alignDownloadedBytes("shortened-part", 25, 500)
+        assertEquals(25L, aligned.downloadedBytes)
+        assertEquals(DownloadState.DOWNLOADING, aligned.state)
+        assertEquals(500L, aligned.updatedAtEpochMillis)
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(25L, repository!!.get("shortened-part")!!.downloadedBytes)
+        assertEquals(25L, repository!!.alignDownloadedBytes("shortened-part", 90, 600).downloadedBytes)
+        assertEquals(60L, repository!!.updateProgress("shortened-part", 60, 700).downloadedBytes)
+    }
+
+    @Test
     fun togglePriorityPersistsAtomicallyAndSurvivesRecreation() = runBlocking {
         repository = SqliteDownloadRepository(context, databaseName = databaseName)
         repository!!.awaitInitialized()

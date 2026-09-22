@@ -34,6 +34,21 @@ class DownloadAutoRetryPolicyTest {
         assertFalse(DownloadAutoRetryPolicy.shouldAutomaticallyRetry(failed("HTTP 410: Gone")))
         assertFalse(DownloadAutoRetryPolicy.shouldAutomaticallyRetry(failed("HTTP 403: Forbidden")))
         assertFalse(DownloadAutoRetryPolicy.shouldAutomaticallyRetry(failed("ENOSPC")))
+        assertFalse(
+            DownloadAutoRetryPolicy.shouldAutomaticallyRetry(
+                failed("javax.net.ssl.SSLHandshakeException: Handshake failed"),
+            ),
+        )
+        assertFalse(
+            DownloadAutoRetryPolicy.shouldAutomaticallyRetry(
+                failed("javax.net.ssl.SSLHandshakeException: Read error: I/O error during system call"),
+            ),
+        )
+        assertFalse(
+            DownloadAutoRetryPolicy.shouldAutomaticallyRetry(
+                failed("SSLHandshakeException: SSL handshake timed out"),
+            ),
+        )
     }
 
     @Test

@@ -29,6 +29,21 @@ interface DownloadRepository {
         error: String? = null,
     ): Download
     suspend fun updateProgress(id: String, downloadedBytes: Long, nowEpochMillis: Long): Download
+    /**
+     * Lowers [Download.downloadedBytes] to match a shorter on-disk partial after the
+     * file was deleted or truncated outside the app. Never increases progress.
+     * Implementations must persist the aligned record; completed rows stay unchanged.
+     *
+     * There is no no-op default. Computing alignment here and returning the current
+     * row when offsets already match would let an alternate repository compile and
+     * pass ordinary transfers, then crash only when a deleted or truncated `.part`
+     * actually needed a write.
+     */
+    suspend fun alignDownloadedBytes(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+    ): Download = error("alignDownloadedBytes is not implemented")
     suspend fun pauseAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun pauseAtExactOffset(
         id: String,

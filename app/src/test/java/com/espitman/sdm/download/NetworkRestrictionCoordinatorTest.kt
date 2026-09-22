@@ -204,6 +204,64 @@ class NetworkRestrictionCoordinatorTest {
     }
 
     @Test
+    fun networkLossAndMobileFallbackPauseActiveWorkUntilWifiReturns() = runBlocking {
+        val repo = FakeRepo(
+            listOf(
+                active("partial", DownloadState.DOWNLOADING, downloadedBytes = 20L),
+                paused("manual", downloadedBytes = 7L),
+            ),
+        )
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance()
+        val scheduler = DownloadQueueScheduler(repo, { 2 }, starter, transferAllowance = allowance)
+        val transport = AtomicReference(ValidatedTransport.WIFI)
+        val pauseRequests = CopyOnWriteArrayList<String>()
+        val coordinator = coordinator(
+            repo = repo,
+            allowance = allowance,
+            scheduler = scheduler,
+            wifiOnly = { true },
+            connectivity = { ValidatedConnectivity(transport.get()) },
+            pauseActive = { pauseRequests += it },
+        )
+
+        coordinator.apply()
+        assertTrue(allowance.isAllowed())
+        assertTrue(starter.startedIds().isEmpty())
+
+        transport.set(ValidatedTransport.NONE)
+        coordinator.apply()
+        assertFalse(allowance.isAllowed())
+        assertEquals(listOf("partial"), pauseRequests)
+        val pausedAt = repo.pauseAtExactOffset(
+            id = "partial",
+            fileLengthBytes = 29L,
+            nowEpochMillis = 8_000L,
+            pauseCause = DownloadPauseCause.NETWORK_POLICY,
+        )!!
+        assertEquals(DownloadState.PAUSED, pausedAt.state)
+        assertEquals(29L, pausedAt.downloadedBytes)
+        assertEquals(DownloadPauseCause.NETWORK_POLICY, pausedAt.pauseCause)
+
+        transport.set(ValidatedTransport.CELLULAR)
+        coordinator.apply()
+        assertFalse(allowance.isAllowed())
+        assertEquals(listOf("partial"), pauseRequests)
+        assertTrue(starter.startedIds().isEmpty())
+
+        transport.set(ValidatedTransport.WIFI)
+        coordinator.apply()
+        assertTrue(allowance.isAllowed())
+        assertEquals(listOf("partial"), starter.startedIds())
+        assertEquals(DownloadState.QUEUED, repo.get("partial")!!.state)
+        assertEquals(29L, repo.get("partial")!!.downloadedBytes)
+        assertNull(repo.get("partial")!!.pauseCause)
+        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
+        assertNull(repo.get("manual")!!.pauseCause)
+        assertEquals(7L, repo.get("manual")!!.downloadedBytes)
+    }
+
+    @Test
     fun ethernetIsAllowedWhenWifiOnlyMatchesPauseOnMobileDataCopy() = runBlocking {
         val repo = FakeRepo(listOf(queued("waiting")))
         val starter = RecordingStarter()

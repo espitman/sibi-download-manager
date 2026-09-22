@@ -107,6 +107,42 @@ class SafDownloadDestinationPublisherTest {
     }
 
     @Test
+    fun revokedTreePromotesCompletedBytesToAppSpecificStorage() {
+        val stagingDir = File(tempDir, SaveLocationDestinationAllocator.STAGING_DIRECTORY_NAME).apply { mkdirs() }
+        val local = File(stagingDir, "revoked.bin").apply { writeText("completed payload") }
+        val store = SaveLocationStore(InMemoryPreferences())
+        val grants = FakeTreeUriGrantStore()
+        val trees = FakeUserTreeAccess()
+        store.persistUserTree(treeUri, "Download")
+        grants.granted.add(treeUri)
+        trees.inspections[treeUri] = UserTreeInspection(UserTreeState.PermissionRevoked, "Download")
+        val publisher = SafDownloadDestinationPublisher(
+            trees = trees,
+            coordinator = SaveLocationCoordinator(store, grants, trees),
+            appSpecificDirectory = { tempDir },
+        )
+
+        val published = publisher.afterLocalFinalize(
+            record(
+                destinationPath = local.absolutePath,
+                destinationTreeUri = treeUri,
+                destinationDisplayLabel = "Download",
+                fileName = "revoked.bin",
+            ),
+            local,
+        )
+
+        val promoted = File(tempDir, "revoked.bin")
+        assertEquals(promoted.absolutePath, published.destinationPath)
+        assertNull(published.destinationTreeUri)
+        assertNull(published.destinationDisplayLabel)
+        assertEquals("completed payload", promoted.readText())
+        assertFalse(local.exists())
+        assertNull(store.read().treeUri)
+        assertFalse(grants.granted.contains(treeUri))
+    }
+
+    @Test
     fun writeFailureDeletesTheCreatedDocumentAndFallsBack() {
         val stagingDir = File(tempDir, SaveLocationDestinationAllocator.STAGING_DIRECTORY_NAME).apply { mkdirs() }
         val local = File(stagingDir, "fail.bin").apply { writeText("data") }

@@ -68,6 +68,35 @@ class DownloadFailureClassifierTest {
     }
 
     @Test
+    fun tlsHandshakeAndCertificateErrorsAreOtherNotNetworkLoss() {
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify(
+                "javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found",
+            ),
+        )
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify("javax.net.ssl.SSLPeerUnverifiedException: Hostname not verified"),
+        )
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify("Certificate pinning failure"),
+        )
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify("javax.net.ssl.SSLException: Unrecognized SSL message, plaintext connection?"),
+        )
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify(
+                "javax.net.ssl.SSLHandshakeException: Read error: ssl=0x1: I/O error during system call, Connection reset by peer",
+            ),
+        )
+        assertEquals("Download failed", DownloadFailure.OTHER.label)
+    }
+
+    @Test
     fun unrecognizedAndBlankErrorsAreOther() {
         assertEquals(DownloadFailure.OTHER, DownloadFailure.classify(null))
         assertEquals(DownloadFailure.OTHER, DownloadFailure.classify(""))
@@ -80,6 +109,22 @@ class DownloadFailureClassifierTest {
         assertEquals(
             DownloadFailure.TRANSIENT_HTTP,
             DownloadFailure.classify("HTTP 408: timeout while waiting"),
+        )
+    }
+
+    @Test
+    fun tlsHandshakeTimedOutIsOtherNotTimeout() {
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify("SSLHandshakeException: SSL handshake timed out"),
+        )
+        assertEquals(
+            DownloadFailure.OTHER,
+            DownloadFailure.classify("javax.net.ssl.SSLHandshakeException: Read timed out"),
+        )
+        assertEquals(
+            DownloadFailure.TIMEOUT,
+            DownloadFailure.classify("SocketTimeoutException: timed out"),
         )
     }
 }

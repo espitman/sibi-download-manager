@@ -7,7 +7,9 @@ import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
+import com.espitman.sdm.domain.DownloadProgressAlignment
 import com.espitman.sdm.domain.DownloadResumeMutation
+import com.espitman.sdm.domain.DownloadRetryFailedMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import com.espitman.sdm.domain.PauseQueuedMutation
@@ -117,6 +119,48 @@ internal class ContractDownloadRepository(
         require(nowEpochMillis >= current.updatedAtEpochMillis) { "Progress time cannot move backwards" }
         current.totalBytes?.let { require(downloadedBytes <= it) { "Download progress cannot exceed total" } }
         val updated = current.copy(downloadedBytes = downloadedBytes, updatedAtEpochMillis = nowEpochMillis)
+        replaceLocked(updated)
+        updated
+    }
+
+    override suspend fun alignDownloadedBytes(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+    ): Download = mutex.withLock {
+        val current = requireRecordLocked(id)
+        val aligned = DownloadProgressAlignment.apply(current, fileLengthBytes, nowEpochMillis)
+        if (aligned != current) replaceLocked(aligned)
+        aligned
+    }
+
+    override suspend fun retryFailed(
+        id: String,
+        automatic: Boolean,
+        nowEpochMillis: Long,
+    ): Download? = mutex.withLock {
+        val current = _downloads.value.find { it.id == id } ?: return@withLock null
+        val queued = DownloadRetryFailedMutation.apply(current, automatic, nowEpochMillis) ?: return@withLock null
+        replaceLocked(queued)
+        queued
+    }
+
+    override suspend fun updateDestination(
+        id: String,
+        destinationPath: String,
+        destinationTreeUri: String?,
+        destinationDisplayLabel: String?,
+        fileName: String,
+        nowEpochMillis: Long,
+    ): Download = mutex.withLock {
+        val current = requireRecordLocked(id)
+        val updated = current.copy(
+            fileName = fileName,
+            destinationPath = destinationPath,
+            destinationTreeUri = destinationTreeUri,
+            destinationDisplayLabel = destinationDisplayLabel,
+            updatedAtEpochMillis = max(nowEpochMillis, current.updatedAtEpochMillis),
+        )
         replaceLocked(updated)
         updated
     }

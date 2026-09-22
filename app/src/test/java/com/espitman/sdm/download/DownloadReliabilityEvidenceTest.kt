@@ -539,6 +539,89 @@ class DownloadReliabilityEvidenceTest {
         }
     }
 
+    @Test
+    fun deviceBootRecoveryResumesPreservedPartialRangeAndMatchesChecksum() = runBlocking {
+        val payload = reliabilityPayload(48 * 1024, salt = 23)
+        val expectedDigest = sha256(payload)
+        val etag = "\"boot-recovery-v1\""
+        val lastModified = "Sun, 25 Oct 2015 07:28:00 GMT"
+        val dispatcher = RangePayloadDispatcher(
+            payloads = mapOf("/boot-recovery.bin" to payload),
+            etag = etag,
+            lastModified = lastModified,
+        )
+        server.dispatcher = dispatcher
+        server.start()
+
+        val downloadId = "device-boot-recovery"
+        val destination = File(tempDir, "$downloadId.bin")
+        val part = DownloadPartFile.forDestination(destination)
+        val restart = DownloadPartFile.restartForDestination(destination)
+        val partialLength = CHUNK_BYTES * 3L
+        part.writeBytes(payload.copyOf(partialLength.toInt()))
+        val interrupted = queuedDownload(
+            id = downloadId,
+            url = server.url("/boot-recovery.bin").toString(),
+            destinationPath = destination.absolutePath,
+            totalBytes = payload.size.toLong(),
+            etag = etag,
+            lastModified = lastModified,
+        ).copy(
+            state = DownloadState.DOWNLOADING,
+            downloadedBytes = partialLength,
+            updatedAtEpochMillis = 2_000L,
+        )
+        val clock = AdjustableClock(5_000L)
+        val repo = ContractDownloadRepository(listOf(interrupted))
+
+        DownloadInterruptionRecovery.recover(
+            repository = repo,
+            clock = clock,
+            trigger = DownloadInterruptionTrigger.DEVICE_BOOT,
+            autoResume = true,
+        )
+
+        val recovered = repo.get(downloadId)!!
+        assertEquals(DownloadState.QUEUED, recovered.state)
+        assertEquals(partialLength, recovered.downloadedBytes)
+        assertNull(recovered.error)
+        assertTrue(part.exists())
+        assertEquals(partialLength, part.length())
+
+        val calls = ConcurrentCallCounter()
+        val host = JvmDownloadTransferHost(
+            repository = repo,
+            concurrentLimit = { 2 },
+            clock = clock,
+            engineFor = {
+                DownloadTransferEngine(
+                    okHttpClient = reliabilityClient(calls),
+                    ioDispatcher = Dispatchers.IO,
+                    clock = clock,
+                    bufferSizeBytes = CHUNK_BYTES,
+                    progressUpdateIntervalBytes = CHUNK_BYTES.toLong(),
+                )
+            },
+        )
+        try {
+            host.scheduler.schedule()
+            withTimeout(15_000) { repo.awaitState(downloadId, DownloadState.COMPLETED) }
+
+            val completed = repo.get(downloadId)!!
+            assertEquals(listOf(downloadId), host.startRequestedIds.toList())
+            assertTrue(host.transferFailures.isEmpty())
+            assertEquals(DownloadState.COMPLETED, completed.state)
+            assertEquals(payload.size.toLong(), completed.downloadedBytes)
+            assertArrayEquals(expectedDigest, sha256(destination.readBytes()))
+            assertEquals(listOf(partialLength), dispatcher.rangeStartsByPath["/boot-recovery.bin"]!!.toList())
+            assertEquals(etag, dispatcher.requests.single().ifRange)
+            assertFalse(part.exists())
+            assertFalse(restart.exists())
+        } finally {
+            host.close()
+        }
+    }
+
     companion object {
         private const val CHUNK_BYTES = 4 * 1024
         private const val PAUSE_CYCLES = 5

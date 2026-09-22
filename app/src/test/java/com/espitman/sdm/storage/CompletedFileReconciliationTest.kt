@@ -4,6 +4,8 @@ import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadRenameMutation
 import com.espitman.sdm.domain.DownloadState
+import java.io.File
+import java.nio.file.Files
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +16,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CompletedFileReconciliationTest {
+    @Test
+    fun prunesACompletedRecordWhoseLocalFileWasDeleted() = runBlocking {
+        val tempDir = Files.createTempDirectory("sdm-deleted-file").toFile()
+        try {
+            val missingFile = File(tempDir, "gone.bin").apply { writeText("was here") }
+            assertTrue(missingFile.delete())
+            val missing = completed("deleted-local", missingFile.absolutePath)
+            val repository = FakeRepository(listOf(missing))
+
+            val result = CompletedFileReconciliation.reconcile(
+                records = repository.downloads.value,
+                repository = repository,
+            )
+
+            assertEquals(setOf("deleted-local"), result.prunedIds)
+            assertEquals(emptySet<String>(), result.unavailableIds)
+            assertTrue(repository.downloads.value.isEmpty())
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
     @Test
     fun prunesOnlyConfirmedMissingAndNeverRevokedOrReadable() = runBlocking {
         val readable = completed("readable", "content://docs/document/a")
