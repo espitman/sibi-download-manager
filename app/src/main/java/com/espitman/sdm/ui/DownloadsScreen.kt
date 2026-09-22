@@ -215,7 +215,8 @@ internal fun InteractiveDownloadsScreen(
     if (selectedDownloadId != null) {
         if (selectedRecord != null) {
             DownloadDetailsScreen(
-                item = mapDownloadToCard(selectedRecord, nowEpochMillis),
+                download = selectedRecord,
+                nowEpochMillis = nowEpochMillis,
                 priorityActive = DownloadPriorityMutation.isHigh(selectedRecord.priority),
                 onBack = { onSelectedDownloadIdChange(null) },
                 onToast = onToast,
@@ -638,7 +639,8 @@ private fun SheetActionButton(label: String, primary: Boolean, modifier: Modifie
 
 @Composable
 private fun DownloadDetailsScreen(
-    item: DownloadCardModel,
+    download: Download,
+    nowEpochMillis: Long,
     priorityActive: Boolean,
     onBack: () -> Unit,
     onToast: (String) -> Unit,
@@ -647,7 +649,8 @@ private fun DownloadDetailsScreen(
     onPriority: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }; var headersOpen by remember { mutableStateOf(false) }; var segmentsOpen by remember { mutableStateOf(false) }; var cancelOpen by remember { mutableStateOf(false) }
-    val paused = item.metadataValue == "Paused"
+    val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis)
+    val paused = download.state == DownloadState.PAUSED
     val clipboard = LocalClipboardManager.current
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
@@ -662,14 +665,14 @@ private fun DownloadDetailsScreen(
         HorizontalDivider(color = SdmGold.copy(alpha = .14f))
         Box(Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize().padding(bottom = 67.dp)) {
-                item { DetailsHero(item, paused) }
+                item { DetailsHero(hero) }
                 item { MetricsGrid() }
                 item { SpeedChart() }
-                item { DetailsActions(paused, priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
+                item { DetailsActions(paused, priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString(hero.sourceUrl)); onToast("Source URL copied") }) }
                 item { TechnicalInfo() }
                 item { DisclosureInfo(headersOpen, segmentsOpen, { headersOpen = !headersOpen }, { segmentsOpen = !segmentsOpen }) }
             }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast("Opening /Download/SDM") }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast(detailsOpenFolderToast(download.destinationPath)) }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
         }
     }
     if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) {
@@ -682,9 +685,14 @@ private fun DownloadDetailsScreen(
 }
 
 @Composable
-private fun DetailsHero(item: DownloadCardModel, paused: Boolean) {
+private fun DetailsHero(hero: DownloadDetailsPresentation) {
     val ringTrack = sdmColor(0xFF252622, 0xFFDED8CB)
     val ringProgress = SdmGold
+    val stateColor = when (hero.stateTone) {
+        DownloadDetailsStateTone.Success -> SdmSuccess
+        DownloadDetailsStateTone.Danger -> SdmDanger
+        DownloadDetailsStateTone.Muted -> SdmMuted
+    }
     Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(178.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
@@ -693,15 +701,15 @@ private fun DetailsHero(item: DownloadCardModel, paused: Boolean) {
                 val topLeft = Offset(center.x - radius, center.y - radius)
                 val diameter = radius * 2f
                 drawCircle(ringTrack, radius = radius, style = Stroke(stroke))
-                drawArc(ringProgress, -90f, 259.2f, false, style = Stroke(stroke, cap = StrokeCap.Round), size = Size(diameter, diameter), topLeft = topLeft)
+                drawArc(ringProgress, -90f, hero.ringSweepDegrees, false, style = Stroke(stroke, cap = StrokeCap.Round), size = Size(diameter, diameter), topLeft = topLeft)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("72%", fontSize = 42.sp, fontWeight = FontWeight.Bold, letterSpacing = (-2.1).sp)
-                Text(if (paused) "PAUSED" else "ACTIVE", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.3.sp)
+                Text(hero.percentLabel, fontSize = 42.sp, fontWeight = FontWeight.Bold, letterSpacing = (-2.1).sp)
+                Text(hero.stateLabel, color = stateColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.3.sp)
             }
         }
-        Text(item.name, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp).widthIn(max = 310.dp), maxLines = 2)
-        Text("/Download/SDM", color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+        Text(hero.fileName, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp).widthIn(max = 310.dp), maxLines = 2)
+        Text(hero.destinationDisplay, color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
