@@ -102,7 +102,8 @@ Acceptance: Pause and resume do not duplicate downloads or corrupt files. Concur
 
 Depends on stage 4.
 
-- [ ] SDM-031 — Connect Downloads search and filters to real data and preserve selection state.
+- [x] SDM-031 — Connect Downloads search and filters to real data and preserve selection state.
+  - Verification: The Open Design Downloading, Queued, and Completed tabs and case-insensitive filename search operate on live repository records; category, search visibility, and query now restore together while transient menus stay closed. All 293 JVM tests, forced assembleDebug/assembleDebugAndroidTest, lintDebug, and git diff --check passed. On Xiaomi Android 14, two controlled HTTP downloads populated real Completed data, `BETA` displayed only `beta-notes.txt`, and the Completed tab/query survived process recreation plus a details round trip.
 - [ ] SDM-032 — Calculate actual active count, aggregate speed, remaining bytes, daily downloads, and connection count; handle unknown sizes.
 - [ ] SDM-033 — Open each download's details by its ID; remove the dependency on a fixed sample file.
 - [ ] SDM-034 — Connect the speed chart, HTTP information, and technical sections to actual measurements; represent unavailable values without fabricating data.

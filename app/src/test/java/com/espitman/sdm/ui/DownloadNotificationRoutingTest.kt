@@ -45,4 +45,27 @@ class DownloadNotificationRoutingTest {
         assertNull(resolveSelectedDownload(records, "download-missing"))
         assertNull(resolveSelectedDownload(emptyList(), "download-a"))
     }
+
+    @Test
+    fun exactSelectionFollowsTheSameIdAcrossStateMovesWithoutFallback() {
+        val other = record("other")
+        var live = record("moving")
+        val uiState = DownloadsUiState().apply {
+            category = DownloadCategory.Queued
+            query = "moving"
+        }
+
+        assertSame(live, resolveSelectedDownload(listOf(other, live), "moving"))
+        live = live.copy(state = DownloadState.DOWNLOADING, downloadedBytes = 500L, startedAtEpochMillis = 1_000L)
+        assertEquals("moving", resolveSelectedDownload(listOf(other, live), "moving")?.id)
+        live = live.copy(
+            state = DownloadState.COMPLETED,
+            downloadedBytes = 1_000L,
+            completedAtEpochMillis = 3_000L,
+        )
+        assertEquals("moving", resolveSelectedDownload(listOf(other, live), "moving")?.id)
+        assertNull(resolveSelectedDownload(listOf(other, live), "stale-id"))
+        assertEquals(DownloadCategory.Queued, uiState.category)
+        assertEquals("moving", uiState.query)
+    }
 }

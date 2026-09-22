@@ -11,6 +11,7 @@ class DownloadCardMappingTest {
     private fun record(
         id: String = "download-id",
         state: DownloadState,
+        fileName: String = "$id.zip",
         totalBytes: Long? = 1_000L,
         downloadedBytes: Long = 0L,
         startedAt: Long? = null,
@@ -19,7 +20,7 @@ class DownloadCardMappingTest {
     ) = Download(
         id = id,
         url = "https://example.com/$id.zip",
-        fileName = "$id.zip",
+        fileName = fileName,
         destinationPath = "/downloads/$id.zip",
         totalBytes = totalBytes,
         downloadedBytes = downloadedBytes,
@@ -135,27 +136,94 @@ class DownloadCardMappingTest {
     }
 
     @Test
-    fun filteringReflectsStateTransitionImmediately() {
-        val downloadingRecord = record(
-            id = "moving",
-            state = DownloadState.DOWNLOADING,
-            downloadedBytes = 500L,
-            startedAt = 1_000L,
+    fun everyDownloadStateLandsInExactlyOneOpenDesignCategory() {
+        val expected = mapOf(
+            DownloadState.QUEUED to DownloadCategory.Queued,
+            DownloadState.COMPLETED to DownloadCategory.Completed,
+            DownloadState.CONNECTING to DownloadCategory.Downloading,
+            DownloadState.DOWNLOADING to DownloadCategory.Downloading,
+            DownloadState.PAUSED to DownloadCategory.Downloading,
+            DownloadState.FAILED to DownloadCategory.Downloading,
+            DownloadState.CANCELLED to DownloadCategory.Downloading,
         )
-        val activeCard = mapDownloadToCard(downloadingRecord, nowEpochMillis = 2_000L)
-        assertEquals(listOf("moving"), filterDownloadCards(listOf(activeCard), DownloadCategory.Downloading, "").map { it.id })
-        assertTrue(filterDownloadCards(listOf(activeCard), DownloadCategory.Completed, "").isEmpty())
+        assertEquals(DownloadState.entries.toSet(), expected.keys)
 
-        val completedCard = mapDownloadToCard(
-            downloadingRecord.copy(
-                state = DownloadState.COMPLETED,
-                downloadedBytes = 1_000L,
-                completedAtEpochMillis = 3_000L,
-            ),
-            nowEpochMillis = 3_000L,
+        DownloadState.entries.forEach { state ->
+            val card = mapDownloadToCard(recordFor(state), nowEpochMillis = 2_000L)
+            assertEquals(expected.getValue(state), card.category)
+            DownloadCategory.entries.forEach { category ->
+                val ids = filterDownloadCards(listOf(card), category, "").map { it.id }
+                if (category == card.category) {
+                    assertEquals(listOf(card.id), ids)
+                } else {
+                    assertTrue(ids.isEmpty())
+                }
+            }
+        }
+    }
+
+    @Test
+    fun filenameSearchIsCaseInsensitiveAndCombinedWithCategory() {
+        val queuedDune = mapDownloadToCard(
+            record(id = "queued-dune", state = DownloadState.QUEUED, fileName = "Dune.Part.Two.mkv"),
+            nowEpochMillis = 2_000L,
         )
-        assertTrue(filterDownloadCards(listOf(completedCard), DownloadCategory.Downloading, "").isEmpty())
-        assertEquals(listOf("moving"), filterDownloadCards(listOf(completedCard), DownloadCategory.Completed, "MOV").map { it.id })
+        val queuedOther = mapDownloadToCard(
+            record(id = "queued-other", state = DownloadState.QUEUED, fileName = "Other.mkv"),
+            nowEpochMillis = 2_000L,
+        )
+        val downloadingDune = mapDownloadToCard(
+            record(id = "active-dune", state = DownloadState.DOWNLOADING, fileName = "dune.mkv", downloadedBytes = 100L, startedAt = 1_000L),
+            nowEpochMillis = 2_000L,
+        )
+        val cards = listOf(queuedDune, queuedOther, downloadingDune)
+
+        assertEquals(listOf("queued-dune"), filterDownloadCards(cards, DownloadCategory.Queued, "dune").map { it.id })
+        assertEquals(listOf("queued-dune"), filterDownloadCards(cards, DownloadCategory.Queued, "DUNE").map { it.id })
+        assertEquals(listOf("active-dune"), filterDownloadCards(cards, DownloadCategory.Downloading, "DuNe").map { it.id })
+        assertTrue(filterDownloadCards(cards, DownloadCategory.Completed, "dune").isEmpty())
+        assertTrue(filterDownloadCards(cards, DownloadCategory.Queued, "no-such-file").isEmpty())
+    }
+
+    @Test
+    fun filteringReflectsStateTransitionImmediately() {
+        var live = record(id = "moving", state = DownloadState.QUEUED)
+        fun visible(category: DownloadCategory, query: String = "") =
+            filterDownloadCards(listOf(mapDownloadToCard(live, nowEpochMillis = 2_000L)), category, query).map { it.id }
+
+        assertEquals(listOf("moving"), visible(DownloadCategory.Queued))
+        assertTrue(visible(DownloadCategory.Downloading).isEmpty())
+        assertTrue(visible(DownloadCategory.Completed).isEmpty())
+
+        live = live.copy(state = DownloadState.DOWNLOADING, downloadedBytes = 500L, startedAtEpochMillis = 1_000L)
+        assertEquals(listOf("moving"), visible(DownloadCategory.Downloading, "MOV"))
+        assertTrue(visible(DownloadCategory.Queued).isEmpty())
+        assertTrue(visible(DownloadCategory.Completed).isEmpty())
+
+        live = live.copy(
+            state = DownloadState.COMPLETED,
+            downloadedBytes = 1_000L,
+            completedAtEpochMillis = 3_000L,
+        )
+        val current = listOf(mapDownloadToCard(live, nowEpochMillis = 3_000L))
+        assertEquals(listOf("moving"), filterDownloadCards(current, DownloadCategory.Completed, "mov").map { it.id })
+        assertTrue(filterDownloadCards(current, DownloadCategory.Queued, "").isEmpty())
+        assertTrue(filterDownloadCards(current, DownloadCategory.Downloading, "").isEmpty())
+        assertEquals(
+            listOf("moving"),
+            DownloadCategory.entries.flatMap { filterDownloadCards(current, it, "") }.map { it.id },
+        )
+    }
+
+    private fun recordFor(state: DownloadState) = when (state) {
+        DownloadState.FAILED -> record(id = state.name.lowercase(), state = state, error = "Network error")
+        DownloadState.COMPLETED -> record(
+            id = state.name.lowercase(),
+            state = state,
+            downloadedBytes = 1_000L,
+            completedAt = 2_000L,
+        )
+        else -> record(id = state.name.lowercase(), state = state)
     }
 
     @Test

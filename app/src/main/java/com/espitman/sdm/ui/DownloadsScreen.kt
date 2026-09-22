@@ -25,8 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -85,14 +85,39 @@ private val LocalHomeSheetVisible = staticCompositionLocalOf { true }
 
 @Stable
 internal class DownloadsUiState {
+    var category by mutableStateOf(DownloadCategory.Downloading)
     var searchOpen by mutableStateOf(false)
     var query by mutableStateOf("")
     var menuOpen by mutableStateOf(false)
     var overlay by mutableStateOf<HomeOverlay?>(null)
 }
 
+internal fun saveDownloadsUiState(state: DownloadsUiState): List<Any> = listOf(
+    state.category.name,
+    state.searchOpen,
+    state.query,
+)
+
+internal fun restoreDownloadsUiState(saved: List<*>): DownloadsUiState {
+    val restored = DownloadsUiState()
+    restored.category = (saved.getOrNull(0) as? String)
+        ?.let { name -> DownloadCategory.entries.firstOrNull { it.name == name } }
+        ?: DownloadCategory.Downloading
+    restored.searchOpen = saved.getOrNull(1) as? Boolean ?: false
+    restored.query = saved.getOrNull(2) as? String ?: ""
+    restored.menuOpen = false
+    restored.overlay = null
+    return restored
+}
+
+private val DownloadsUiStateSaver = listSaver<DownloadsUiState, Any>(
+    save = { saveDownloadsUiState(it) },
+    restore = { restoreDownloadsUiState(it) },
+)
+
 @Composable
-internal fun rememberDownloadsUiState(): DownloadsUiState = remember { DownloadsUiState() }
+internal fun rememberDownloadsUiState(): DownloadsUiState =
+    rememberSaveable(saver = DownloadsUiStateSaver) { DownloadsUiState() }
 
 internal fun resolveSelectedDownload(records: List<Download>, id: String?): Download? {
     if (id == null) return null
@@ -148,7 +173,6 @@ internal fun InteractiveDownloadsScreen(
         }
     }
     val downloads = records.map { record -> mapDownloadToCard(record, nowEpochMillis) }
-    var filter by rememberSaveable { mutableStateOf(DownloadCategory.Downloading) }
     var overlayClosing by remember { mutableStateOf(false) }
     val overlayScope = rememberCoroutineScope()
     val dismissOverlay: () -> Unit = {
@@ -225,10 +249,10 @@ internal fun InteractiveDownloadsScreen(
                         onToast("All active downloads paused")
                     }
                 }) }
-            item { Spacer(Modifier.height(8.dp)); DownloadTabs(filter) { filter = it; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
-            val visibleDownloads = filterDownloadCards(downloads, filter, uiState.query)
+            item { Spacer(Modifier.height(8.dp)); DownloadTabs(uiState.category) { uiState.category = it; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
+            val visibleDownloads = filterDownloadCards(downloads, uiState.category, uiState.query)
             if (visibleDownloads.isEmpty()) {
-                item { EmptyDownloads(filter) }
+                item { EmptyDownloads(uiState.category) }
             } else {
                 items(visibleDownloads, key = { it.id }) { item ->
                     DownloadCard(
