@@ -125,7 +125,8 @@ Acceptance: Cards, statistics, details, and controls share real state, with no p
 
 Depends on stages 2 and 5.
 
-- [ ] SDM-039 — Choose a storage approach compatible with target Android versions and obtain folder access through standard system mechanisms.
+- [x] SDM-039 — Choose a storage approach compatible with target Android versions and obtain folder access through standard system mechanisms.
+  - Verification: SDM now has an explicit hybrid storage policy for API 26–35: the permission-free app-specific external Downloads directory remains the default with an internal fallback, while additional user folders use the system OpenDocumentTree flow and persistable read/write tree grants. No broad storage or media permissions were added. All 420 JVM tests, assembleDebug, assembleDebugAndroidTest, lintDebug, and git diff --check passed. Four focused instrumentation tests passed on the connected Xiaomi Android 14 phone, covering a writable default directory, picker intent/flags, invalid or ungranted tree handling, and the packaged permission set. Save-location selection and active-URI persistence remain scoped to SDM-040.
 - [ ] SDM-040 — Connect Save location to folder selection and persist permission; handle deleted folders and revoked access.
 - [ ] SDM-041 — Display actual completed files in Files and implement filtering, search, and sorting according to the design.
 - [ ] SDM-042 — Open and share files using secure URIs and correct MIME types; handle the absence of a compatible app.

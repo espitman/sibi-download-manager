@@ -13,6 +13,7 @@ import com.espitman.sdm.download.DownloadTransferEngine
 import com.espitman.sdm.download.DownloadTransferService
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import com.espitman.sdm.network.HttpDownloadMetadataRetriever
+import com.espitman.sdm.storage.AppSpecificDownloadsDirectory
 import java.io.File
 
 /** Application-owned dependencies; never retain an Activity. */
@@ -77,22 +78,7 @@ object AppRepositories {
             val appContext = context.applicationContext
             val repo = downloads(appContext)
             val retriever = metadataRetriever()
-            val directoryProvider = {
-                val externalDir = appContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-                val dir = if (externalDir != null) {
-                    if (!externalDir.exists()) externalDir.mkdirs()
-                    if (externalDir.exists() && externalDir.isDirectory) externalDir else null
-                } else null
-
-                dir ?: run {
-                    val fallback = File(appContext.filesDir, "Downloads")
-                    if (!fallback.exists()) fallback.mkdirs()
-                    if (!fallback.exists() || !fallback.isDirectory) {
-                        throw java.io.IOException("Failed to create or access downloads directory: ${fallback.absolutePath}")
-                    }
-                    fallback
-                }
-            }
+            val directoryProvider = { AppSpecificDownloadsDirectory.from(appContext) }
             DownloadSubmissionCoordinator(
                 metadataRetriever = retriever,
                 repository = repo,
