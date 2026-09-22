@@ -567,7 +567,13 @@ private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onActio
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 18.9.sp, fontWeight = FontWeight.Bold); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
                 Spacer(Modifier.width(12.dp))
-                Surface(onClick = onAction, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause, if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause", modifier = Modifier.size(19.dp)) } }
+                if (item.category == DownloadCategory.Completed) {
+                    Surface(color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(SdmIcons.Check, "Completed", modifier = Modifier.size(19.dp)) }
+                    }
+                } else {
+                    Surface(onClick = onAction, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause, if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause", modifier = Modifier.size(19.dp)) } }
+                }
             }
             Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(3.dp).background(sdmColor(0xFF34332F, 0xFFDED8CB), CircleShape)) { Box(Modifier.fillMaxWidth(if (queued) 0f else item.progress).height(3.dp).background(SdmGold, CircleShape)) }
             Row(Modifier.fillMaxWidth().padding(top = 9.dp)) { Text(item.progressLabel, color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(item.trailing, color = SdmMuted, fontSize = 11.sp) }
