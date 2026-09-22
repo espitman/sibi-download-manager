@@ -52,6 +52,7 @@ class DownloadTransferEngine(
     private val destinationPublisher: DownloadDestinationPublisher = DownloadDestinationPublisher.KeepLocal,
     private val storageCapacity: StorageCapacityProbe = StorageCapacityProbe.Unknown,
     private val speedLimiter: SpeedLimiter = SpeedLimiter.Unlimited,
+    private val segmentCount: () -> Int = { SegmentedTransferPolicy.INITIAL_SEGMENT_COUNT },
 ) {
     init {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
@@ -92,6 +93,7 @@ class DownloadTransferEngine(
             return@withContext
         }
 
+        recoverSegmentArtifacts(tempFile)
         val resumeOffset = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
         val isResume = resumeOffset > 0L
         val storedValidators = HttpRangeResume.ResumeValidators(
@@ -107,14 +109,27 @@ class DownloadTransferEngine(
             return@withContext
         }
 
-        val segmentPlan = SegmentedTransferPolicy.plan(existingDownload, resumeOffset)
+        val segmentPlan = SegmentedTransferPolicy.plan(
+            download = existingDownload,
+            resumeOffset = resumeOffset,
+            segmentCount = segmentCount(),
+        )
         if (segmentPlan != null) {
+            val localCapacity = queryLocalCapacity(tempFile)
+            val requiredLocal = SegmentedTransferPolicy.requiredLocalBytes(
+                existingDownload.totalBytes!!,
+                segmentPlan,
+            )
+            if (localCapacity.availableBytes?.let { it < requiredLocal } == true) {
+                reportFailure(repository, downloadId, TransferSpacePreflight.INSUFFICIENT_STORAGE_ERROR)
+                return@withContext
+            }
             when (
                 TransferSpacePreflight.evaluate(
                     knownFinalSizeBytes = existingDownload.totalBytes,
                     existingValidPartBytes = 0L,
                     restartingFresh = false,
-                    localCapacity = queryLocalCapacity(tempFile),
+                    localCapacity = localCapacity,
                     destinationTreeUri = existingDownload.destinationTreeUri,
                     treeCapacity = queryTreeCapacity(existingDownload.destinationTreeUri),
                 )
@@ -136,7 +151,7 @@ class DownloadTransferEngine(
                 val segmented = downloadSegments(
                     url = url,
                     ranges = segmentPlan,
-                    totalBytes = existingDownload.totalBytes!!,
+                    totalBytes = existingDownload.totalBytes,
                     validators = storedValidators,
                     tempFile = tempFile,
                     repository = repository,
@@ -582,7 +597,7 @@ class DownloadTransferEngine(
         repository: DownloadRepository,
         downloadId: String,
     ): Boolean {
-        val segmentFiles = ranges.indices.map { File(tempFile.path + ".segment-$it") }
+        val segmentFiles = ranges.map { segmentFile(tempFile, it) }
         segmentFiles.forEach(::deleteQuietly)
         deleteQuietly(tempFile)
         val progress = LongArray(ranges.size)
@@ -642,14 +657,62 @@ class DownloadTransferEngine(
             )
             false
         } catch (cancellation: CancellationException) {
-            segmentFiles.forEach(::deleteQuietly)
-            deleteQuietly(tempFile)
+            recoverSegmentArtifacts(tempFile)
             throw cancellation
         } catch (error: Throwable) {
-            segmentFiles.forEach(::deleteQuietly)
-            deleteQuietly(tempFile)
             throw error
         }
+    }
+
+    private fun segmentFile(tempFile: File, range: TransferByteRange): File =
+        File(tempFile.path + ".segment-${range.start}-${range.endInclusive}")
+
+    /**
+     * Converts only the verified contiguous prefix of interrupted segment files into the
+     * ordinary part file. The existing If-Range resume path validates it on the next request.
+     */
+    private fun recoverSegmentArtifacts(tempFile: File): Long {
+        val parent = tempFile.parentFile ?: return tempFile.length().coerceAtLeast(0L)
+        val prefix = tempFile.name + ".segment-"
+        val artifacts = parent.listFiles().orEmpty().mapNotNull { file ->
+            if (!file.name.startsWith(prefix)) return@mapNotNull null
+            val bounds = file.name.removePrefix(prefix).split('-')
+            if (bounds.size != 2) return@mapNotNull null
+            val start = bounds[0].toLongOrNull() ?: return@mapNotNull null
+            val end = bounds[1].toLongOrNull() ?: return@mapNotNull null
+            if (start < 0L || end < start) return@mapNotNull null
+            Triple(start, end, file)
+        }.sortedBy { it.first }
+        if (artifacts.isEmpty()) return tempFile.length().coerceAtLeast(0L)
+        if (tempFile.exists() && tempFile.length() > 0L) {
+            artifacts.forEach { deleteQuietly(it.third) }
+            return tempFile.length()
+        }
+
+        var expectedStart = 0L
+        FileOutputStream(tempFile, false).use { output ->
+            for ((start, end, artifact) in artifacts) {
+                if (start != expectedStart) break
+                val expectedLength = end - start + 1L
+                val usableLength = artifact.length().coerceAtMost(expectedLength)
+                artifact.inputStream().use { input ->
+                    var remaining = usableLength
+                    val buffer = ByteArray(bufferSizeBytes)
+                    while (remaining > 0L) {
+                        val read = input.read(buffer, 0, min(buffer.size.toLong(), remaining).toInt())
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        remaining -= read
+                    }
+                }
+                expectedStart += usableLength
+                if (usableLength != expectedLength) break
+            }
+            output.flush()
+        }
+        artifacts.forEach { deleteQuietly(it.third) }
+        if (expectedStart == 0L) deleteQuietly(tempFile)
+        return expectedStart
     }
 
     private suspend fun downloadSegment(

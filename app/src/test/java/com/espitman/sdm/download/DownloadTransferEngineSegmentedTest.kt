@@ -2,6 +2,8 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.storage.StorageCapacity
+import com.espitman.sdm.storage.StorageCapacityProbe
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +70,58 @@ class DownloadTransferEngineSegmentedTest {
         assertTrue(requests.any { it == null })
         assertTrue(requests.any { it != null })
         assertTrue(directory.listFiles().orEmpty().none { ".segment-" in it.name })
+    }
+
+    @Test
+    fun interruptedContiguousSegmentsRecoverIntoNormalValidatedResume() = runBlocking {
+        val (repo, destination, part) = fixture("recover")
+        val firstEnd = 262_143
+        val secondStart = firstEnd + 1
+        File(part.path + ".segment-0-$firstEnd").writeBytes(payload.copyOfRange(0, firstEnd + 1))
+        File(part.path + ".segment-$secondStart-524287").writeBytes(
+            payload.copyOfRange(secondStart, secondStart + 113),
+        )
+        val expectedOffset = secondStart + 113
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val range = request.getHeader("Range")
+                requests += range
+                assertEquals("bytes=$expectedOffset-", range)
+                return MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes $expectedOffset-${payload.lastIndex}/${payload.size}")
+                    .setHeader("ETag", "\"v1\"")
+                    .setBody(Buffer().write(payload.copyOfRange(expectedOffset, payload.size)))
+            }
+        }
+
+        engine().executeTransfer("recover", server.url("/file").toString(), part, repo)
+
+        assertEquals(DownloadState.COMPLETED, repo.get("recover")!!.state)
+        assertArrayEquals(payload, destination.readBytes())
+        assertTrue(directory.listFiles().orEmpty().none { ".segment-" in it.name })
+    }
+
+    @Test
+    fun segmentedPeakStorageBudgetRejectsBeforeOpeningConnections() = runBlocking {
+        val (repo, destination, part) = fixture("space")
+        server.dispatcher = rangeDispatcher(ignoreRanges = false)
+        val ranges = SegmentedTransferPolicy.plan(repo.get("space")!!, 0)!!
+        val required = SegmentedTransferPolicy.requiredLocalBytes(payload.size.toLong(), ranges)
+        val probe = object : StorageCapacityProbe {
+            override fun queryLocalPath(path: File) = StorageCapacity.from(required, required - 1)
+            override fun queryTree(treeUri: String) = StorageCapacity.Unknown
+        }
+
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            storageCapacity = probe,
+        ).executeTransfer("space", server.url("/file").toString(), part, repo)
+
+        assertEquals(DownloadState.FAILED, repo.get("space")!!.state)
+        assertFalse(destination.exists())
+        assertEquals(0, server.requestCount)
     }
 
     private fun rangeDispatcher(ignoreRanges: Boolean) = object : Dispatcher() {

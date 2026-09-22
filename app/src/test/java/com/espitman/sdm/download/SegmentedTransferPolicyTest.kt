@@ -34,6 +34,22 @@ class SegmentedTransferPolicyTest {
         assertEquals(2, SegmentedTransferPolicy.plan(download, 0)!!.size)
     }
 
+    @Test
+    fun selectedConnectionsAreHonoredWithinFileSizeAndHardResourceBounds() {
+        val fourMiB = 4L * 1024 * 1024
+        assertEquals(8, SegmentedTransferPolicy.plan(download(fourMiB), 0, segmentCount = 8)!!.size)
+        assertEquals(16, SegmentedTransferPolicy.plan(download(fourMiB), 0, segmentCount = 16)!!.size)
+        assertEquals(16, SegmentedTransferPolicy.plan(download(fourMiB), 0, segmentCount = 32)!!.size)
+        assertEquals(4, SegmentedTransferPolicy.plan(download(1024L * 1024), 0, segmentCount = 32)!!.size)
+    }
+
+    @Test
+    fun temporaryStorageBudgetIncludesLargestSegmentDuringMerge() {
+        val total = 4L * 1024 * 1024
+        val ranges = SegmentedTransferPolicy.plan(download(total), 0, segmentCount = 8)!!
+        assertEquals(total + 512L * 1024, SegmentedTransferPolicy.requiredLocalBytes(total, ranges))
+    }
+
     private fun download(total: Long) = Download(
         id = "segmented",
         url = "https://example.com/file.bin",

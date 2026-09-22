@@ -107,6 +107,7 @@ object AppRepositories {
                 ),
                 storageCapacity = storageCapacityProbe(appContext),
                 speedLimiter = limiter,
+                segmentCount = { SettingsRepository.get(appContext).settings.value.connections },
             ).also { transferEngine = it }
         }
     }
