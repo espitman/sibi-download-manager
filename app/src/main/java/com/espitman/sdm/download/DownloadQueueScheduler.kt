@@ -85,6 +85,17 @@ class DownloadQueueScheduler(
         schedule()
     }
 
+    suspend fun startQueued(downloadId: String) {
+        repository.awaitInitialized()
+        val current = repository.get(downloadId) ?: return
+        if (current.state != DownloadState.QUEUED) return
+        repository.moveToTop(
+            id = downloadId,
+            nowEpochMillis = max(clock.currentTimeMillis(), current.updatedAtEpochMillis),
+        )
+        schedule()
+    }
+
     suspend fun togglePriority(downloadId: String): Download? {
         repository.awaitInitialized()
         val current = repository.get(downloadId) ?: return null

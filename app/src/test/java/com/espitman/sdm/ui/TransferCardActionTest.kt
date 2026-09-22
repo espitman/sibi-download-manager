@@ -11,7 +11,7 @@ class TransferCardActionTest {
         assertEquals(TransferCardAction.Pause, transferCardAction(DownloadState.CONNECTING))
         assertEquals(TransferCardAction.Pause, transferCardAction(DownloadState.DOWNLOADING))
         assertEquals(TransferCardAction.Retry, transferCardAction(DownloadState.FAILED))
-        assertEquals(TransferCardAction.None, transferCardAction(DownloadState.QUEUED))
+        assertEquals(TransferCardAction.Start, transferCardAction(DownloadState.QUEUED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.COMPLETED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.CANCELLED))
     }
@@ -26,7 +26,7 @@ class TransferCardActionTest {
         assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.CONNECTING)))
         assertEquals(TransferCardAction.Pause, detailsPrimaryAction(DownloadState.DOWNLOADING))
         assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.DOWNLOADING)))
-        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.QUEUED)))
+        assertEquals("Start", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.QUEUED)))
         assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.COMPLETED)))
         assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.CANCELLED)))
     }
@@ -37,6 +37,7 @@ class TransferCardActionTest {
             var dispatched = "none"
             dispatchTransferCardAction(
                 action = transferCardAction(state),
+                start = { dispatched = "start" },
                 pause = { dispatched = "pause" },
                 resumeOrRetry = { dispatched = "resume" },
             )
@@ -47,7 +48,7 @@ class TransferCardActionTest {
         assertEquals("resume", capture(DownloadState.PAUSED))
         assertEquals("pause", capture(DownloadState.CONNECTING))
         assertEquals("pause", capture(DownloadState.DOWNLOADING))
-        assertEquals("none", capture(DownloadState.QUEUED))
+        assertEquals("start", capture(DownloadState.QUEUED))
         assertEquals("none", capture(DownloadState.COMPLETED))
         assertEquals("none", capture(DownloadState.CANCELLED))
     }

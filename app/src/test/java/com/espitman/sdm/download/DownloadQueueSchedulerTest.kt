@@ -315,6 +315,23 @@ class DownloadQueueSchedulerTest {
         assertTrue(starter.startedIds().isEmpty())
     }
 
+    @Test
+    fun explicitQueuedStartMovesTheSelectedRecordAheadWithinItsPriorityTier() = runBlocking {
+        val repo = FakeDownloadRepository(
+            listOf(
+                queued("older", createdAt = 1),
+                queued("selected", createdAt = 2),
+            ),
+        )
+        val starter = RecordingStarter()
+        val scheduler = DownloadQueueScheduler(repo, { 1 }, starter)
+
+        scheduler.startQueued("selected")
+
+        assertEquals(listOf("selected"), starter.startedIds())
+        assertEquals(DownloadState.QUEUED, repo.get("older")!!.state)
+    }
+
     private fun queued(
         id: String,
         priority: Int = 0,
@@ -448,6 +465,18 @@ class DownloadQueueSchedulerTest {
             if (updated != current) {
                 _downloads.value = _downloads.value.filterNot { it.id == id } + updated
             }
+            updated
+        }
+
+        override suspend fun moveToTop(id: String, nowEpochMillis: Long): Download? = mutex.withLock {
+            val current = _downloads.value.find { it.id == id } ?: return@withLock null
+            if (current.state != DownloadState.QUEUED) return@withLock current
+            val firstOrder = _downloads.value
+                .filter { it.state == DownloadState.QUEUED && it.priority == current.priority }
+                .minOfOrNull { it.sortOrder }
+                ?: current.sortOrder
+            val updated = current.copy(sortOrder = firstOrder - 1L, updatedAtEpochMillis = nowEpochMillis)
+            _downloads.value = _downloads.value.filterNot { it.id == id } + updated
             updated
         }
 

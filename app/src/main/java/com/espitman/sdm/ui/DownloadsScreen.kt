@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.semantics.Role
@@ -132,6 +133,7 @@ internal fun resolveSelectedDownload(records: List<Download>, id: String?): Down
 }
 
 internal enum class TransferCardAction {
+    Start,
     Pause,
     Resume,
     Retry,
@@ -139,6 +141,7 @@ internal enum class TransferCardAction {
 }
 
 internal fun transferCardAction(state: DownloadState): TransferCardAction = when (state) {
+    DownloadState.QUEUED -> TransferCardAction.Start
     DownloadState.PAUSED -> TransferCardAction.Resume
     DownloadState.CONNECTING, DownloadState.DOWNLOADING -> TransferCardAction.Pause
     DownloadState.FAILED -> TransferCardAction.Retry
@@ -146,12 +149,14 @@ internal fun transferCardAction(state: DownloadState): TransferCardAction = when
 }
 
 internal fun detailsPrimaryAction(state: DownloadState): TransferCardAction = when (transferCardAction(state)) {
+    TransferCardAction.Start -> TransferCardAction.Start
     TransferCardAction.Retry -> TransferCardAction.Retry
     TransferCardAction.Resume -> TransferCardAction.Resume
     TransferCardAction.Pause, TransferCardAction.None -> TransferCardAction.Pause
 }
 
 internal fun detailsPrimaryActionLabel(action: TransferCardAction): String = when (action) {
+    TransferCardAction.Start -> "Start"
     TransferCardAction.Retry -> "Retry"
     TransferCardAction.Resume -> "Resume"
     TransferCardAction.Pause, TransferCardAction.None -> "Pause"
@@ -159,10 +164,12 @@ internal fun detailsPrimaryActionLabel(action: TransferCardAction): String = whe
 
 internal fun dispatchTransferCardAction(
     action: TransferCardAction,
+    start: () -> Unit,
     pause: () -> Unit,
     resumeOrRetry: () -> Unit,
 ) {
     when (action) {
+        TransferCardAction.Start -> start()
         TransferCardAction.Pause -> pause()
         TransferCardAction.Resume, TransferCardAction.Retry -> resumeOrRetry()
         TransferCardAction.None -> Unit
@@ -273,6 +280,11 @@ internal fun InteractiveDownloadsScreen(
                 onPause = {
                     dispatchTransferCardAction(
                         action = transferCardAction(selectedRecord.state),
+                        start = {
+                            overlayScope.launch {
+                                AppRepositories.queueScheduler(context).startQueued(selectedRecord.id)
+                            }
+                        },
                         pause = { DownloadTransferService.pauseTransfer(context, selectedRecord.id) },
                         resumeOrRetry = { DownloadTransferService.resumeTransfer(context, selectedRecord.id) },
                     )
@@ -330,12 +342,15 @@ internal fun InteractiveDownloadsScreen(
                             val record = records.firstOrNull { it.id == item.id }
                             val action = record?.let { transferCardAction(it.state) }
                             if (action == null || action == TransferCardAction.None) {
-                                if (item.showPlayAction) {
-                                    onToast("Download engine is not connected yet")
-                                }
+                                Unit
                             } else {
                                 dispatchTransferCardAction(
                                     action = action,
+                                    start = {
+                                        overlayScope.launch {
+                                            AppRepositories.queueScheduler(context).startQueued(item.id)
+                                        }
+                                    },
                                     pause = { DownloadTransferService.pauseTransfer(context, item.id) },
                                     resumeOrRetry = { DownloadTransferService.resumeTransfer(context, item.id) },
                                 )
@@ -548,7 +563,7 @@ private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onActio
             Row(verticalAlignment = Alignment.Top) {
                 Box(Modifier.size(width = 46.dp, height = 52.dp).background(if (queued) sdmColor(0xFF17181A, 0xFFF0ECE3) else sdmColor(0xFF181813, 0xFFF2EAD2), RoundedCornerShape(12.dp)).border(1.dp, if (queued) SdmLine else SdmGold.copy(alpha = .3f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text(item.type, color = if (queued) SdmMuted else SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = .6.sp) }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
+                Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 18.9.sp, fontWeight = FontWeight.Bold); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
                 Spacer(Modifier.width(12.dp))
                 Surface(onClick = onAction, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause, if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause", modifier = Modifier.size(19.dp)) } }
             }
@@ -810,7 +825,7 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
         DownloadDetailsStateTone.Danger -> SdmDanger
         DownloadDetailsStateTone.Muted -> SdmMuted
     }
-    Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 20.dp, bottom = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(178.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val stroke = 8.dp.toPx()
@@ -825,12 +840,48 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
                 Text(hero.stateLabel, color = stateColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.3.sp)
             }
         }
-        Text(hero.fileName, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp).widthIn(max = 310.dp), maxLines = 2)
-        Text(hero.destinationDisplay, color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+        Text(hero.fileName, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp).widthIn(max = 310.dp))
+        Text(hero.destinationDisplay, color = SdmMuted, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
-@Composable private fun MetricsGrid(metrics: DownloadDetailsMetricValues) { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf(metrics.speedValue to metrics.speedUnit, metrics.sizeValue to metrics.sizeUnit, metrics.remaining to "Remaining", metrics.connections to "Connections").forEach { (v, l) -> Column(Modifier.weight(1f).heightIn(min = 62.dp).background(SdmSurface, RoundedCornerShape(12.dp)).border(1.dp, SdmLine, RoundedCornerShape(12.dp)).padding(horizontal = 6.dp, vertical = 11.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text(v, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1); Text(l.uppercase(), color = SdmMuted, fontSize = 9.sp, letterSpacing = .54.sp, maxLines = 1, modifier = Modifier.padding(top = 4.dp)) } } } }
+@Composable
+private fun MetricsGrid(metrics: DownloadDetailsMetricValues) {
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val valueStyle = LocalTextStyle.current.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        listOf(
+            metrics.speedValue to metrics.speedUnit,
+            metrics.sizeValue to metrics.sizeUnit,
+            metrics.remaining to "Remaining",
+            metrics.connections to "Connections",
+        ).forEach { (value, label) ->
+            Column(
+                Modifier.weight(1f).heightIn(min = 62.dp)
+                    .background(SdmSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, SdmLine, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 6.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val measuredWidth = textMeasurer.measure(value, valueStyle, softWrap = false).size.width
+                    val availableWidth = with(density) { maxWidth.toPx() }
+                    // Keep the reference size whenever it fits; real byte ratios can
+                    // be longer than its sample and must remain completely readable.
+                    val fit = if (measuredWidth > 0) (availableWidth / measuredWidth).coerceAtMost(1f) else 1f
+                    Text(value, style = valueStyle.copy(fontSize = (14f * fit).sp), maxLines = 1, softWrap = false)
+                }
+                Text(label.uppercase(), color = SdmMuted, fontSize = 9.sp, letterSpacing = .54.sp,
+                    maxLines = 1, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
 
 @Composable private fun SpeedChart(telemetry: DownloadDetailsTelemetryPresentation) {
     val gridColor = SdmLine
@@ -868,7 +919,7 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
     }
 }
 
-@Composable private fun DetailsActions(primaryAction: TransferCardAction, priorityActive: Boolean, onPause: () -> Unit, onCancel: () -> Unit, onPriority: () -> Unit, onCopy: () -> Unit) { val primaryIcon = when (primaryAction) { TransferCardAction.Retry -> SdmIcons.Refresh; TransferCardAction.Resume -> SdmIcons.Play; TransferCardAction.Pause, TransferCardAction.None -> SdmIcons.Pause }; Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(primaryIcon,detailsPrimaryActionLabel(primaryAction),onPause),Triple(SdmIcons.Close,"Cancel",onCancel),Triple(SdmIcons.Star,"Priority",onPriority),Triple(SdmIcons.Copy,"Copy URL",onCopy)).forEachIndexed { i,(icon,label,action)-> val emphasized = i == 0 || (i == 2 && priorityActive); Column(Modifier.weight(1f).heightIn(min=68.dp).background(SdmSurface,RoundedCornerShape(13.dp)).border(1.dp,if(i == 0)SdmGold.copy(alpha=.38f)else SdmLine,RoundedCornerShape(13.dp)).clickable(onClick=action),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,modifier=Modifier.size(20.dp));Text(label,color=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,fontSize=10.sp,modifier=Modifier.padding(top=7.dp))} } } }
+@Composable private fun DetailsActions(primaryAction: TransferCardAction, priorityActive: Boolean, onPause: () -> Unit, onCancel: () -> Unit, onPriority: () -> Unit, onCopy: () -> Unit) { val primaryIcon = when (primaryAction) { TransferCardAction.Retry -> SdmIcons.Refresh; TransferCardAction.Start, TransferCardAction.Resume -> SdmIcons.Play; TransferCardAction.Pause, TransferCardAction.None -> SdmIcons.Pause }; Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(primaryIcon,detailsPrimaryActionLabel(primaryAction),onPause),Triple(SdmIcons.Close,"Cancel",onCancel),Triple(SdmIcons.Star,"Priority",onPriority),Triple(SdmIcons.Copy,"Copy URL",onCopy)).forEachIndexed { i,(icon,label,action)-> val emphasized = i == 0 || (i == 2 && priorityActive); Column(Modifier.weight(1f).heightIn(min=68.dp).background(SdmSurface,RoundedCornerShape(13.dp)).border(1.dp,if(i == 0)SdmGold.copy(alpha=.38f)else SdmLine,RoundedCornerShape(13.dp)).clickable(onClick=action),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,modifier=Modifier.size(20.dp));Text(label,color=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,fontSize=10.sp,modifier=Modifier.padding(top=7.dp))} } } }
 
 @Composable private fun TechnicalInfo(technical: DownloadDetailsTechnicalValues) {
     val rows = buildList {
@@ -885,7 +936,7 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
             Column {
                 rows.forEachIndexed { i, (a, b) ->
                     if (i > 0) HorizontalDivider(color = SdmLine)
-                    Row(Modifier.fillMaxWidth().heightIn(min = if (i == 0) 55.dp else 53.dp).padding(horizontal = 15.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = if (i == 0) 55.dp else 53.dp).padding(horizontal = 15.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(a, color = SdmMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                         Text(
                             b,
@@ -895,6 +946,8 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
                                 else -> SdmText
                             },
                             fontSize = 12.sp,
+                            textAlign = TextAlign.Right,
+                            modifier = Modifier.widthIn(max = 220.dp),
                             maxLines = if (a == "Last error") 1 else Int.MAX_VALUE,
                             overflow = if (a == "Last error") TextOverflow.Ellipsis else TextOverflow.Clip,
                         )
