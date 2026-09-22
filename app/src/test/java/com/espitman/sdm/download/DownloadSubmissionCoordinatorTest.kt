@@ -114,6 +114,13 @@ class DownloadSubmissionCoordinatorTest {
             return queued
         }
 
+        override suspend fun togglePriority(id: String, nowEpochMillis: Long): Download? {
+            val current = get(id) ?: return null
+            val updated = com.espitman.sdm.domain.DownloadPriorityMutation.toggle(current, nowEpochMillis)
+            if (updated != current) insert(updated)
+            return updated
+        }
+
         override suspend fun beginFreshRestart(
             id: String,
             nowEpochMillis: Long,
@@ -169,6 +176,37 @@ class DownloadSubmissionCoordinatorTest {
         override fun createId(): String = "$prefix${counter.incrementAndGet()}"
     }
 
+    private fun coordinator(
+        repository: FakeDownloadRepository,
+        retriever: FakeMetadataRetriever,
+        transferStarter: FakeTransferStarter,
+        directoryProvider: DirectoryProvider = DirectoryProvider { tempDir },
+        clock: Clock = FakeClock(1000L),
+        idFactory: IdFactory = SequentialIdFactory(),
+        maxConcurrent: Int = 3,
+    ): DownloadSubmissionCoordinator {
+        val scheduler = DownloadQueueScheduler(
+            repository = repository,
+            concurrentLimit = { maxConcurrent },
+            starter = { download ->
+                val destination = download.destinationPath ?: error("missing destination")
+                transferStarter.startTransfer(
+                    download,
+                    DownloadPartFile.forDestination(File(destination)),
+                )
+            },
+            clock = clock,
+        )
+        return DownloadSubmissionCoordinator(
+            metadataRetriever = retriever,
+            repository = repository,
+            directoryProvider = directoryProvider,
+            queueScheduler = scheduler,
+            clock = clock,
+            idFactory = idFactory,
+        )
+    }
+
     @Before
     fun setUp() {
         tempDir = Files.createTempDirectory("coordinator-test").toFile()
@@ -193,13 +231,11 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
             clock = FakeClock(5000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val result = coordinator.submit("https://example.com/archive.zip", startNow = true)
@@ -241,13 +277,11 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
             clock = FakeClock(7000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val result = coordinator.submit("https://example.com/document.pdf", startNow = false)
@@ -268,8 +302,9 @@ class DownloadSubmissionCoordinatorTest {
         assertTrue(reservedPartFile.name.startsWith(".sdm-") && reservedPartFile.name.endsWith(".part"))
         assertTrue(reservedPartFile.exists())
 
-        // Queue must NOT start transfer starter
-        assertEquals(0, transferStarter.startedTransfers.size)
+        // Queue goes through the scheduler and starts when a slot is free
+        assertEquals(1, transferStarter.startedTransfers.size)
+        assertEquals(persisted.id, transferStarter.startedTransfers[0].first.id)
     }
 
     @Test
@@ -289,13 +324,11 @@ class DownloadSubmissionCoordinatorTest {
         .apply { delayDeferred = gate }
 
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
             clock = FakeClock(9000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val job1 = async(Dispatchers.Default) {
@@ -337,13 +370,10 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
-            clock = FakeClock(1000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val result = coordinator.submit("https://example.com/missing.mp4", startNow = true)
@@ -376,13 +406,10 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
-            clock = FakeClock(1000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val result = coordinator.submit("https://example.com/data.dat", startNow = true)
@@ -401,7 +428,7 @@ class DownloadSubmissionCoordinatorTest {
     }
 
     @Test
-    fun transferStarterFailureDeletesInsertedRecordAndCleansUpTemp() = runBlocking {
+    fun transferStartFailureKeepsDurableQueuedRecord() = runBlocking {
         val repository = FakeDownloadRepository()
         val retriever = FakeMetadataRetriever(
             DownloadMetadataResult.Success(
@@ -416,26 +443,22 @@ class DownloadSubmissionCoordinatorTest {
         val transferStarter = FakeTransferStarter().apply {
             startFailure = IllegalStateException("Transfer engine failed to start")
         }
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
-            clock = FakeClock(1000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val result = coordinator.submit("https://example.com/movie.mp4", startNow = true)
-        assertTrue("Expected Failure, got $result", result is SubmissionResult.Failure)
+        assertTrue("Expected Success, got $result", result is SubmissionResult.Success)
 
-        val failure = result as SubmissionResult.Failure
-        assertEquals("Transfer engine failed to start", failure.message)
-
-        // The inserted record should have been cleaned up (deleted) so no orphan record remains
-        assertEquals(0, repository.downloads.value.size)
-        // Reserved temp file deleted on cleanup
-        assertFalse(File(tempDir, "movie.mp4").exists())
-        assertEquals(emptyList<String>(), tempDir.list()?.toList() ?: emptyList<String>())
+        // Durable queued record remains when the start attempt fails
+        assertEquals(1, repository.downloads.value.size)
+        assertEquals(DownloadState.QUEUED, repository.downloads.value.single().state)
+        assertEquals(0, transferStarter.startedTransfers.size)
+        val leftover = tempDir.listFiles() ?: emptyArray()
+        assertEquals(1, leftover.size)
+        assertTrue(leftover[0].name.startsWith(".sdm-") && leftover[0].name.endsWith(".part"))
     }
 
     @Test
@@ -455,13 +478,10 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { tempDir },
+            retriever = retriever,
             transferStarter = transferStarter,
-            clock = FakeClock(1000L),
-            idFactory = SequentialIdFactory(),
         )
 
         val result = coordinator.submit("https://example.com/$longName", startNow = true)
@@ -492,13 +512,11 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { fileNotDir },
+            retriever = retriever,
             transferStarter = transferStarter,
-            clock = FakeClock(1000L),
-            idFactory = SequentialIdFactory(),
+            directoryProvider = { fileNotDir },
         )
 
         val result = coordinator.submit("https://example.com/file.zip", startNow = true)
@@ -532,13 +550,11 @@ class DownloadSubmissionCoordinatorTest {
             )
         )
         val transferStarter = FakeTransferStarter()
-        val coordinator = DownloadSubmissionCoordinator(
-            metadataRetriever = retriever,
+        val coordinator = coordinator(
             repository = repository,
-            directoryProvider = { readOnlyDir },
+            retriever = retriever,
             transferStarter = transferStarter,
-            clock = FakeClock(1000L),
-            idFactory = SequentialIdFactory(),
+            directoryProvider = { readOnlyDir },
         )
 
         val result = coordinator.submit("https://example.com/file.zip", startNow = true)
@@ -556,5 +572,44 @@ class DownloadSubmissionCoordinatorTest {
         // Restore write permissions for teardown
         readOnlyDir.setWritable(true)
         Unit
+    }
+
+    @Test
+    fun submissionsStayQueuedWhenConcurrentLimitIsReached() = runBlocking {
+        val repository = FakeDownloadRepository()
+        repository.insert(
+            Download(
+                id = "active",
+                url = "https://example.com/active.bin",
+                fileName = "active.bin",
+                destinationPath = File(tempDir, "active.bin").absolutePath,
+                state = DownloadState.DOWNLOADING,
+                createdAtEpochMillis = 1L,
+            ),
+        )
+        val retriever = FakeMetadataRetriever(
+            DownloadMetadataResult.Success(
+                DownloadMetadata(
+                    url = "https://example.com/next.bin",
+                    contentLength = 10L,
+                    contentType = "application/octet-stream",
+                    suggestedFilename = "next.bin",
+                )
+            )
+        )
+        val transferStarter = FakeTransferStarter()
+        val coordinator = coordinator(
+            repository = repository,
+            retriever = retriever,
+            transferStarter = transferStarter,
+            maxConcurrent = 1,
+        )
+
+        val queued = coordinator.submit("https://example.com/next.bin", startNow = false)
+        val immediate = coordinator.submit("https://example.com/other.bin", startNow = true)
+        assertTrue(queued is SubmissionResult.Success)
+        assertTrue(immediate is SubmissionResult.Success)
+        assertEquals(0, transferStarter.startedTransfers.size)
+        assertEquals(2, repository.downloads.value.count { it.state == DownloadState.QUEUED })
     }
 }

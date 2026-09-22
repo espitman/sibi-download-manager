@@ -15,4 +15,10 @@ class TransferCardActionTest {
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.COMPLETED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.CANCELLED))
     }
+
+    @Test
+    fun priorityToastsMatchTheApprovedDetailsCopy() {
+        assertEquals("High priority enabled", priorityToggleToast(true))
+        assertEquals("Priority returned to normal", priorityToggleToast(false))
+    }
 }

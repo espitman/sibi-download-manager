@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.IntOffset
 import com.espitman.sdm.ui.theme.*
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.download.DownloadTransferService
@@ -119,6 +120,9 @@ internal fun confirmCancelDownload(
     closeDialog()
     returnToList()
 }
+
+internal fun priorityToggleToast(highPriority: Boolean): String =
+    if (highPriority) "High priority enabled" else "Priority returned to normal"
 
 @Composable
 internal fun InteractiveDownloadsScreen(
@@ -169,6 +173,7 @@ internal fun InteractiveDownloadsScreen(
         if (selectedRecord != null) {
             DownloadDetailsScreen(
                 item = mapDownloadToCard(selectedRecord, nowEpochMillis),
+                priorityActive = DownloadPriorityMutation.isHigh(selectedRecord.priority),
                 onBack = { onSelectedDownloadIdChange(null) },
                 onToast = onToast,
                 onPause = {
@@ -182,6 +187,16 @@ internal fun InteractiveDownloadsScreen(
                 },
                 onCancel = {
                     DownloadTransferService.cancelTransfer(context, selectedRecord.id)
+                },
+                onPriority = {
+                    val previousPriority = selectedRecord.priority
+                    overlayScope.launch {
+                        val updated = AppRepositories.queueScheduler(context).togglePriority(selectedRecord.id)
+                            ?: return@launch
+                        if (updated.priority != previousPriority) {
+                            onToast(priorityToggleToast(DownloadPriorityMutation.isHigh(updated.priority)))
+                        }
+                    }
                 },
             )
         }
@@ -563,9 +578,16 @@ private fun SheetActions(onCancel: () -> Unit, primaryLabel: String = "Save", on
 private fun SheetActionButton(label: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) { Surface(onClick = onClick, color = if (primary) SdmGold else sdmColor(0xFF191A1C, 0xFFECE8DF), contentColor = if (primary) Color(0xFF080808) else SdmText, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, if (primary) SdmGold else SdmLine), modifier = modifier.height(50.dp)) { Box(contentAlignment = Alignment.Center) { Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
 
 @Composable
-private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, onToast: (String) -> Unit, onPause: () -> Unit, onCancel: () -> Unit) {
+private fun DownloadDetailsScreen(
+    item: DownloadCardModel,
+    priorityActive: Boolean,
+    onBack: () -> Unit,
+    onToast: (String) -> Unit,
+    onPause: () -> Unit,
+    onCancel: () -> Unit,
+    onPriority: () -> Unit,
+) {
     var menuOpen by remember { mutableStateOf(false) }; var headersOpen by remember { mutableStateOf(false) }; var segmentsOpen by remember { mutableStateOf(false) }; var cancelOpen by remember { mutableStateOf(false) }
-    var priorityActive by remember { mutableStateOf(false) }
     val paused = item.metadataValue == "Paused"
     val clipboard = LocalClipboardManager.current
     BackHandler(onBack = onBack)
@@ -584,7 +606,7 @@ private fun DownloadDetailsScreen(item: DownloadCardModel, onBack: () -> Unit, o
                 item { DetailsHero(item, paused) }
                 item { MetricsGrid() }
                 item { SpeedChart() }
-                item { DetailsActions(paused, priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = { priorityActive = !priorityActive; onToast(if (priorityActive) "High priority enabled" else "Priority returned to normal") }, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
+                item { DetailsActions(paused, priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString("https://media.sibicdn.net/releases/Dune.Part.Two.2024.2160p.BluRay.mkv")); onToast("Source URL copied") }) }
                 item { TechnicalInfo() }
                 item { DisclosureInfo(headersOpen, segmentsOpen, { headersOpen = !headersOpen }, { segmentsOpen = !segmentsOpen }) }
             }

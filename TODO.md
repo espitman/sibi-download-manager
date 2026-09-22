@@ -87,7 +87,8 @@ Depends on stage 3.
   - Verification: HTTP 200 to Range is a full restart body and HTTP 416 triggers one bounded non-Range GET onto a separate restart temp; progress and ETag/Last-Modified/total are replaced atomically, obsolete parts are removed only after success, cancellation keeps a usable new partial without mixing versions, and SHA-256 of the fresh body matches; 36 focused tests, 204 JVM tests, assembleDebug, lintDebug, and git diff --check passed.
 - [x] SDM-026 — Implement Cancel, stop active work, and handle temporary files according to the approved deletion interaction.
   - Verification: 215 JVM tests passed with zero failures, assembleDebug and lintDebug passed, git diff --check passed, and the resulting debug APK installed successfully and launched into com.espitman.sdm/.MainActivity on the connected Xiaomi Android 14 device.
-- [ ] SDM-027 — Connect Queue in Add to a real scheduler respecting priority and concurrent download limits.
+- [x] SDM-027 — Connect Queue in Add to a real scheduler respecting priority and concurrent download limits.
+  - Verification: Add Queue and Download, Resume, persisted Priority, and the simultaneous-download setting now share one durable race-safe scheduler with deterministic priority and creation ordering, slot refill, restart reconciliation, rejected-start cleanup, and cancellation-safe lifecycle handling; 245 JVM tests, a clean forced assemble/lint run, and 6/6 SQLite instrumentation tests on Xiaomi Android 14 passed.
 - [ ] SDM-028 — Implement Download All and Pause All with correct handling of queued, active, and completed downloads.
 - [ ] SDM-029 — Connect notification Pause, Resume, and Cancel actions to the same engine and shared UI state.
 - [ ] SDM-030 — Test repeated pause/resume, rapid taps, concurrent downloads, and restart; verify output checksums.

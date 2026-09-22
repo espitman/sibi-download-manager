@@ -10,12 +10,10 @@ import com.espitman.sdm.network.DownloadMetadata
 import com.espitman.sdm.network.DownloadMetadataResult
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -48,7 +46,7 @@ class DownloadSubmissionCoordinator(
     private val metadataRetriever: DownloadMetadataRetriever,
     private val repository: DownloadRepository,
     private val directoryProvider: DirectoryProvider,
-    private val transferStarter: TransferStarter,
+    private val queueScheduler: DownloadQueueScheduler,
     private val clock: Clock = Clock.SystemClock,
     private val idFactory: IdFactory = IdFactory.Default,
 ) {
@@ -79,7 +77,7 @@ class DownloadSubmissionCoordinator(
                     isLeader = false
                 } else {
                     val newDeferred = async {
-                        performSubmission(validatedUrl, startNow)
+                        performSubmission(validatedUrl)
                     }
                     inFlightSubmissions[dedupeKey] = newDeferred
                     myDeferred = newDeferred
@@ -101,7 +99,6 @@ class DownloadSubmissionCoordinator(
 
     private suspend fun performSubmission(
         validatedUrl: String,
-        startNow: Boolean,
     ): SubmissionResult {
         // 1. Retrieve metadata
         val metadataResult = try {
@@ -171,10 +168,7 @@ class DownloadSubmissionCoordinator(
             repository.insert(download)
             persistedDownloadId = downloadId
 
-            // 4. If startNow, start transfer starter
-            if (startNow) {
-                transferStarter.startTransfer(download, tempFile)
-            }
+            queueScheduler.schedule()
 
             return SubmissionResult.Success(download)
         } catch (cancellation: CancellationException) {

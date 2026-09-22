@@ -8,6 +8,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
@@ -48,6 +49,11 @@ class SqliteDownloadRepository(
     override suspend fun get(id: String): Download? = onIo {
         awaitInitialized()
         mutex.withLock { queryOne(database.readableDatabase, id) }
+    }
+
+    override suspend fun schedulingSnapshot(): List<Download> = onIo {
+        awaitInitialized()
+        mutex.withLock { downloads.value }
     }
 
     override suspend fun insert(download: Download) = onIo {
@@ -176,6 +182,34 @@ class SqliteDownloadRepository(
         }
     }
 
+    override suspend fun togglePriority(
+        id: String,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            var changed = false
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val next = DownloadPriorityMutation.toggle(current, nowEpochMillis)
+                if (next === current || next == current) {
+                    updated = current
+                    return@inTransaction
+                }
+                check(db.update("downloads", next.toValues(), "id = ?", arrayOf(id)) == 1) {
+                    "Concurrent update failed for download $id"
+                }
+                updated = next
+                changed = true
+            }
+            if (changed) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
     override suspend fun beginFreshRestart(
         id: String,
         nowEpochMillis: Long,
@@ -266,6 +300,7 @@ private fun Download.toValues() = ContentValues().apply {
     put("state", state.name)
     putNullable("error", error)
     put("priority", priority)
+    put("sort_order", createdAtEpochMillis)
     put("created_at", createdAtEpochMillis)
     put("updated_at", updatedAtEpochMillis)
     putNullable("started_at", startedAtEpochMillis)

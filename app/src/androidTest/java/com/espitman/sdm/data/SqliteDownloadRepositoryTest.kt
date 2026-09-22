@@ -161,4 +161,38 @@ class SqliteDownloadRepositoryTest {
         assertEquals(paused, repository!!.pauseAtExactOffset("progress", fileLengthBytes = 1, nowEpochMillis = 800))
         assertNull(repository!!.pauseAtExactOffset("missing", fileLengthBytes = 10, nowEpochMillis = 800))
     }
+
+    @Test
+    fun togglePriorityPersistsAtomicallyAndSurvivesRecreation() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "prio",
+                url = "https://example.com/prio.bin",
+                fileName = "prio.bin",
+                createdAtEpochMillis = 100,
+            ),
+        )
+        val high = repository!!.togglePriority("prio", 150)
+        assertEquals(1, high!!.priority)
+        assertEquals(150L, high.updatedAtEpochMillis)
+        assertEquals(1, repository!!.downloads.value.single().priority)
+
+        val again = repository!!.togglePriority("prio", 140)
+        assertEquals(0, again!!.priority)
+        assertEquals(150L, again.updatedAtEpochMillis)
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(0, repository!!.get("prio")!!.priority)
+
+        repository!!.transition("prio", DownloadState.CANCELLED, 200)
+        val cancelled = repository!!.togglePriority("prio", 300)
+        assertEquals(0, cancelled!!.priority)
+        assertEquals(DownloadState.CANCELLED, cancelled.state)
+        assertEquals(200L, cancelled.updatedAtEpochMillis)
+        assertNull(repository!!.togglePriority("missing", 400))
+    }
 }

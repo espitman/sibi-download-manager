@@ -9,6 +9,11 @@ interface DownloadRepository {
 
     suspend fun awaitInitialized()
     suspend fun get(id: String): Download?
+    /** Consistent snapshot for scheduler selection; serialized with writes when the implementation supports it. */
+    suspend fun schedulingSnapshot(): List<Download> {
+        awaitInitialized()
+        return downloads.value
+    }
     suspend fun insert(download: Download)
     suspend fun delete(id: String): Boolean
     suspend fun transition(
@@ -21,6 +26,7 @@ interface DownloadRepository {
     suspend fun pauseAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun cancelAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun resumePaused(id: String, nowEpochMillis: Long): Download?
+    suspend fun togglePriority(id: String, nowEpochMillis: Long): Download?
     suspend fun beginFreshRestart(
         id: String,
         nowEpochMillis: Long,

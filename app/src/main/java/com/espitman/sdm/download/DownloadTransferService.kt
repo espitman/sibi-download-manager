@@ -20,7 +20,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -32,7 +35,9 @@ class DownloadTransferService : Service() {
     private val session = DownloadTransferSession()
     private val notifications by lazy { TransferNotificationCoordinator(this) }
     private val progressCollectorStarted = AtomicBoolean(false)
+    private val schedulerCollectorStarted = AtomicBoolean(false)
     private val wakeLockGuard = Any()
+    private val acceptingWork = AtomicBoolean(false)
     private var keepActiveClosed = false
     private var keepActiveWakeLock: PowerManager.WakeLock? = null
     private var keepActiveAcquiredAtElapsedMs: Long? = null
@@ -40,25 +45,51 @@ class DownloadTransferService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!notifications.tryEnterForeground(this)) {
-            session.handleCommand(startId, command = null)
-            session.startIdIfIdle()?.let { stopSelf(it) }
-            return START_NOT_STICKY
-        }
-        startProgressCollectorOnce()
-
         val command = DownloadTransferCommand.parse(
             action = intent?.action,
             downloadId = intent?.getStringExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID),
             tempFilePath = intent?.getStringExtra(DownloadTransferCommand.EXTRA_TEMP_FILE_PATH),
         )
+        val enteredForeground = notifications.tryEnterForeground(this)
+        if (!enteredForeground) {
+            session.handleCommand(startId, command = null)
+            val claimedId = TransferServiceLifecyclePolicy.claimedIdToReleaseOnRejectedForeground(
+                enteredForeground = false,
+                command = command,
+            )
+            if (claimedId != null) {
+                runBlocking {
+                    TransferSlotCleanup.afterRejectedStart {
+                        AppRepositories.queueScheduler(applicationContext).releaseClaim(claimedId)
+                    }
+                }
+            }
+            session.startIdIfIdle()?.let { stopSelf(it) }
+            return START_NOT_STICKY
+        }
+        acceptingWork.set(true)
+        startProgressCollectorOnce()
+        if (TransferServiceLifecyclePolicy.startQueueObserverBeforeHandling(command)) {
+            startSchedulerCollectorOnce()
+        }
+
+        if (command is ResumeTransferCommand) {
+            session.handleCommand(startId, command = null)
+            serviceScope.launch {
+                try {
+                    AppRepositories.queueScheduler(applicationContext).resume(command.downloadId)
+                } finally {
+                    session.startIdIfIdle()?.let { stopSelf(it) }
+                }
+            }
+            return START_NOT_STICKY
+        }
         when (val result = session.handleCommand(startId, command)) {
             is SessionCommandResult.StartJob -> {
                 val transferJob = serviceScope.launch {
                     try {
-                        when (val command = result.command) {
-                            is StartTransferCommand -> executeTransfer(command)
-                            is ResumeTransferCommand -> executeResume(command)
+                        when (val transferCommand = result.command) {
+                            is StartTransferCommand -> executeTransfer(transferCommand)
                             else -> Unit
                         }
                     } catch (cancellation: CancellationException) {
@@ -66,22 +97,50 @@ class DownloadTransferService : Service() {
                     } catch (_: Throwable) {
                         // Transfer failures are recorded by the engine; missing records are ignored.
                     } finally {
-                        persistCancelledIfRequested(result.command.downloadId)
-                        session.onTransferFinished(result.command.downloadId)?.let { stopSelf(it) }
+                        withContext(NonCancellable) {
+                            persistCancelledIfRequested(result.command.downloadId)
+                            TransferSlotCleanup.afterTransferFinished(
+                                acceptingWork = acceptingWork.get(),
+                                releaseClaim = {
+                                    AppRepositories.queueScheduler(applicationContext)
+                                        .releaseClaim(result.command.downloadId)
+                                },
+                                reschedule = {
+                                    AppRepositories.queueScheduler(applicationContext).schedule()
+                                },
+                            )
+                            session.onTransferFinished(result.command.downloadId)?.let { finishedStartId ->
+                                if (acceptingWork.get()) stopSelf(finishedStartId)
+                            }
+                        }
                     }
                 }
                 if (session.attachJob(result.command.downloadId, transferJob)) {
                     transferJob.cancel()
                 }
             }
-            is SessionCommandResult.CancelJob -> result.job.cancel()
+            is SessionCommandResult.CancelJob -> {
+                result.job.cancel()
+                startSchedulerCollectorOnce()
+            }
             SessionCommandResult.None -> {
                 if (command is CancelTransferCommand && !session.isCancelRequested(command.downloadId)) {
                     serviceScope.launch {
-                        persistCancelledNow(command.downloadId)
-                        session.startIdIfIdle()?.let { stopSelf(it) }
+                        withContext(NonCancellable) {
+                            persistCancelledNow(command.downloadId)
+                            AppRepositories.queueScheduler(applicationContext)
+                                .releaseClaim(command.downloadId)
+                        }
+                        startSchedulerCollectorOnce()
+                        if (acceptingWork.get()) {
+                            AppRepositories.queueScheduler(applicationContext).schedule()
+                        }
+                        session.startIdIfIdle()?.let { finishedStartId ->
+                            if (acceptingWork.get()) stopSelf(finishedStartId)
+                        }
                     }
                 } else {
+                    startSchedulerCollectorOnce()
                     session.startIdIfIdle()?.let { stopSelf(it) }
                 }
             }
@@ -90,6 +149,7 @@ class DownloadTransferService : Service() {
     }
 
     override fun onDestroy() {
+        acceptingWork.set(false)
         synchronized(wakeLockGuard) {
             keepActiveClosed = true
             applyKeepActiveWakeLockLocked(shouldHold = false)
@@ -123,6 +183,23 @@ class DownloadTransferService : Service() {
                         delay(KeepActivePolicy.WAKE_LOCK_TIMEOUT_MS / 2)
                         applyKeepActiveWakeLock(shouldHold = true)
                     }
+                }
+        }
+    }
+
+    private fun startSchedulerCollectorOnce() {
+        if (!schedulerCollectorStarted.compareAndSet(false, true)) return
+        serviceScope.launch {
+            combine(
+                AppRepositories.downloads(applicationContext).downloads
+                    .map { downloads -> downloads.map { it.id to it.state } }
+                    .distinctUntilChanged(),
+                SettingsRepository.get(applicationContext).settings
+                    .map { it.simultaneous }
+                    .distinctUntilChanged(),
+            ) { _, _ -> }
+                .collect {
+                    AppRepositories.queueScheduler(applicationContext).schedule()
                 }
         }
     }
@@ -209,34 +286,6 @@ class DownloadTransferService : Service() {
             repository = repository,
             pauseRequested = { session.isPauseRequested(command.downloadId) },
         )
-    }
-
-    private suspend fun executeResume(command: ResumeTransferCommand) {
-        val repository = AppRepositories.downloads(applicationContext)
-        val download = repository.get(command.downloadId) ?: return
-        when (val part = DownloadResumePart.resolve(download.destinationPath)) {
-            is DownloadResumePart.Result.Failed -> {
-                DownloadResumeFailure.persist(
-                    repository = repository,
-                    downloadId = download.id,
-                    error = part.error,
-                    nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
-                )
-            }
-            is DownloadResumePart.Result.Ready -> {
-                val resumed = repository.resumePaused(
-                    id = download.id,
-                    nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
-                ) ?: return
-                AppRepositories.transferEngine().executeTransfer(
-                    downloadId = resumed.id,
-                    url = resumed.url,
-                    tempFile = part.file,
-                    repository = repository,
-                    pauseRequested = { session.isPauseRequested(command.downloadId) },
-                )
-            }
-        }
     }
 
     companion object {

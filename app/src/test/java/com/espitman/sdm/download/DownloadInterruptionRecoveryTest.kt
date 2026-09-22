@@ -385,6 +385,13 @@ class DownloadInterruptionRecoveryTest {
             return queued
         }
 
+        override suspend fun togglePriority(id: String, nowEpochMillis: Long): Download? {
+            val current = get(id) ?: return null
+            val updated = com.espitman.sdm.domain.DownloadPriorityMutation.toggle(current, nowEpochMillis)
+            if (updated != current) insert(updated)
+            return updated
+        }
+
         override suspend fun beginFreshRestart(
             id: String,
             nowEpochMillis: Long,
