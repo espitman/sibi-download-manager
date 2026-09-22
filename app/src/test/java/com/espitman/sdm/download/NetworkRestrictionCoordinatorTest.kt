@@ -1,6 +1,7 @@
 package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
+import com.espitman.sdm.data.settings.SdmSettings
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
@@ -27,6 +28,145 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class NetworkRestrictionCoordinatorTest {
+    @Test
+    fun selectedSettingCombinationsDriveEveryRuntimePolicyTogether() = runBlocking {
+        data class Case(
+            val name: String,
+            val settings: SdmSettings,
+            val transport: ValidatedTransport,
+            val expectedAllowed: Boolean,
+            val expectedBytesPerSecond: Long?,
+            val expectedAutoRecovery: Boolean,
+        )
+
+        val cases = listOf(
+            Case(
+                name = "wifi-capped-auto",
+                settings = SdmSettings(
+                    connections = 8,
+                    simultaneous = 2,
+                    autoResume = true,
+                    wifiOnly = true,
+                    speedLimitMbps = 4f,
+                ),
+                transport = ValidatedTransport.WIFI,
+                expectedAllowed = true,
+                expectedBytesPerSecond = 4_000_000L,
+                expectedAutoRecovery = true,
+            ),
+            Case(
+                name = "cellular-blocked-wifi-cap",
+                settings = SdmSettings(
+                    connections = 16,
+                    simultaneous = 4,
+                    autoResume = true,
+                    wifiOnly = true,
+                    speedLimitMbps = 9f,
+                    speedLimitWifiOnly = true,
+                ),
+                transport = ValidatedTransport.CELLULAR,
+                expectedAllowed = false,
+                expectedBytesPerSecond = null,
+                expectedAutoRecovery = false,
+            ),
+            Case(
+                name = "cellular-allowed-manual-recovery",
+                settings = SdmSettings(
+                    connections = 24,
+                    simultaneous = 6,
+                    autoResume = false,
+                    wifiOnly = false,
+                    speedLimitMbps = 6f,
+                ),
+                transport = ValidatedTransport.CELLULAR,
+                expectedAllowed = true,
+                expectedBytesPerSecond = 6_000_000L,
+                expectedAutoRecovery = false,
+            ),
+            Case(
+                name = "ethernet-unlimited-auto",
+                settings = SdmSettings(
+                    connections = 32,
+                    simultaneous = 10,
+                    autoResume = true,
+                    wifiOnly = true,
+                    unlimitedSpeed = true,
+                    speedLimitMbps = 30f,
+                ),
+                transport = ValidatedTransport.ETHERNET,
+                expectedAllowed = true,
+                expectedBytesPerSecond = null,
+                expectedAutoRecovery = true,
+            ),
+        )
+
+        for (case in cases) {
+            val connectivity = ValidatedConnectivity(case.transport)
+            assertEquals(
+                case.name,
+                case.expectedAllowed,
+                WifiOnlyPolicy.allowsTransfers(case.settings.wifiOnly, connectivity),
+            )
+            assertEquals(
+                case.name,
+                case.expectedBytesPerSecond,
+                SpeedLimitPolicy.effectiveBytesPerSecond(
+                    unlimitedSpeed = case.settings.unlimitedSpeed,
+                    speedLimitMbps = case.settings.speedLimitMbps,
+                    speedLimitWifiOnly = case.settings.speedLimitWifiOnly,
+                    transport = case.transport,
+                ),
+            )
+
+            val active = active("active-${case.name}", DownloadState.DOWNLOADING, 1L)
+            val waiting = (1..12).map {
+                queued("${case.name}-$it").copy(createdAtEpochMillis = it.toLong())
+            }
+            assertEquals(
+                case.name,
+                (case.settings.simultaneous - 1).coerceAtLeast(0),
+                DownloadQueuePolicy.select(listOf(active) + waiting, case.settings.simultaneous).size,
+            )
+
+            val segmented = queued("segment-${case.name}").copy(
+                totalBytes = 8L * 1024L * 1024L,
+                acceptsRanges = true,
+                etag = "\"${case.name}\"",
+            )
+            assertEquals(
+                case.name,
+                case.settings.connections,
+                SegmentedTransferPolicy.plan(segmented, 0L, case.settings.connections)!!.size,
+            )
+
+            val recoveryRepo = FakeRepo(
+                listOf(paused("recover-${case.name}").copy(pauseCause = DownloadPauseCause.NETWORK_POLICY)),
+            )
+            val starter = RecordingStarter()
+            val allowance = MutableTransferAllowance()
+            val scheduler = DownloadQueueScheduler(
+                recoveryRepo,
+                { case.settings.simultaneous },
+                starter,
+                transferAllowance = allowance,
+            )
+            coordinator(
+                repo = recoveryRepo,
+                allowance = allowance,
+                scheduler = scheduler,
+                wifiOnly = case.settings.wifiOnly,
+                transport = case.transport,
+                autoResume = { case.settings.autoResume },
+            ).apply()
+            assertEquals(case.name, case.expectedAllowed, allowance.isAllowed())
+            assertEquals(
+                case.name,
+                case.expectedAutoRecovery,
+                starter.startedIds().contains("recover-${case.name}"),
+            )
+        }
+    }
+
     @Test
     fun snapshotBlocksCellularWhenWifiOnlyBeforeAnySchedule() = runBlocking {
         val repo = FakeRepo(
