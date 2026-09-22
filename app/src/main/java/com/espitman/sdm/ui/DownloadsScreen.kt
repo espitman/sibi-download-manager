@@ -211,8 +211,20 @@ internal fun InteractiveDownloadsScreen(
         ) {
             item { DownloadStatusCard(records, nowEpochMillis) }
             item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size,
-                onDownloadAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") },
-                onPauseAll = { if (downloads.isNotEmpty()) onToast("Download engine is not connected yet") }) }
+                onDownloadAll = {
+                    overlayScope.launch {
+                        AppRepositories.queueScheduler(context).downloadAll()
+                        onToast("All downloads started")
+                    }
+                },
+                onPauseAll = {
+                    overlayScope.launch {
+                        AppRepositories.queueScheduler(context).pauseAll { id ->
+                            DownloadTransferService.pauseTransfer(context, id)
+                        }
+                        onToast("All active downloads paused")
+                    }
+                }) }
             item { Spacer(Modifier.height(8.dp)); DownloadTabs(filter) { filter = it; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
             val visibleDownloads = filterDownloadCards(downloads, filter, uiState.query)
             if (visibleDownloads.isEmpty()) {

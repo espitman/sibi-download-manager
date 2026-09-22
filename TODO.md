@@ -89,7 +89,8 @@ Depends on stage 3.
   - Verification: 215 JVM tests passed with zero failures, assembleDebug and lintDebug passed, git diff --check passed, and the resulting debug APK installed successfully and launched into com.espitman.sdm/.MainActivity on the connected Xiaomi Android 14 device.
 - [x] SDM-027 — Connect Queue in Add to a real scheduler respecting priority and concurrent download limits.
   - Verification: Add Queue and Download, Resume, persisted Priority, and the simultaneous-download setting now share one durable race-safe scheduler with deterministic priority and creation ordering, slot refill, restart reconciliation, rejected-start cleanup, and cancellation-safe lifecycle handling; 245 JVM tests, a clean forced assemble/lint run, and 6/6 SQLite instrumentation tests on Xiaomi Android 14 passed.
-- [ ] SDM-028 — Implement Download All and Pause All with correct handling of queued, active, and completed downloads.
+- [x] SDM-028 — Implement Download All and Pause All with correct handling of queued, active, and completed downloads.
+  - Verification: Download All atomically re-queues paused, failed, and cancelled records before scheduling once, while Pause All atomically pauses queued records before dispatching real Pause commands to active transfers; offsets, partial files, priority/concurrency limits, and completed records are preserved across rapid and concurrent bulk operations. All 257 JVM tests, forced assembleDebug/assembleDebugAndroidTest, lintDebug, and git diff --check passed; no device run was performed.
 - [ ] SDM-029 — Connect notification Pause, Resume, and Cancel actions to the same engine and shared UI state.
 - [ ] SDM-030 — Test repeated pause/resume, rapid taps, concurrent downloads, and restart; verify output checksums.
 

@@ -22,6 +22,7 @@ class DownloadQueueScheduler(
     private val clock: Clock = Clock.SystemClock,
 ) {
     private val mutex = Mutex()
+    private val bulkMutex = Mutex()
     private val launchingIds = linkedSetOf<String>()
 
     suspend fun schedule() {
@@ -40,6 +41,31 @@ class DownloadQueueScheduler(
                 }
             }
             if (!anyStarted) continue
+        }
+    }
+
+    suspend fun downloadAll() {
+        bulkMutex.withLock {
+            repository.awaitInitialized()
+            repository.requeueForDownloadAll(clock.currentTimeMillis())
+            schedule()
+        }
+    }
+
+    suspend fun pauseAll(pauseActive: (String) -> Unit) {
+        bulkMutex.withLock {
+            repository.awaitInitialized()
+            val activeIds = mutex.withLock {
+                repository.pauseQueuedPreservingOffsets(clock.currentTimeMillis())
+                val snapshot = repository.schedulingSnapshot()
+                pruneLaunchingLocked(snapshot)
+                snapshot
+                    .filter { it.state in DownloadQueuePolicy.OCCUPYING_STATES }
+                    .map { it.id }
+            }
+            for (id in activeIds) {
+                pauseActive(id)
+            }
         }
     }
 

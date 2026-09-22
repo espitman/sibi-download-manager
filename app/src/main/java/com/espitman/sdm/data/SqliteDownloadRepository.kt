@@ -10,6 +10,8 @@ import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
+import com.espitman.sdm.domain.DownloadAllMutation
+import com.espitman.sdm.domain.PauseQueuedMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.CompletableDeferred
@@ -176,6 +178,46 @@ class SqliteDownloadRepository(
                 updated = queued
             }
             if (updated != null && updated!!.state == DownloadState.QUEUED) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun requeueForDownloadAll(nowEpochMillis: Long): List<Download> = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            val updated = ArrayList<Download>()
+            database.writableDatabase.inTransaction { db ->
+                for (current in downloads.value) {
+                    val next = DownloadAllMutation.apply(current, nowEpochMillis) ?: continue
+                    check(db.update("downloads", next.toValues(), "id = ?", arrayOf(current.id)) == 1) {
+                        "Concurrent update failed for download ${current.id}"
+                    }
+                    updated += next
+                }
+            }
+            if (updated.isNotEmpty()) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            val updated = ArrayList<Download>()
+            database.writableDatabase.inTransaction { db ->
+                for (current in downloads.value) {
+                    val next = PauseQueuedMutation.apply(current, nowEpochMillis) ?: continue
+                    check(db.update("downloads", next.toValues(), "id = ?", arrayOf(current.id)) == 1) {
+                        "Concurrent update failed for download ${current.id}"
+                    }
+                    updated += next
+                }
+            }
+            if (updated.isNotEmpty()) {
                 refreshLocked(database.readableDatabase)
             }
             updated
