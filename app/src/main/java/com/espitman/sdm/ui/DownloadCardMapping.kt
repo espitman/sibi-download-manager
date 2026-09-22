@@ -26,8 +26,9 @@ internal data class DownloadCardModel(
 internal fun mapDownloadToCard(
     download: Download,
     nowEpochMillis: Long,
+    recentBytesPerSecond: Long = 0L,
 ): DownloadCardModel {
-    val metrics = calculateDownloadProgressMetrics(download, nowEpochMillis)
+    val metrics = calculateDownloadProgressMetrics(download, nowEpochMillis, recentBytesPerSecond)
     val category = when (download.state) {
         DownloadState.QUEUED -> DownloadCategory.Queued
         DownloadState.COMPLETED -> DownloadCategory.Completed

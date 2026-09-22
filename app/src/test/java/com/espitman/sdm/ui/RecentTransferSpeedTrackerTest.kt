@@ -7,6 +7,49 @@ import org.junit.Test
 
 class RecentTransferSpeedTrackerTest {
 
+    @Test
+    fun perDownloadRatesSumToDisplayedAggregate() {
+        val tracker = RecentTransferSpeedTracker()
+        val first = record("first", downloadedBytes = 0L)
+        val second = record("second", downloadedBytes = 0L)
+        tracker.bytesPerSecondById(listOf(first, second), 1_000L)
+
+        val rates = tracker.bytesPerSecondById(
+            listOf(first.copy(downloadedBytes = 1_000L), second.copy(downloadedBytes = 2_000L)),
+            2_000L,
+        )
+
+        assertEquals(mapOf("first" to 1_000L, "second" to 2_000L), rates)
+        assertEquals(3_000L, rates.values.fold(0L, ::saturatingAdd))
+    }
+
+    @Test
+    fun rateUsesTransferProgressTimeInsteadOfRapidUiObservationTime() {
+        val tracker = RecentTransferSpeedTracker()
+        val first = record("live", downloadedBytes = 0L, totalBytes = 2_000_000L)
+            .copy(updatedAtEpochMillis = 1_000L)
+        tracker.bytesPerSecondById(listOf(first), 10_000L)
+
+        val next = first.copy(downloadedBytes = 1_048_576L, updatedAtEpochMillis = 2_000L)
+        assertEquals(
+            1_048_576L,
+            tracker.bytesPerSecondById(listOf(next), 10_010L)["live"],
+        )
+    }
+
+    @Test
+    fun tooShortMeasurementWaitsForEnoughTransferTime() {
+        val tracker = RecentTransferSpeedTracker()
+        val first = record("live", downloadedBytes = 0L).copy(updatedAtEpochMillis = 1_000L)
+        tracker.bytesPerSecondById(listOf(first), 1_000L)
+
+        val early = first.copy(downloadedBytes = 10_000L, updatedAtEpochMillis = 1_010L)
+        assertEquals(emptyMap<String, Long>(), tracker.bytesPerSecondById(listOf(early), 1_010L))
+
+        val later = early.copy(downloadedBytes = 100_000L, updatedAtEpochMillis = 2_000L)
+        assertEquals(100_000L, tracker.bytesPerSecondById(listOf(later), 2_000L)["live"])
+    }
+
     private fun record(
         id: String,
         state: DownloadState = DownloadState.DOWNLOADING,
@@ -147,7 +190,7 @@ class RecentTransferSpeedTrackerTest {
                     hugeA.copy(downloadedBytes = Long.MAX_VALUE),
                     hugeB.copy(downloadedBytes = Long.MAX_VALUE),
                 ),
-                1_001L,
+                1_250L,
             ),
         )
     }

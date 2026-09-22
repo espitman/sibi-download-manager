@@ -211,6 +211,9 @@ internal fun InteractiveDownloadsScreen(
     val hasActive = remember(records) {
         records.any { it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING }
     }
+    val downloadingIds = remember(records) {
+        records.filter { it.state == DownloadState.DOWNLOADING }.mapTo(HashSet()) { it.id }
+    }
     LaunchedEffect(hasActive) {
         while (true) {
             nowEpochMillis = System.currentTimeMillis()
@@ -231,23 +234,35 @@ internal fun InteractiveDownloadsScreen(
             repository.transferredBytesForLocalDay(nowEpochMillis, zoneId)
         }
     }
-    val recentBytesPerSecond = remember(records, nowEpochMillis) {
-        speedTracker.aggregateBytesPerSecond(records, nowEpochMillis)
+    val recentRates = remember(records, nowEpochMillis) {
+        speedTracker.bytesPerSecondById(records, nowEpochMillis)
     }
-    var displayedBytesPerSecond by remember { mutableLongStateOf(0L) }
-    val latestBytesPerSecond by rememberUpdatedState(recentBytesPerSecond)
+    var displayedRates by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    val latestRates by rememberUpdatedState(recentRates)
+    LaunchedEffect(downloadingIds) {
+        displayedRates = displayedRates.filterKeys { it in downloadingIds }
+    }
     LaunchedEffect(hasActive) {
         if (!hasActive) {
-            displayedBytesPerSecond = 0L
+            displayedRates = emptyMap()
             return@LaunchedEffect
         }
         while (true) {
-            displayedBytesPerSecond = latestBytesPerSecond
+            displayedRates = latestRates
             delay(STATUS_SPEED_DISPLAY_REFRESH_MILLIS)
         }
     }
+    val displayedBytesPerSecond = displayedRates
+        .filterKeys { it in downloadingIds }
+        .values.fold(0L, ::saturatingAdd)
     val downloads = visibleDownloadCards(
-        records.map { record -> mapDownloadToCard(record, nowEpochMillis) },
+        records.map { record ->
+            mapDownloadToCard(
+                record,
+                nowEpochMillis,
+                if (record.id in downloadingIds) displayedRates[record.id] ?: 0L else 0L,
+            )
+        },
         hiddenCompletedIds,
     )
     var completedDeleteId by remember { mutableStateOf<String?>(null) }

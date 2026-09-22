@@ -19,22 +19,27 @@ internal class RecentTransferSpeedTracker(
     private data class LiveSample(
         val downloadedBytes: Long,
         val observedAtEpochMillis: Long,
+        val progressAtEpochMillis: Long,
         val bytesPerSecond: Long,
         val rateAtEpochMillis: Long,
     )
 
     private val live = HashMap<String, LiveSample>()
 
-    fun aggregateBytesPerSecond(snapshots: List<Download>, nowEpochMillis: Long): Long {
+    fun bytesPerSecondById(snapshots: List<Download>, nowEpochMillis: Long): Map<String, Long> {
         val present = snapshots.mapTo(HashSet()) { it.id }
         live.keys.removeAll { it !in present }
 
-        var total = 0L
+        val rates = HashMap<String, Long>()
         for (snapshot in snapshots) {
-            total = saturatingAdd(total, bytesPerSecondFor(snapshot, nowEpochMillis))
+            val rate = bytesPerSecondFor(snapshot, nowEpochMillis)
+            if (rate > 0L) rates[snapshot.id] = rate
         }
-        return total
+        return rates
     }
+
+    fun aggregateBytesPerSecond(snapshots: List<Download>, nowEpochMillis: Long): Long =
+        bytesPerSecondById(snapshots, nowEpochMillis).values.fold(0L, ::saturatingAdd)
 
     private fun bytesPerSecondFor(snapshot: Download, nowEpochMillis: Long): Long {
         if (snapshot.state != DownloadState.DOWNLOADING) {
@@ -43,22 +48,43 @@ internal class RecentTransferSpeedTracker(
         }
         val previous = live[snapshot.id]
         if (previous == null) {
-            live[snapshot.id] = LiveSample(snapshot.downloadedBytes, nowEpochMillis, 0L, nowEpochMillis)
+            live[snapshot.id] = LiveSample(
+                snapshot.downloadedBytes,
+                nowEpochMillis,
+                snapshot.updatedAtEpochMillis,
+                0L,
+                nowEpochMillis,
+            )
             return 0L
         }
         val byteDelta = snapshot.downloadedBytes - previous.downloadedBytes
-        val timeDelta = nowEpochMillis - previous.observedAtEpochMillis
-        if (byteDelta < 0L || timeDelta < 0L) {
-            live[snapshot.id] = LiveSample(snapshot.downloadedBytes, nowEpochMillis, 0L, nowEpochMillis)
+        val observationDelta = nowEpochMillis - previous.observedAtEpochMillis
+        val progressDelta = snapshot.updatedAtEpochMillis - previous.progressAtEpochMillis
+        if (byteDelta < 0L || observationDelta < 0L || progressDelta < 0L) {
+            live[snapshot.id] = LiveSample(
+                snapshot.downloadedBytes,
+                nowEpochMillis,
+                snapshot.updatedAtEpochMillis,
+                0L,
+                nowEpochMillis,
+            )
             return 0L
         }
-        if (byteDelta > 0L && timeDelta > 0L) {
+        if (byteDelta > 0L) {
+            val timeDelta = if (progressDelta > 0L) progressDelta else observationDelta
+            if (timeDelta < MIN_RATE_INTERVAL_MILLIS) return heldRate(previous, nowEpochMillis)
             val rate = overflowSafeBytesPerSecond(byteDelta, timeDelta)
-            live[snapshot.id] = LiveSample(snapshot.downloadedBytes, nowEpochMillis, rate, nowEpochMillis)
+            live[snapshot.id] = LiveSample(
+                snapshot.downloadedBytes,
+                nowEpochMillis,
+                snapshot.updatedAtEpochMillis,
+                rate,
+                nowEpochMillis,
+            )
             return rate
         }
         val held = heldRate(previous, nowEpochMillis)
-        if (byteDelta == 0L && timeDelta > 0L && held == 0L) {
+        if (observationDelta > 0L && held == 0L) {
             live[snapshot.id] = previous.copy(observedAtEpochMillis = nowEpochMillis, bytesPerSecond = 0L)
         }
         return held
@@ -72,6 +98,7 @@ internal class RecentTransferSpeedTracker(
 
     companion object {
         const val DEFAULT_STALE_WINDOW_MILLIS = 2_000L
+        private const val MIN_RATE_INTERVAL_MILLIS = 250L
     }
 }
 

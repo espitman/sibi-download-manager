@@ -13,6 +13,7 @@ internal data class DownloadProgressMetrics(
 internal fun calculateDownloadProgressMetrics(
     download: Download,
     nowEpochMillis: Long,
+    recentBytesPerSecond: Long? = null,
 ): DownloadProgressMetrics {
     val totalBytes = download.totalBytes
     val downloadedBytes = download.downloadedBytes
@@ -35,11 +36,12 @@ internal fun calculateDownloadProgressMetrics(
     val elapsedMillis = if (startedAt != null) nowEpochMillis - startedAt else 0L
     val elapsedSeconds = elapsedMillis / 1000.0
 
-    val bytesPerSecond = if (elapsedSeconds > 0.0 && downloadedBytes > 0L) {
+    val lifetimeBytesPerSecond = if (elapsedSeconds > 0.0 && downloadedBytes > 0L) {
         (downloadedBytes / elapsedSeconds).toLong()
     } else {
         0L
     }
+    val bytesPerSecond = recentBytesPerSecond?.coerceAtLeast(0L) ?: lifetimeBytesPerSecond
 
     val remainingBytes = if (totalBytes != null) totalBytes - downloadedBytes else null
     val etaSeconds = if (

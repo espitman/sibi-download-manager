@@ -55,6 +55,7 @@ class DownloadCardMappingTest {
                 startedAt = 1_000L,
             ),
             nowEpochMillis = 2_000L,
+            recentBytesPerSecond = 64_000L,
         )
 
         assertEquals(DownloadCategory.Downloading, card.category)
@@ -75,6 +76,7 @@ class DownloadCardMappingTest {
                 startedAt = 1_000L,
             ),
             nowEpochMillis = 2_000L,
+            recentBytesPerSecond = 2_048L,
         )
 
         assertEquals("Unknown size", card.size)
@@ -82,6 +84,23 @@ class DownloadCardMappingTest {
         assertEquals("— · 2.00 KB", card.progressLabel)
         assertEquals("Calculating…", card.trailing)
         assertEquals(0f, card.progress)
+    }
+
+    @Test
+    fun activeCardUsesRecentRateForSpeedAndEtaInsteadOfLifetimeAverage() {
+        val card = mapDownloadToCard(
+            record(
+                state = DownloadState.DOWNLOADING,
+                totalBytes = 10L * 1024 * 1024,
+                downloadedBytes = 5L * 1024 * 1024,
+                startedAt = 1_000L,
+            ),
+            nowEpochMillis = 101_000L,
+            recentBytesPerSecond = 2L * 1024 * 1024,
+        )
+
+        assertEquals("2 MB/s", card.metadataValue)
+        assertEquals("00:03 left", card.trailing)
     }
 
     @Test
