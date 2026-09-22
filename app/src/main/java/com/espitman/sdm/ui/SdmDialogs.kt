@@ -57,7 +57,7 @@ internal fun SdmRenameDialog(
         val view = LocalView.current
         SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+            Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
                 Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                     Column(Modifier.padding(21.dp)) {
                         Text("Rename", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -100,7 +100,7 @@ internal fun SdmConfirmDialog(
         val view = LocalView.current
         SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
                 Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                     Column(Modifier.padding(21.dp)) {
                         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)

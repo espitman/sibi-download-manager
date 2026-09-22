@@ -22,6 +22,10 @@ class BrowserWebViewConfigTest {
         var cacheMode = 0
         var multipleWindows = true
         var saveFormData = true
+        var fileAccess = true
+        var contentAccess = true
+        var fileUrlAccess = true
+        var universalFileUrlAccess = true
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             webView = WebView(context).also(::configurePrivateBrowserWebView)
             val settings = requireNotNull(webView).settings
@@ -29,6 +33,12 @@ class BrowserWebViewConfigTest {
             domStorage = settings.domStorageEnabled
             cacheMode = settings.cacheMode
             multipleWindows = settings.supportMultipleWindows()
+            fileAccess = settings.allowFileAccess
+            contentAccess = settings.allowContentAccess
+            @Suppress("DEPRECATION")
+            fileUrlAccess = settings.allowFileAccessFromFileURLs
+            @Suppress("DEPRECATION")
+            universalFileUrlAccess = settings.allowUniversalAccessFromFileURLs
             @Suppress("DEPRECATION")
             saveFormData = settings.saveFormData
         }
@@ -38,6 +48,10 @@ class BrowserWebViewConfigTest {
             assertEquals(WebSettings.LOAD_NO_CACHE, cacheMode)
             assertFalse(multipleWindows)
             assertFalse(saveFormData)
+            assertFalse(fileAccess)
+            assertFalse(contentAccess)
+            assertFalse(fileUrlAccess)
+            assertFalse(universalFileUrlAccess)
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync { webView?.destroy() }
         }

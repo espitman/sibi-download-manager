@@ -2,6 +2,7 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.domain.ErrorReportSanitizer
 import kotlin.math.max
 
 object DownloadResumeFailure {
@@ -28,7 +29,7 @@ object DownloadResumeFailure {
                 id = downloadId,
                 to = DownloadState.FAILED,
                 nowEpochMillis = timestamp(),
-                error = error,
+                error = ErrorReportSanitizer.sanitize(error).ifBlank { "Download failed" },
             )
         }
     }

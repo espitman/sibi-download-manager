@@ -2,6 +2,7 @@ package com.espitman.sdm.network
 
 import com.espitman.sdm.domain.DownloadUrl
 import com.espitman.sdm.domain.DownloadUrlResult
+import com.espitman.sdm.domain.ErrorReportSanitizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -143,7 +144,8 @@ class HttpDownloadMetadataRetriever(
                 return HopStep.NetworkFailure(
                     DownloadMetadataResult.Failure.NetworkError(
                         url = currentUrl,
-                        message = e.message ?: "Network error connecting to $currentUrl",
+                        message = ErrorReportSanitizer.sanitize(e.message)
+                            .ifBlank { "Network error connecting" },
                         cause = e,
                     )
                 )
@@ -152,7 +154,8 @@ class HttpDownloadMetadataRetriever(
                 return HopStep.NetworkFailure(
                     DownloadMetadataResult.Failure.NetworkError(
                         url = currentUrl,
-                        message = e.message ?: "Unexpected error connecting to $currentUrl",
+                        message = ErrorReportSanitizer.sanitize(e.message)
+                            .ifBlank { "Unexpected error connecting" },
                         cause = e,
                     )
                 )
@@ -177,7 +180,7 @@ class HttpDownloadMetadataRetriever(
                             DownloadMetadataResult.Failure.RedirectError(
                                 url = currentUrl,
                                 redirectCount = redirectCount,
-                                message = "Invalid or unsupported redirect location: $locationHeader",
+                                message = "Invalid or unsupported redirect location",
                             )
                         )
                     }
@@ -189,7 +192,7 @@ class HttpDownloadMetadataRetriever(
                                 DownloadMetadataResult.Failure.RedirectError(
                                     url = currentUrl,
                                     redirectCount = redirectCount,
-                                    message = "Redirect to unsupported or invalid URL: $resolvedUrlString (${DownloadUrl.errorMessage(valid.error)})",
+                                    message = "Redirect to unsupported or invalid URL (${DownloadUrl.errorMessage(valid.error)})",
                                 )
                             )
                         }
@@ -200,7 +203,7 @@ class HttpDownloadMetadataRetriever(
                                     DownloadMetadataResult.Failure.RedirectError(
                                         url = valid.url,
                                         redirectCount = redirectCount,
-                                        message = "Too many redirects (limit reached at $redirectCount): ${valid.url}",
+                                        message = "Too many redirects (limit reached at $redirectCount)",
                                     )
                                 )
                             }
@@ -209,7 +212,7 @@ class HttpDownloadMetadataRetriever(
                                     DownloadMetadataResult.Failure.RedirectError(
                                         url = valid.url,
                                         redirectCount = redirectCount,
-                                        message = "Redirect cycle detected: ${valid.url}",
+                                        message = "Redirect cycle detected",
                                     )
                                 )
                             }

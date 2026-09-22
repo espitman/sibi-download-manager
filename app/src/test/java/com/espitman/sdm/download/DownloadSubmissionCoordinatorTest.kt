@@ -536,6 +536,7 @@ class DownloadSubmissionCoordinatorTest {
             "Expected directory error message, got: ${failure.message}",
             failure.message.contains("not a directory", ignoreCase = true)
         )
+        assertFalse(failure.message.contains(fileNotDir.absolutePath))
 
         assertEquals(0, repository.insertedDownloads.size)
         assertEquals(0, transferStarter.startedTransfers.size)

@@ -1,6 +1,7 @@
 package com.espitman.sdm.network
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -147,6 +148,12 @@ class DownloadFilenameResolverTest {
         val withControls = "test\u0000file\u0007control\u001Fname\u007F.txt"
         val sanitizedControls = DownloadFilenameResolver.sanitize(withControls)
         assertEquals("test_file_control_name_.txt", sanitizedControls)
+
+        val spoofed = DownloadFilenameResolver.sanitize("report\u202Etxt.exe")
+        assertEquals("report_txt.exe", spoofed)
+        assertFalse(spoofed!!.contains("\u202E"))
+        val zeroWidth = DownloadFilenameResolver.sanitize("invis\u200Bible.pdf")
+        assertEquals("invis_ible.pdf", zeroWidth)
     }
 
     @Test

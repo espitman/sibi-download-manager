@@ -42,6 +42,14 @@ class DownloadUrlTest {
             DownloadUrlError.UNSUPPORTED_SCHEME,
             (DownloadUrl.validate("magnet:?xt=urn:btih:abc") as DownloadUrlResult.Invalid).error,
         )
+        assertEquals(
+            DownloadUrlError.UNSUPPORTED_SCHEME,
+            (DownloadUrl.validate("data:text/plain;base64,SGVsbG8=") as DownloadUrlResult.Invalid).error,
+        )
+        assertEquals(
+            DownloadUrlError.UNSUPPORTED_SCHEME,
+            (DownloadUrl.validate("content://com.android.externalstorage.documents/document/file") as DownloadUrlResult.Invalid).error,
+        )
     }
 
     @Test

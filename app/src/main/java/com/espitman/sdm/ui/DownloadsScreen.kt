@@ -153,14 +153,16 @@ internal fun detailsPrimaryAction(state: DownloadState): TransferCardAction = wh
     TransferCardAction.Start -> TransferCardAction.Start
     TransferCardAction.Retry -> TransferCardAction.Retry
     TransferCardAction.Resume -> TransferCardAction.Resume
-    TransferCardAction.Pause, TransferCardAction.None -> TransferCardAction.Pause
+    TransferCardAction.Pause -> TransferCardAction.Pause
+    TransferCardAction.None -> TransferCardAction.None
 }
 
 internal fun detailsPrimaryActionLabel(action: TransferCardAction): String = when (action) {
     TransferCardAction.Start -> "Start"
     TransferCardAction.Retry -> "Retry"
     TransferCardAction.Resume -> "Resume"
-    TransferCardAction.Pause, TransferCardAction.None -> "Pause"
+    TransferCardAction.Pause -> "Pause"
+    TransferCardAction.None -> ""
 }
 
 internal fun dispatchTransferCardAction(
@@ -422,7 +424,7 @@ private fun DownloadsHeader(
     onPreferences: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + 58.dp.roundToPx() }
+    val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + designHeaderInset().roundToPx() + 58.dp.roundToPx() }
     val searchFocusRequester = remember { FocusRequester() }
     LaunchedEffect(searchOpen) {
         if (searchOpen) {
@@ -432,7 +434,7 @@ private fun DownloadsHeader(
     }
     Box(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().background(SdmBackground)) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = designHeaderInset()).height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(36.dp).background(sdmColor(0xFF171712, 0xFFF2EAD2), RoundedCornerShape(11.dp)).border(1.dp, SdmGold.copy(alpha = .5f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) { Text("SD", color = SdmGoldHigh, fontSize = 13.sp, fontWeight = FontWeight.Black) }
                 Spacer(Modifier.width(10.dp))
                 Text("Downloads", color = SdmText, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.36).sp, modifier = Modifier.weight(1f))
@@ -594,7 +596,7 @@ private fun HomeSheet(icon: ImageVector, eyebrow: String, title: String, descrip
         val view = LocalView.current
         SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
         Box(Modifier.fillMaxSize().statusBarsPadding().background(Color.Black.copy(alpha = .72f * scrim.value)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
                 Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).graphicsLayer { translationY = (size.height + 24.dp.toPx()) * (1f - slide.value); scaleX = .985f + .015f * slide.value; scaleY = scaleX; alpha = .72f + .28f * scrim.value }.clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)), shadowElevation = 18.dp) {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(17.dp)) {
                         Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp).size(width = 42.dp, height = 4.dp).background(sdmColor(0xFF514F48, 0xFFB8B2A7), CircleShape))
@@ -741,10 +743,10 @@ private fun DownloadDetailsScreen(
     val context = LocalContext.current
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
-    val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + 58.dp.roundToPx() }
+    val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + designHeaderInset().roundToPx() + 58.dp.roundToPx() }
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         Box(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp)) }; Text("Download details", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = designHeaderInset()).height(64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp)) }; Text("Download details", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -936,7 +938,48 @@ private fun MetricsGrid(metrics: DownloadDetailsMetricValues) {
     }
 }
 
-@Composable private fun DetailsActions(primaryAction: TransferCardAction, priorityActive: Boolean, onPause: () -> Unit, onCancel: () -> Unit, onPriority: () -> Unit, onCopy: () -> Unit) { val primaryIcon = when (primaryAction) { TransferCardAction.Retry -> SdmIcons.Refresh; TransferCardAction.Start, TransferCardAction.Resume -> SdmIcons.Play; TransferCardAction.Pause, TransferCardAction.None -> SdmIcons.Pause }; Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(primaryIcon,detailsPrimaryActionLabel(primaryAction),onPause),Triple(SdmIcons.Close,"Cancel",onCancel),Triple(SdmIcons.Star,"Priority",onPriority),Triple(SdmIcons.Copy,"Copy URL",onCopy)).forEachIndexed { i,(icon,label,action)-> val emphasized = i == 0 || (i == 2 && priorityActive); Column(Modifier.weight(1f).heightIn(min=68.dp).background(SdmSurface,RoundedCornerShape(13.dp)).border(1.dp,if(i == 0)SdmGold.copy(alpha=.38f)else SdmLine,RoundedCornerShape(13.dp)).clickable(onClick=action),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,modifier=Modifier.size(20.dp));Text(label,color=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,fontSize=10.sp,modifier=Modifier.padding(top=7.dp))} } } }
+@Composable
+private fun DetailsActions(
+    primaryAction: TransferCardAction,
+    priorityActive: Boolean,
+    onPause: () -> Unit,
+    onCancel: () -> Unit,
+    onPriority: () -> Unit,
+    onCopy: () -> Unit,
+) {
+    val primaryIcon = when (primaryAction) {
+        TransferCardAction.Retry -> SdmIcons.Refresh
+        TransferCardAction.Start, TransferCardAction.Resume -> SdmIcons.Play
+        TransferCardAction.Pause -> SdmIcons.Pause
+        TransferCardAction.None -> null
+    }
+    val actions = buildList {
+        if (primaryIcon != null) {
+            add(Triple(primaryIcon, detailsPrimaryActionLabel(primaryAction), onPause))
+            add(Triple(SdmIcons.Close, "Cancel", onCancel))
+            add(Triple(SdmIcons.Star, "Priority", onPriority))
+        }
+        add(Triple(SdmIcons.Copy, "Copy URL", onCopy))
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        actions.forEachIndexed { index, (icon, label, action) ->
+            val danger = primaryIcon != null && index == 1
+            val emphasized = primaryIcon != null && (index == 0 || (index == 2 && priorityActive))
+            Column(
+                Modifier.weight(1f).heightIn(min = 68.dp)
+                    .background(SdmSurface, RoundedCornerShape(13.dp))
+                    .border(1.dp, if (emphasized) SdmGold.copy(alpha = .38f) else SdmLine, RoundedCornerShape(13.dp))
+                    .clickable(onClick = action),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                val tint = if (danger) sdmColor(0xFFF39A92, 0xFFC2473E) else if (emphasized) SdmGoldHigh else SdmText
+                Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+                Text(label, color = tint, fontSize = 10.sp, modifier = Modifier.padding(top = 7.dp))
+            }
+        }
+    }
+}
 
 @Composable private fun TechnicalInfo(technical: DownloadDetailsTechnicalValues) {
     val rows = buildList {
@@ -1013,7 +1056,7 @@ private fun DisclosureInfo(
         val view = LocalView.current
         SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
-            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
                 Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                     Column(Modifier.padding(21.dp)) {
                         Text("Cancel download?", fontSize = 20.sp, fontWeight = FontWeight.Bold)

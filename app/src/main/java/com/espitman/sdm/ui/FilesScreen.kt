@@ -145,6 +145,7 @@ internal fun FilesTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
+                .padding(top = designHeaderInset())
                 .height(63.dp)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -173,7 +174,7 @@ internal fun FilesTopBar(
                 onToast(uiState.sort.toast)
             }
             Spacer(Modifier.width(6.dp))
-            FilesHeaderAction(SdmIcons.More, "More file options")
+            FilesHeaderAction(SdmIcons.More, "More file options") { onToast("File options opened") }
         }
         HorizontalDivider(thickness = 1.dp, color = SdmGold.copy(alpha = .14f))
     }
@@ -465,6 +466,11 @@ private fun FileRow(
             .clickable(onClick = onToggleSelect),
     ) {
         Box {
+            if (selected) {
+                Box(Modifier.matchParentSize()) {
+                    Box(Modifier.width(3.dp).fillMaxHeight().background(SdmGold))
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -484,7 +490,7 @@ private fun FileRow(
                     Text(file.meta, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
                     Text(
                         if (file.verified) "✓ Verified" else "✓ Complete",
-                        color = SdmSuccess,
+                        color = SdmMuted,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 5.dp),

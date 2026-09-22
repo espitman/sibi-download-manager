@@ -150,12 +150,18 @@ class DownloadReliabilityEvidenceTest {
             }
 
             val rangeStarts = dispatcher.rangeStartsByPath["/pause.bin"].orEmpty()
-            assertEquals(PAUSE_CYCLES, rangeStarts.size)
-            assertEquals(observedOffsets, rangeStarts)
-            assertEquals(PAUSE_CYCLES + 1, dispatcher.requests.size)
+            // The last pause can land after the whole response body was written.
+            // In that case Resume finalizes the complete part without another GET.
+            val expectedRangeStarts = if (observedOffsets.last() == payload.size.toLong()) {
+                observedOffsets.dropLast(1)
+            } else {
+                observedOffsets
+            }
+            assertEquals(expectedRangeStarts, rangeStarts)
+            assertEquals(expectedRangeStarts.size + 1, dispatcher.requests.size)
             assertNull(dispatcher.requests.first().rangeStart)
             for (index in 1 until dispatcher.requests.size) {
-                assertEquals(observedOffsets[index - 1], dispatcher.requests[index].rangeStart)
+                assertEquals(expectedRangeStarts[index - 1], dispatcher.requests[index].rangeStart)
                 assertEquals(etag, dispatcher.requests[index].ifRange)
             }
             assertEquals(PAUSE_CYCLES, observedOffsets.size)

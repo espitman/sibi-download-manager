@@ -437,6 +437,7 @@ class HttpDownloadMetadataRetrieverTest {
         val error = result.failureOrNull() as? DownloadMetadataResult.Failure.RedirectError
         assertNotNull(error)
         assertTrue(error?.message?.contains("cycle", ignoreCase = true) == true)
+        assertFalse(error?.message?.contains("http", ignoreCase = true) == true)
         assertEquals(2, server.requestCount)
     }
 
@@ -453,6 +454,7 @@ class HttpDownloadMetadataRetrieverTest {
         val error = result.failureOrNull() as? DownloadMetadataResult.Failure.RedirectError
         assertNotNull(error)
         assertTrue(error?.message?.contains("Too many redirects") == true)
+        assertFalse(error?.message?.contains("http", ignoreCase = true) == true)
         assertEquals(3, error?.redirectCount)
     }
 
@@ -516,6 +518,9 @@ class HttpDownloadMetadataRetrieverTest {
         val error = result.failureOrNull() as? DownloadMetadataResult.Failure.RedirectError
         assertNotNull(error)
         assertTrue(error?.message?.contains("unsupported", ignoreCase = true) == true)
+        assertFalse(error?.message?.contains("ftp://") == true)
+        assertFalse(error?.message?.contains("files.example.com") == true)
+        assertFalse(error?.message?.contains("file.zip") == true)
     }
 
     @Test

@@ -149,7 +149,7 @@ private fun SettingsSheet(icon: ImageVector, eyebrow: String, title: String, des
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.Black.copy(alpha = .72f * scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.Black.copy(alpha = .72f * scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
             Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.graphicsLayer { translationY = (panelHeight + extraTravel) * (1f - travel); scaleX = .985f + .015f * travel; scaleY = scaleX; alpha = .72f + .28f * opacity; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(.5f, 1f) }.clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFFD4AF37).copy(alpha = .35f)), shadowElevation = 18.dp) {
                 Column(Modifier.padding(17.dp)) {
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), CircleShape))
@@ -209,7 +209,7 @@ private fun ResetDialog(onDismiss: () -> Unit, onReset: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
             Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                 Column(Modifier.padding(21.dp)) {
                     Text("Reset all settings?", fontSize = 20.sp, fontWeight = FontWeight.Bold)

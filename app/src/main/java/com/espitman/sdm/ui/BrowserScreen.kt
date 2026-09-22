@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -69,7 +70,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -467,7 +471,7 @@ private fun BrowserTabsSheet(
                 border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)),
                 shadowElevation = 18.dp,
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp).widthIn(max = 560.dp)
+                    .padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()).widthIn(max = 560.dp)
                     .graphicsLayer {
                         translationY = (1f - progress.value) * 96.dp.toPx()
                         scaleX = .985f + .015f * progress.value
@@ -485,8 +489,8 @@ private fun BrowserTabsSheet(
                     Row(verticalAlignment = Alignment.Top) {
                         Column(Modifier.weight(1f)) {
                             Text("OPEN PAGES", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp)
-                            Text("Your tabs", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
-                            Text("Switch, close, or start a new browsing session.", color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+                            Text("Your tabs", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+                            Text("Switch, close, or start a new browsing session.", color = SdmMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
                         }
                         Box(
                             Modifier.size(40.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp)).clickable { closeThen(onDismiss) },
@@ -512,27 +516,39 @@ private fun BrowserTabsSheet(
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        Surface(
-                            onClick = { closeThen(onNewTab) },
-                            color = Color.Transparent,
-                            contentColor = SdmGoldHigh,
-                            shape = RoundedCornerShape(15.dp),
-                            border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)),
-                            modifier = Modifier.fillMaxWidth().height(54.dp),
-                        ) {
-                            Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("＋", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                                Text("New tab", color = SdmText, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-                                Spacer(Modifier.weight(1f))
-                                Text("Start browsing", color = SdmMuted, fontSize = 10.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            val newTabBorder = SdmGold.copy(alpha = .35f)
+                            Box(
+                                Modifier.weight(1f).heightIn(min = 144.dp)
+                                    .background(sdmColor(0xFF121315, 0xFFFBFAF6), RoundedCornerShape(16.dp))
+                                    .drawBehind {
+                                        drawRoundRect(
+                                            color = newTabBorder,
+                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                                            style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))),
+                                        )
+                                    }
+                                    .clickable { closeThen(onNewTab) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(Modifier.size(40.dp).background(sdmColor(0xFF252318, 0xFFF2EAD2), CircleShape), contentAlignment = Alignment.Center) {
+                                        Text("+", color = SdmGoldHigh, fontSize = 24.sp)
+                                    }
+                                    Text("New tab", color = SdmText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 5.dp))
+                                    Text("Start browsing", color = SdmMuted, fontSize = 8.sp, modifier = Modifier.padding(top = 5.dp))
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                        }
+                        Surface(onClick = { closeThen(onNewPrivateTab) }, color = Color.Transparent, contentColor = SdmText,
+                            shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                Icon(SdmIcons.PrivateTab, null, modifier = Modifier.size(16.dp))
+                                Text("New private tab", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 7.dp))
                             }
                         }
-                        Button(
-                            onClick = { closeThen(onNewPrivateTab) },
-                            colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color.Black),
-                            shape = RoundedCornerShape(15.dp),
-                            modifier = Modifier.fillMaxWidth().height(46.dp),
-                        ) { Text("New private tab", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -551,32 +567,33 @@ private fun BrowserTabCard(
 ) {
     Surface(
         onClick = onSelect,
-        color = sdmColor(0xFF202226, 0xFFF6F3EC),
+        color = sdmColor(0xFF111214, 0xFFFBFAF6),
         contentColor = SdmText,
-        shape = RoundedCornerShape(15.dp),
+        shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, if (active) SdmGold else SdmLine),
-        modifier = modifier.height(130.dp),
+        modifier = modifier.height(145.dp),
     ) {
-        Column(Modifier.padding(10.dp)) {
+        Column(Modifier.padding(8.dp)) {
             Box(
-                Modifier.fillMaxWidth().height(72.dp)
-                    .background(sdmColor(0xFF101113, 0xFFE9E5DB), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center,
+                Modifier.fillMaxWidth().height(92.dp)
+                    .background(sdmColor(0xFF080909, 0xFFECE8DF), RoundedCornerShape(11.dp)),
             ) {
-                Text(when (tab.id) {
-                    "tab-1" -> "SD"
-                    "tab-2" -> "A"
-                    else -> if (tab.isPrivate) "P" else tab.title.take(1).uppercase()
-                }, color = SdmGoldHigh, fontSize = 19.sp, fontWeight = FontWeight.Black)
+                Column(Modifier.fillMaxSize().padding(7.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.fillMaxWidth().height(9.dp).background(sdmColor(0xFF27292D, 0xFFD8D2C4), RoundedCornerShape(5.dp)))
+                    Box(Modifier.fillMaxWidth().weight(1f).background(if (tab.id == "tab-2") sdmColor(0xFF1B1B1D, 0xFFFFFFFF) else sdmColor(0xFF171812, 0xFFFFF8E5), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                        Text(when (tab.id) { "tab-1" -> "SD"; "tab-2" -> "A"; else -> if (tab.isPrivate) "P" else tab.title.take(1).uppercase() }, color = if (tab.id == "tab-2") sdmColor(0xFFDDDDDD, 0xFF181713) else SdmGoldHigh, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    }
+                    Box(Modifier.fillMaxWidth().height(17.dp).background(sdmColor(0xFF24262A, 0xFFD8D2C4), RoundedCornerShape(5.dp)))
+                }
                 if (canClose) {
                     Box(
-                        Modifier.align(Alignment.TopEnd).size(28.dp).clickable(onClick = onClose),
+                        Modifier.align(Alignment.TopEnd).padding(4.dp).size(27.dp).background(Color(0xB8080808), CircleShape).clickable(onClick = onClose),
                         contentAlignment = Alignment.Center,
-                    ) { Text("×", color = SdmMuted, fontSize = 18.sp) }
+                    ) { Text("×", color = Color(0xFFDDDDDD), fontSize = 18.sp) }
                 }
             }
-            Text(tab.title, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(top = 7.dp))
-            Text(tab.url?.substringAfter("://")?.substringBefore('/') ?: "Ready to browse", color = SdmMuted, fontSize = 9.sp, maxLines = 1)
+            Text(tab.title, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 2.dp, top = 7.dp))
+            Text(tab.url?.substringAfter("://")?.substringBefore('/') ?: "Ready to browse", color = SdmMuted, fontSize = 8.sp, maxLines = 1, modifier = Modifier.padding(start = 2.dp, top = 3.dp))
         }
     }
 }

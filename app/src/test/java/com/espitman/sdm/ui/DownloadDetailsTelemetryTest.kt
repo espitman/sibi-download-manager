@@ -270,8 +270,12 @@ class DownloadDetailsTelemetryTest {
             val lastError = presentation.technical.lastError
             assertTrue(lastError != null)
             assertTrue(lastError!!.startsWith("$label · "))
-            assertTrue(lastError.contains(error))
             assertFalse(lastError.contains("\n"))
+            assertFalse(lastError.contains("example.com"))
+            assertFalse(lastError.contains("1.2.3.4"))
+            val detail = lastError.removePrefix("$label · ")
+            assertTrue(detail.isNotBlank())
+            assertEquals(label, failedDownloadCardLabel(error))
         }
 
         val otherStates = listOf(

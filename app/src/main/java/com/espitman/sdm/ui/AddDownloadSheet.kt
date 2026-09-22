@@ -177,7 +177,7 @@ internal fun AddDownloadSheet(
         }
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = .72f * motion.value)).clickable(remember { MutableInteractionSource() }, indication = null, onClick = dismissAnimated)
-                .statusBarsPadding().navigationBarsPadding().imePadding().padding(start = 12.dp, end = 12.dp, bottom = 36.dp, top = 12.dp),
+                .statusBarsPadding().navigationBarsPadding().imePadding().padding(start = 12.dp, end = 12.dp, bottom = designOverlayBottomInset(), top = 12.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Surface(

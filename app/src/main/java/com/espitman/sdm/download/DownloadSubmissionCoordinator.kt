@@ -5,6 +5,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadUrl
 import com.espitman.sdm.domain.DownloadUrlResult
+import com.espitman.sdm.domain.ErrorReportSanitizer
 import com.espitman.sdm.network.DownloadMetadata
 import com.espitman.sdm.network.DownloadMetadataResult
 import com.espitman.sdm.network.DownloadMetadataRetriever
@@ -113,14 +114,18 @@ class DownloadSubmissionCoordinator(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {
-            val msg = e.message?.takeIf { it.isNotBlank() } ?: "Network error retrieving metadata"
+            val msg = ErrorReportSanitizer.sanitize(
+                e.message?.takeIf { it.isNotBlank() } ?: "Network error retrieving metadata",
+            ).ifBlank { "Network error retrieving metadata" }
             return SubmissionResult.Failure(msg, e)
         }
 
         val metadata: DownloadMetadata = when (metadataResult) {
             is DownloadMetadataResult.Success -> metadataResult.metadata
             is DownloadMetadataResult.Failure -> {
-                return SubmissionResult.Failure(metadataResult.message, metadataResult.cause)
+                val msg = ErrorReportSanitizer.sanitize(metadataResult.message)
+                    .ifBlank { "Unable to retrieve download metadata" }
+                return SubmissionResult.Failure(msg, metadataResult.cause)
             }
         }
 
@@ -191,7 +196,9 @@ class DownloadSubmissionCoordinator(
                 }
             }
             cleanupTempFile(reservedTempFile)
-            val msg = e.message?.takeIf { it.isNotBlank() } ?: "Failed to submit download"
+            val msg = ErrorReportSanitizer.sanitize(
+                e.message?.takeIf { it.isNotBlank() } ?: "Failed to submit download",
+            ).ifBlank { "Failed to submit download" }
             return SubmissionResult.Failure(msg, e)
         }
     }

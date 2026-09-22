@@ -276,7 +276,8 @@ internal class RangePayloadDispatcher(
     val peakConcurrentDispatches = AtomicInteger(0)
 
     override fun dispatch(request: RecordedRequest): MockResponse {
-        peakConcurrentDispatches.updateAndGet { current -> max(current, dispatching.incrementAndGet()) }
+        val activeDispatches = dispatching.incrementAndGet()
+        peakConcurrentDispatches.updateAndGet { current -> max(current, activeDispatches) }
         try {
             return dispatchLocked(request)
         } finally {
@@ -341,7 +342,8 @@ internal class ConcurrentCallCounter : EventListener() {
 
     private fun enter(call: Call) {
         if (!live.add(call)) return
-        peak.updateAndGet { current -> max(current, inFlight.incrementAndGet()) }
+        val activeCalls = inFlight.incrementAndGet()
+        peak.updateAndGet { current -> max(current, activeCalls) }
     }
 
     private fun exit(call: Call) {
@@ -450,7 +452,8 @@ internal class JvmDownloadTransferHost(
                 val transferJob = scope.launch {
                     val current = overlappingById.getOrPut(downloadId) { AtomicInteger(0) }.incrementAndGet()
                     peakPerId.getOrPut(downloadId) { AtomicInteger(0) }.updateAndGet { max(it, current) }
-                    peakActiveTransfers.updateAndGet { max(it, activeTransfers.incrementAndGet()) }
+                    val active = activeTransfers.incrementAndGet()
+                    peakActiveTransfers.updateAndGet { max(it, active) }
                     startedIds += downloadId
                     try {
                         when (val transferCommand = result.command) {

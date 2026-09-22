@@ -796,6 +796,8 @@ class DownloadTransferEngineTest {
         assertNotNull(finalDownload)
         assertEquals(DownloadState.FAILED, finalDownload!!.state)
         assertTrue(finalDownload.error!!.contains("already exists"))
+        assertFalse(finalDownload.error!!.contains(destFile.path))
+        assertFalse(finalDownload.error!!.contains(tempFile.path))
     }
 
     @Test
@@ -2009,6 +2011,7 @@ class DownloadTransferEngineTest {
         val failed = repo.get("missing-folder")!!
         assertEquals(DownloadState.FAILED, failed.state)
         assertTrue(failed.error.orEmpty().contains("not a directory"))
+        assertFalse(failed.error.orEmpty().contains(blockedParent.path))
         assertArrayEquals(payload, part.readBytes())
         assertFalse(destination.exists())
 

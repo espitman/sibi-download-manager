@@ -64,7 +64,7 @@ internal fun BrowserSettingsSheet(
                 contentColor = SdmText,
                 shape = RoundedCornerShape(22.dp),
                 border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)),
-                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset())
                     .graphicsLayer {
                         translationY = (1f - progress.value) * 96.dp.toPx()
                         scaleX = .985f + .015f * progress.value

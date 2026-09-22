@@ -19,8 +19,10 @@ object DownloadFilenameResolver {
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     )
 
-    // Platform-hostile characters: / \ : * ? " < > | and control characters (0x00..0x1F, 0x7F)
-    private val ILLEGAL_CHARS_REGEX = Regex("[\u0000-\u001F\u007F/\\\\:*?\"<>|]")
+    // Platform-hostile characters: / \ : * ? " < > |, controls, bidi overrides, and zero-width marks
+    private val ILLEGAL_CHARS_REGEX = Regex(
+        "[\u0000-\u001F\u007F/\\\\:*?\"<>|\u200B-\u200F\u202A-\u202E\u2066-\u2069]",
+    )
 
     /**
      * Resolves the filename following the precedence:

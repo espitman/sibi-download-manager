@@ -4,6 +4,7 @@ import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.domain.ErrorReportSanitizer
 import com.espitman.sdm.storage.DownloadDestinationPublisher
 import com.espitman.sdm.storage.DownloadDestinationRef
 import com.espitman.sdm.storage.StorageCapacity
@@ -98,7 +99,7 @@ class DownloadTransferEngine(
 
         val destinationFile = File(destinationPath)
         if (destinationFile.exists()) {
-            reportFailure(repository, downloadId, "Destination already exists: $destinationPath")
+            reportFailure(repository, downloadId, "Destination already exists")
             return@withContext
         }
 
@@ -1036,7 +1037,7 @@ class DownloadTransferEngine(
             id = downloadId,
             to = DownloadState.FAILED,
             nowEpochMillis = validTimestamp(current.updatedAtEpochMillis),
-            error = error,
+            error = ErrorReportSanitizer.sanitize(error).ifBlank { "Download failed" },
         )
     }
 
@@ -1044,17 +1045,17 @@ class DownloadTransferEngine(
         max(clock.currentTimeMillis(), previousTimestamp)
 
     private fun finalizeWithoutOverwrite(tempFile: File, destinationFile: File) {
-        require(tempFile.exists()) { "Temporary download file is missing: ${tempFile.path}" }
+        require(tempFile.exists()) { "Temporary download file is missing" }
         if (destinationFile.exists()) {
-            throw IOException("Destination already exists: ${destinationFile.path}")
+            throw IOException("Destination already exists")
         }
 
         val parent = destinationFile.parentFile
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw IOException("Could not create destination directory: ${parent.path}")
+            throw IOException("Could not create destination directory")
         }
         if (parent != null && !parent.isDirectory) {
-            throw IOException("Destination parent is not a directory: ${parent.path}")
+            throw IOException("Destination parent is not a directory")
         }
 
         try {

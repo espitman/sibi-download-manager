@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Download records store source URLs that may include query tokens. -->
+    <exclude domain="database" path="sdm-downloads.db" />
+    <exclude domain="database" path="sdm-downloads.db-journal" />
+    <exclude domain="database" path="sdm-downloads.db-wal" />
+    <exclude domain="database" path="sdm-downloads.db-shm" />
+</full-backup-content>

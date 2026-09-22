@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -152,7 +153,7 @@ fun SdmApp(
                                 uiState = filesUiState,
                                 onToast = { toastMessage = it; toastSequence++ },
                             )
-                            Destination.Settings -> AppHeader("Settings", showMore = false)
+                            Destination.Settings -> AppHeader("Settings", showMore = false, onSearch = { toastMessage = "Settings search ready"; toastSequence++ })
                         }
                     }
                 }
@@ -244,7 +245,7 @@ fun SdmApp(
 }
 
 @Composable
-internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Boolean = false, showMore: Boolean = true) {
+internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Boolean = false, showMore: Boolean = true, onSearch: () -> Unit = {}) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -254,6 +255,7 @@ internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Bo
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
+                .padding(top = designHeaderInset())
                 .height(63.dp)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -276,7 +278,7 @@ internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Bo
                     Text("Private", color = SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                 }
             } else {
-                HeaderAction(SdmIcons.Search, "Search")
+                HeaderAction(SdmIcons.Search, "Search", onSearch)
                 if (showSort) { Spacer(Modifier.width(6.dp)); HeaderAction(SdmIcons.Sort, "Sort files") }
                 if (showMore) { Spacer(Modifier.width(6.dp)); HeaderAction(SdmIcons.More, "More options") }
             }
@@ -286,20 +288,22 @@ internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Bo
 }
 
 @Composable
-private fun HeaderAction(icon: ImageVector, description: String) {
-    IconButton(onClick = {}, modifier = Modifier.size(42.dp)) {
+private fun HeaderAction(icon: ImageVector, description: String, onClick: () -> Unit = {}) {
+    IconButton(onClick = onClick, modifier = Modifier.size(42.dp)) {
         Icon(icon, description, tint = SdmText, modifier = Modifier.size(21.dp))
     }
 }
 
 @Composable
 private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> Unit, modifier: Modifier = Modifier) {
+    val inactive = sdmColor(0xFF898C8F, 0xFF77736A)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = designDockInset())
             .height(68.dp)
+            .shadow(16.dp, RoundedCornerShape(30.dp))
             .background(sdmColor(0xE61B1F24, 0xE6FFFDF7), RoundedCornerShape(30.dp))
             .border(1.dp, sdmColor(0x14FFFFFF, 0x17181713), RoundedCornerShape(30.dp))
             .padding(5.dp),
@@ -328,9 +332,9 @@ private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> U
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(item.icon, contentDescription = item.label, tint = if (active) SdmGoldHigh else SdmMuted, modifier = Modifier.size(23.dp))
+                    Icon(item.icon, contentDescription = item.label, tint = if (active) SdmGoldHigh else inactive, modifier = Modifier.size(23.dp))
                     Spacer(Modifier.height(3.dp))
-                    Text(item.label, color = if (active) SdmGoldHigh else SdmMuted, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium)
+                    Text(item.label, color = if (active) SdmGoldHigh else inactive, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium)
                 }
             }
         }

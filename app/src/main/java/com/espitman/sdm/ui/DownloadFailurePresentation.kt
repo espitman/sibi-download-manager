@@ -1,8 +1,9 @@
 package com.espitman.sdm.ui
 
 import com.espitman.sdm.domain.DownloadFailure
+import com.espitman.sdm.domain.ErrorReportSanitizer
 
-internal const val FAILED_DOWNLOAD_ERROR_DETAIL_MAX_LENGTH = 96
+internal const val FAILED_DOWNLOAD_ERROR_DETAIL_MAX_LENGTH = ErrorReportSanitizer.MAX_LENGTH
 
 internal fun failedDownloadCardLabel(errorText: String?): String =
     DownloadFailure.classify(errorText).label
@@ -10,14 +11,7 @@ internal fun failedDownloadCardLabel(errorText: String?): String =
 internal fun sanitizePersistedErrorDetail(
     errorText: String?,
     maxLength: Int = FAILED_DOWNLOAD_ERROR_DETAIL_MAX_LENGTH,
-): String {
-    val collapsed = errorText.orEmpty()
-        .replace(Regex("\\s+"), " ")
-        .trim()
-    if (collapsed.length <= maxLength) return collapsed
-    val keep = (maxLength - 1).coerceAtLeast(0)
-    return collapsed.take(keep).trimEnd() + "…"
-}
+): String = ErrorReportSanitizer.sanitize(errorText, maxLength)
 
 internal fun failedDownloadLastError(errorText: String?): String {
     val label = failedDownloadCardLabel(errorText)

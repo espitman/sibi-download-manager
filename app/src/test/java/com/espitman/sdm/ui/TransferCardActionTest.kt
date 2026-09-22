@@ -27,8 +27,8 @@ class TransferCardActionTest {
         assertEquals(TransferCardAction.Pause, detailsPrimaryAction(DownloadState.DOWNLOADING))
         assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.DOWNLOADING)))
         assertEquals("Start", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.QUEUED)))
-        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.COMPLETED)))
-        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.CANCELLED)))
+        assertEquals(TransferCardAction.None, detailsPrimaryAction(DownloadState.COMPLETED))
+        assertEquals(TransferCardAction.None, detailsPrimaryAction(DownloadState.CANCELLED))
     }
 
     @Test
