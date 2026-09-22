@@ -16,4 +16,8 @@ an open Preferences draft also refreshes when the shared value changes elsewhere
 | Save location | Future downloads | Existing records keep their captured destination; newly submitted downloads use the new location. |
 | Theme | Immediate | All visible app surfaces recompose with the selected theme. |
 
-Reset semantics are specified and tested by SDM-053.
+Reset writes every active setting back to its displayed default and publishes the
+new snapshot immediately to the shared engine collectors. It does not clear the
+downloads database, downloaded or partial files, the selected save-location URI
+and label, or unrelated persisted data. Removed legacy Keep active values are
+discarded and cannot be reactivated by Reset or an older preference file.

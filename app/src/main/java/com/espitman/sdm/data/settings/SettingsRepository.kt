@@ -15,7 +15,7 @@ data class SdmSettings(
     val downloadComplete: Boolean = true,
     val speedAlerts: Boolean = false,
     val theme: String = "dark",
-    val keepActive: Boolean = true,
+    val keepActive: Boolean = false,
     val keepActiveDuration: String = "downloading",
     val unlimitedSpeed: Boolean = false,
     val speedLimitMbps: Float = 10f,
@@ -49,8 +49,10 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
             .putBoolean("download_complete", value.downloadComplete)
             .putBoolean("speed_alerts", value.speedAlerts)
             .putString("theme", value.theme)
-            .putBoolean("keep_active", value.keepActive)
-            .putString("keep_active_duration", value.keepActiveDuration)
+            // Keep-active was removed from the product. Delete legacy values so an
+            // old installation cannot silently reactivate it in the engine.
+            .remove("keep_active")
+            .remove("keep_active_duration")
             .putBoolean("unlimited_speed", value.unlimitedSpeed)
             .putFloat("speed_limit_mbps", value.speedLimitMbps)
             .putBoolean("speed_limit_wifi_only", value.speedLimitWifiOnly)
@@ -68,8 +70,8 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
         downloadComplete = preferences.getBoolean("download_complete", true),
         speedAlerts = preferences.getBoolean("speed_alerts", false),
         theme = preferences.getString("theme", "dark") ?: "dark",
-        keepActive = preferences.getBoolean("keep_active", true),
-        keepActiveDuration = preferences.getString("keep_active_duration", "downloading") ?: "downloading",
+        keepActive = false,
+        keepActiveDuration = "downloading",
         unlimitedSpeed = preferences.getBoolean("unlimited_speed", false),
         speedLimitMbps = preferences.getFloat("speed_limit_mbps", 10f),
         speedLimitWifiOnly = preferences.getBoolean("speed_limit_wifi_only", false),

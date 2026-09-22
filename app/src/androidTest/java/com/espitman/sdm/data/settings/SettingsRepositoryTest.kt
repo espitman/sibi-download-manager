@@ -3,6 +3,7 @@ package com.espitman.sdm.data.settings
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.espitman.sdm.storage.SaveLocationStore
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,6 +37,13 @@ class SettingsRepositoryTest {
     }
 
     @Test fun resetPublishesAllDefaultsToEveryConsumerAndPersistsThem() {
+        val retainedTree = "content://com.android.externalstorage.documents/tree/primary%3ADownload%2FSDM-QA"
+        preferences.edit()
+            .putString(SaveLocationStore.KEY_TREE_URI, retainedTree)
+            .putString(SaveLocationStore.KEY_LABEL, "SDM-QA")
+            .putString("unrelated_download_metadata", "keep-me")
+            .putBoolean("keep_active", true)
+            .commit()
         val first = SettingsRepository(preferences)
         val second = SettingsRepository(preferences)
         // SharedPreferences listeners run on the main thread, as do app preference actions.
@@ -49,5 +57,10 @@ class SettingsRepositoryTest {
         }
         assertTrue(preferences.edit().commit())
         assertEquals(SdmSettings(), SettingsRepository(preferences).settings.value)
+        assertEquals(retainedTree, preferences.getString(SaveLocationStore.KEY_TREE_URI, null))
+        assertEquals("SDM-QA", preferences.getString(SaveLocationStore.KEY_LABEL, null))
+        assertEquals("keep-me", preferences.getString("unrelated_download_metadata", null))
+        assertFalse(preferences.contains("keep_active"))
+        assertFalse(preferences.contains("keep_active_duration"))
     }
 }
