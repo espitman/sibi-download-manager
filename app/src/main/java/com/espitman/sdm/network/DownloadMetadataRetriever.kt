@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 
 interface DownloadMetadataRetriever {
     suspend fun retrieve(url: String): DownloadMetadataResult
+    suspend fun retrieve(url: String, requestContext: ScopedRequestContext?): DownloadMetadataResult = retrieve(url)
 }
 
 class HttpDownloadMetadataRetriever(
@@ -31,7 +32,12 @@ class HttpDownloadMetadataRetriever(
         .followSslRedirects(false)
         .build()
 
-    override suspend fun retrieve(url: String): DownloadMetadataResult = withContext(ioDispatcher) {
+    override suspend fun retrieve(url: String): DownloadMetadataResult = retrieve(url, requestContext = null)
+
+    override suspend fun retrieve(
+        url: String,
+        requestContext: ScopedRequestContext?,
+    ): DownloadMetadataResult = withContext(ioDispatcher) {
         val validatedUrl = when (val validation = DownloadUrl.validate(url)) {
             is DownloadUrlResult.Valid -> validation.url
             is DownloadUrlResult.Invalid -> {
@@ -43,18 +49,18 @@ class HttpDownloadMetadataRetriever(
         }
 
         // Optimization: attempt HEAD request first
-        val headStep = executeHopChain(validatedUrl, method = "HEAD")
+        val headStep = executeHopChain(validatedUrl, method = "HEAD", requestContext)
         when (headStep) {
             is HopStep.NetworkFailure -> headStep.failure
             is HopStep.RedirectFailure -> headStep.failure
             is HopStep.Terminal -> {
                 if (headStep.statusCode == 405 || headStep.statusCode == 501) {
                     // HEAD explicitly unsupported -> safely fall back to minimal GET
-                    executeGetFallback(validatedUrl, fallbackFromHead = headStep)
+                    executeGetFallback(validatedUrl, fallbackFromHead = headStep, requestContext)
                 } else if (headStep.statusCode in 200..299) {
                     if (headStep.contentLength == null || headStep.contentLength <= 0) {
                         // HEAD lacks usable metadata (e.g. missing Content-Length) -> fall back to minimal GET
-                        executeGetFallback(validatedUrl, fallbackFromHead = headStep)
+                        executeGetFallback(validatedUrl, fallbackFromHead = headStep, requestContext)
                     } else {
                         // HEAD succeeded with usable metadata
                         DownloadMetadataResult.Success(headStep.toMetadata())
@@ -74,8 +80,9 @@ class HttpDownloadMetadataRetriever(
     private fun executeGetFallback(
         validatedUrl: String,
         fallbackFromHead: HopStep.Terminal,
+        requestContext: ScopedRequestContext?,
     ): DownloadMetadataResult {
-        val getStep = executeHopChain(validatedUrl, method = "GET")
+        val getStep = executeHopChain(validatedUrl, method = "GET", requestContext)
         return when (getStep) {
             is HopStep.NetworkFailure -> getStep.failure
             is HopStep.RedirectFailure -> getStep.failure
@@ -104,7 +111,11 @@ class HttpDownloadMetadataRetriever(
         }
     }
 
-    private fun executeHopChain(initialUrl: String, method: String): HopStep {
+    private fun executeHopChain(
+        initialUrl: String,
+        method: String,
+        requestContext: ScopedRequestContext?,
+    ): HopStep {
         var currentUrl = initialUrl
         var currentMethod = method
         var redirectCount = 0
@@ -115,6 +126,9 @@ class HttpDownloadMetadataRetriever(
                 .url(currentUrl)
                 .method(currentMethod, null)
                 .header("Accept-Encoding", "identity")
+            requestContext?.headersFor(currentUrl)?.forEach { (name, value) ->
+                requestBuilder.header(name, value)
+            }
 
             if (currentMethod == "GET") {
                 requestBuilder.header("Range", "bytes=0-0")

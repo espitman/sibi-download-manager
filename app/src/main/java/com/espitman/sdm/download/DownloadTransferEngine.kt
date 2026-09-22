@@ -10,6 +10,9 @@ import com.espitman.sdm.storage.StorageCapacity
 import com.espitman.sdm.storage.StorageCapacityProbe
 import com.espitman.sdm.storage.TransferSpacePreflight
 import com.espitman.sdm.storage.TransferSpacePreflightResult
+import com.espitman.sdm.network.ScopedRequestContext
+import com.espitman.sdm.network.ScopedRequestContextInterceptor
+import com.espitman.sdm.network.BrowserRequestContextRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +46,7 @@ interface Clock {
 }
 
 class DownloadTransferEngine(
-    private val okHttpClient: OkHttpClient = OkHttpClient(),
+    okHttpClient: OkHttpClient = OkHttpClient(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: Clock = Clock.SystemClock,
     private val bufferSizeBytes: Int = DEFAULT_BUFFER_SIZE_BYTES,
@@ -53,7 +56,11 @@ class DownloadTransferEngine(
     private val storageCapacity: StorageCapacityProbe = StorageCapacityProbe.Unknown,
     private val speedLimiter: SpeedLimiter = SpeedLimiter.Unlimited,
     private val segmentCount: () -> Int = { SegmentedTransferPolicy.INITIAL_SEGMENT_COUNT },
+    private val requestContext: (String) -> ScopedRequestContext? = { null },
 ) {
+    private val okHttpClient = okHttpClient.newBuilder()
+        .addNetworkInterceptor(ScopedRequestContextInterceptor())
+        .build()
     init {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
         require(progressUpdateIntervalBytes > 0) {
@@ -74,6 +81,7 @@ class DownloadTransferEngine(
 
         val existingDownload = repository.get(downloadId)
             ?: throw IllegalArgumentException("Download not found: $downloadId")
+        val scopedRequestContext = requestContext(downloadId)
 
         repository.transition(
             id = downloadId,
@@ -156,11 +164,13 @@ class DownloadTransferEngine(
                     tempFile = tempFile,
                     repository = repository,
                     downloadId = downloadId,
+                    requestContext = scopedRequestContext,
                 )
                 if (segmented) {
                     withContext(NonCancellable) {
                         updateProgress(repository, downloadId, existingDownload.totalBytes)
                         finalizeCompletedPart(repository, downloadId, tempFile, destinationFile)
+                        BrowserRequestContextRegistry.remove(downloadId)
                     }
                     return@withContext
                 }
@@ -186,7 +196,9 @@ class DownloadTransferEngine(
         var completedSuccessfully = false
         var sendRange = isResume
         var fallbackUsed = false
-        var activeCall = okHttpClient.newCall(buildTransferRequest(url, sendRange, resumeOffset, storedValidators))
+        var activeCall = okHttpClient.newCall(
+            buildTransferRequest(url, sendRange, resumeOffset, storedValidators, scopedRequestContext),
+        )
         val cancellationHandle = coroutineContext.job.invokeOnCompletion { cause ->
             if (cause is CancellationException) activeCall.cancel()
         }
@@ -532,12 +544,19 @@ class DownloadTransferEngine(
                         )
                     }
                     completedSuccessfully = true
+                    BrowserRequestContextRegistry.remove(downloadId)
                 }
                 if (completedSuccessfully || sendRange || !fallbackUsed) {
                     return@withContext
                 }
                 activeCall = okHttpClient.newCall(
-                    buildTransferRequest(url, sendRange = false, resumeOffset = 0L, storedValidators),
+                    buildTransferRequest(
+                        url,
+                        sendRange = false,
+                        resumeOffset = 0L,
+                        storedValidators,
+                        scopedRequestContext,
+                    ),
                 )
             }
         } catch (cancellation: CancellationException) {
@@ -578,8 +597,10 @@ class DownloadTransferEngine(
         sendRange: Boolean,
         resumeOffset: Long,
         storedValidators: HttpRangeResume.ResumeValidators,
+        requestContext: ScopedRequestContext?,
     ): Request {
         val requestBuilder = Request.Builder().url(url).get()
+        requestContext?.let { requestBuilder.tag(ScopedRequestContext::class.java, it) }
         if (sendRange) {
             HttpRangeResume.requestHeaders(resumeOffset, storedValidators).forEach { (name, value) ->
                 requestBuilder.header(name, value)
@@ -596,6 +617,7 @@ class DownloadTransferEngine(
         tempFile: File,
         repository: DownloadRepository,
         downloadId: String,
+        requestContext: ScopedRequestContext?,
     ): Boolean {
         val segmentFiles = ranges.map { segmentFile(tempFile, it) }
         segmentFiles.forEach(::deleteQuietly)
@@ -614,6 +636,7 @@ class DownloadTransferEngine(
                             totalBytes = totalBytes,
                             validators = validators,
                             output = segmentFiles[index],
+                            requestContext = requestContext,
                         ) { written ->
                             progressMutex.withLock {
                                 progress[index] += written
@@ -721,16 +744,18 @@ class DownloadTransferEngine(
         totalBytes: Long,
         validators: HttpRangeResume.ResumeValidators,
         output: File,
+        requestContext: ScopedRequestContext?,
         onBytesWritten: suspend (Long) -> Unit,
     ) {
         val validator = HttpRangeResume.ifRangeHeaderValue(validators)
             ?: throw SegmentFallbackException()
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(url)
             .get()
             .header(HttpRangeResume.HEADER_RANGE, range.headerValue())
             .header(HttpRangeResume.HEADER_IF_RANGE, validator)
-            .build()
+        requestContext?.let { requestBuilder.tag(ScopedRequestContext::class.java, it) }
+        val request = requestBuilder.build()
         val call = okHttpClient.newCall(request)
         val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
             if (cause is CancellationException) call.cancel()

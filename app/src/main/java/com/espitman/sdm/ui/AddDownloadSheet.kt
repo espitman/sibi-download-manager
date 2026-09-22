@@ -44,14 +44,18 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.espitman.sdm.ui.theme.*
+import com.espitman.sdm.network.ScopedRequestContext
 import kotlinx.coroutines.launch
 
 @Composable
 internal fun AddDownloadSheet(
     onDismiss: () -> Unit,
+    initialUrl: String = "",
+    suggestedFileName: String? = null,
+    requestContext: ScopedRequestContext? = null,
     coordinator: DownloadSubmissionCoordinator = AppRepositories.submissionCoordinator(LocalContext.current),
 ) {
-    var url by remember { mutableStateOf("") }
+    var url by remember(initialUrl) { mutableStateOf(initialUrl) }
     var urlError by remember { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     var savedHandoffPhase by rememberSaveable {
@@ -64,7 +68,8 @@ internal fun AddDownloadSheet(
         savedHandoffUrl = handoff.savedPendingUrl
     }
     val clipboard = LocalClipboardManager.current
-    val fileName = url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
+    val fileName = suggestedFileName?.takeIf { it.isNotBlank() }
+        ?: url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
     val motion = remember { Animatable(0f) }
     var closing by remember { mutableStateOf(false) }
@@ -88,7 +93,7 @@ internal fun AddDownloadSheet(
     fun launchSubmit(validatedUrl: String, startNow: Boolean) {
         scope.launch {
             try {
-                when (val submissionResult = coordinator.submit(validatedUrl, startNow)) {
+                when (val submissionResult = coordinator.submit(validatedUrl, startNow, requestContext)) {
                     is SubmissionResult.Success -> {
                         isSubmitting = false
                         dismissAnimated()
@@ -139,7 +144,7 @@ internal fun AddDownloadSheet(
         if (permissionHandoff.phase != NotificationPermissionHandoff.Phase.Submitting) return@LaunchedEffect
         val pendingUrl = permissionHandoff.pendingUrl ?: return@LaunchedEffect
         try {
-            when (val submissionResult = coordinator.submit(pendingUrl, true)) {
+            when (val submissionResult = coordinator.submit(pendingUrl, true, requestContext)) {
                 is SubmissionResult.Success -> {
                     publish(permissionHandoff.consume())
                     isSubmitting = false

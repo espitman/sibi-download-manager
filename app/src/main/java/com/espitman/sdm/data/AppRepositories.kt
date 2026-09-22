@@ -2,6 +2,7 @@ package com.espitman.sdm.data
 
 import android.content.Context
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.network.BrowserRequestContextRegistry
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.download.AggregateSpeedLimiter
 import com.espitman.sdm.download.AndroidValidatedConnectivityMonitor
@@ -108,6 +109,7 @@ object AppRepositories {
                 storageCapacity = storageCapacityProbe(appContext),
                 speedLimiter = limiter,
                 segmentCount = { SettingsRepository.get(appContext).settings.value.connections },
+                requestContext = BrowserRequestContextRegistry::get,
             ).also { transferEngine = it }
         }
     }

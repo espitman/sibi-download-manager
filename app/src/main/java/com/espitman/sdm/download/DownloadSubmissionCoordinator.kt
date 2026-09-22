@@ -8,6 +8,8 @@ import com.espitman.sdm.domain.DownloadUrlResult
 import com.espitman.sdm.network.DownloadMetadata
 import com.espitman.sdm.network.DownloadMetadataResult
 import com.espitman.sdm.network.DownloadMetadataRetriever
+import com.espitman.sdm.network.BrowserRequestContextRegistry
+import com.espitman.sdm.network.ScopedRequestContext
 import com.espitman.sdm.storage.AppPrivateDestinationAllocator
 import com.espitman.sdm.storage.DestinationAllocator
 import kotlinx.coroutines.CancellationException
@@ -59,6 +61,7 @@ class DownloadSubmissionCoordinator(
     suspend fun submit(
         url: String,
         startNow: Boolean,
+        requestContext: ScopedRequestContext? = null,
     ): SubmissionResult {
         val trimmedUrl = url.trim()
         val validatedUrl = when (val validation = DownloadUrl.validate(trimmedUrl)) {
@@ -68,7 +71,7 @@ class DownloadSubmissionCoordinator(
             }
         }
 
-        val dedupeKey = "$validatedUrl|$startNow"
+        val dedupeKey = "$validatedUrl|$startNow|${requestContext?.let { "${it.scopeKey}:${System.identityHashCode(it)}" } ?: "public"}"
         return coroutineScope {
             var myDeferred: Deferred<SubmissionResult>? = null
             var isLeader = false
@@ -80,7 +83,7 @@ class DownloadSubmissionCoordinator(
                     isLeader = false
                 } else {
                     val newDeferred = async {
-                        performSubmission(validatedUrl)
+                        performSubmission(validatedUrl, requestContext)
                     }
                     inFlightSubmissions[dedupeKey] = newDeferred
                     myDeferred = newDeferred
@@ -102,10 +105,11 @@ class DownloadSubmissionCoordinator(
 
     private suspend fun performSubmission(
         validatedUrl: String,
+        requestContext: ScopedRequestContext?,
     ): SubmissionResult {
         // 1. Retrieve metadata
         val metadataResult = try {
-            metadataRetriever.retrieve(validatedUrl)
+            metadataRetriever.retrieve(validatedUrl, requestContext)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {
@@ -134,7 +138,7 @@ class DownloadSubmissionCoordinator(
 
             val download = Download(
                 id = downloadId,
-                url = validatedUrl,
+                url = metadata.url,
                 fileName = allocated.fileName,
                 mimeType = metadata.contentType,
                 etag = metadata.etag,
@@ -159,6 +163,7 @@ class DownloadSubmissionCoordinator(
             // 3. Persist exactly one QUEUED download
             repository.insert(download)
             persistedDownloadId = downloadId
+            BrowserRequestContextRegistry.put(downloadId, requestContext)
 
             queueScheduler.schedule()
 
@@ -166,6 +171,7 @@ class DownloadSubmissionCoordinator(
         } catch (cancellation: CancellationException) {
             // If cancelled, rollback database insertion and clean up temp file
             if (persistedDownloadId != null) {
+                BrowserRequestContextRegistry.remove(persistedDownloadId)
                 try {
                     repository.delete(persistedDownloadId)
                 } catch (_: Throwable) {
@@ -177,6 +183,7 @@ class DownloadSubmissionCoordinator(
         } catch (e: Throwable) {
             // On pre-insert, insert, or transfer starter errors, clean up inserted record and temp file
             if (persistedDownloadId != null) {
+                BrowserRequestContextRegistry.remove(persistedDownloadId)
                 try {
                     repository.delete(persistedDownloadId)
                 } catch (_: Throwable) {

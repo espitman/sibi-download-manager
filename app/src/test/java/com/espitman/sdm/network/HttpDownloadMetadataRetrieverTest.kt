@@ -113,6 +113,39 @@ class HttpDownloadMetadataRetrieverTest {
     }
 
     @Test
+    fun browserCredentialsAreAppliedToOriginAndStrippedFromCrossOriginRedirect() = runBlocking {
+        val unrelated = MockWebServer()
+        unrelated.start()
+        try {
+            server.enqueue(
+                MockResponse().setResponseCode(302)
+                    .setHeader("Location", unrelated.url("/protected.bin")),
+            )
+            unrelated.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Length", "64"))
+            val initialUrl = server.url("/start").toString()
+            val context = ScopedRequestContext(
+                originUrl = initialUrl,
+                cookie = "session=secret",
+                userAgent = "SDM Browser",
+                referer = server.url("/page").toString(),
+            )
+
+            val result = HttpDownloadMetadataRetriever().retrieve(initialUrl, context)
+            assertTrue(result.isSuccess)
+
+            val originRequest = server.takeRequest()
+            assertEquals("session=secret", originRequest.getHeader("Cookie"))
+            assertEquals("SDM Browser", originRequest.getHeader("User-Agent"))
+            val redirectedRequest = unrelated.takeRequest()
+            assertNull(redirectedRequest.getHeader("Cookie"))
+            assertNull(redirectedRequest.getHeader("Referer"))
+            assertEquals("SDM Browser", redirectedRequest.getHeader("User-Agent"))
+        } finally {
+            unrelated.shutdown()
+        }
+    }
+
+    @Test
     fun redirect303SwitchesMethodToGetAndSendsMinimalRange() = runBlocking {
         server.enqueue(
             MockResponse()

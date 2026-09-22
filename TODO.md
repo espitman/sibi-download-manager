@@ -171,12 +171,18 @@ Acceptance: Every setting has a measurable effect, and displayed values match en
 
 Depends on stages 2, 4, and 6.
 
-- [ ] SDM-055 — Complete address entry, navigation, back, and reload; show loading errors according to the design.
-- [ ] SDM-056 — Implement tab management and a real tab counter matching the reference interaction.
-- [ ] SDM-057 — Send user-selected download links to Add with the filename and necessary metadata.
-- [ ] SDM-058 — Pass required cookies and headers securely for selected downloads without leaking credentials to unrelated redirect destinations.
-- [ ] SDM-059 — Define and implement Private behavior for history, cache, cookies, and session termination; verify that the Private label is accurate.
-- [ ] SDM-060 — Test browsing and user-selected downloads; verify that removed media and YouTube features have not returned.
+- [x] SDM-055 — Complete address entry, navigation, back, and reload; show loading errors according to the design.
+  - Verification: Address entry loaded an HTTP page on the connected Xiaomi phone; an unavailable address showed the retry state, and Back returned to the landing page. Navigation unit tests, 622 JVM tests, both debug APK builds, and lint passed on 2026-09-22.
+- [x] SDM-056 — Implement tab management and a real tab counter matching the reference interaction.
+  - Verification: The tab sheet opened with the two reference tabs, new-tab creation changed the on-device counter from 2 to 3, and select/close invariants passed unit tests. The sheet and tab previews were visually checked against Open Design on 2026-09-22.
+- [x] SDM-057 — Send user-selected download links to Add with the filename and necessary metadata.
+  - Verification: A user tap on an HTTP file link opened Add with the source URL and `sample.bin`; Download completed on the connected phone. The saved file's SHA-256 matched the server source, and the explicit WebView download handoff device test passed on 2026-09-22.
+- [x] SDM-058 — Pass required cookies and headers securely for selected downloads without leaking credentials to unrelated redirect destinations.
+  - Verification: The browser passes Cookie, User-Agent, and Referer through a same-origin request context. Metadata and transfer redirect tests proved Cookie, Referer, and Authorization are absent on unrelated origins; 622 JVM tests and lint passed on 2026-09-22.
+- [x] SDM-059 — Define and implement Private behavior for history, cache, cookies, and session termination; verify that the Private label is accurate.
+  - Verification: All Browser tabs use a private session with no persisted tab history or WebView cache. Connected-device tests confirmed stale cookies clear before browsing and active cookies clear when the session ends; WebView instances, form data, cache, and DOM storage are cleared on exit. Four Browser device tests passed on 2026-09-22.
+- [x] SDM-060 — Test browsing and user-selected downloads; verify that removed media and YouTube features have not returned.
+  - Verification: On the connected Xiaomi phone, an HTTP page opened, an explicitly tapped link entered Add, and the completed file matched the source SHA-256. Browser navigation/error/tab/menu states were inspected; production code contains no automatic media detection or site-specific download path. All 622 JVM tests, four Browser device tests, both debug APK builds, lint, and diff checks passed on 2026-09-22.
 
 Acceptance: A user-selected browser download goes through the shared Add flow and download engine.
 

@@ -108,6 +108,7 @@ fun SdmApp(
     val filesUiState = rememberFilesUiState()
     var destination by remember { mutableStateOf(Destination.Downloads) }
     var showAddDownload by remember { mutableStateOf(false) }
+    var browserDownloadRequest by remember { mutableStateOf<BrowserDownloadRequest?>(null) }
     var selectedDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
     var toastMessage by remember { mutableStateOf("") }
     var toastVisible by remember { mutableStateOf(false) }
@@ -180,7 +181,15 @@ fun SdmApp(
                                 onToast = { toastMessage = it; toastSequence++ },
                                 onOpenSettings = { selectedDownloadId = null; destination = Destination.Settings },
                             ) }
-                            Destination.Browser -> BrowserScreen(showHeader = false)
+                            Destination.Browser -> BrowserScreen(
+                                showHeader = false,
+                                onDownloadRequested = { request ->
+                                    browserDownloadRequest = request
+                                    showAddDownload = true
+                                },
+                                onOpenDownloads = { destination = Destination.Downloads },
+                                onToast = { toastMessage = it; toastSequence++ },
+                            )
                             Destination.Files -> FilesScreen(
                                 uiState = filesUiState,
                                 showHeader = false,
@@ -222,7 +231,15 @@ fun SdmApp(
         }
     }
     if (showAddDownload) {
-        AddDownloadSheet(onDismiss = { showAddDownload = false })
+        AddDownloadSheet(
+            onDismiss = {
+                showAddDownload = false
+                browserDownloadRequest = null
+            },
+            initialUrl = browserDownloadRequest?.url.orEmpty(),
+            suggestedFileName = browserDownloadRequest?.suggestedFileName,
+            requestContext = browserDownloadRequest?.requestContext,
+        )
     }
 }
 
