@@ -358,7 +358,7 @@ class SqliteDownloadRepository(
         val COLUMNS = arrayOf(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "created_at", "updated_at",
-            "started_at", "completed_at",
+            "started_at", "completed_at", "accepts_ranges",
         )
     }
 }
@@ -390,6 +390,7 @@ private fun Download.toValues() = ContentValues().apply {
     put("updated_at", updatedAtEpochMillis)
     putNullable("started_at", startedAtEpochMillis)
     putNullable("completed_at", completedAtEpochMillis)
+    putNullable("accepts_ranges", acceptsRanges)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -398,6 +399,10 @@ private fun ContentValues.putNullable(key: String, value: String?) {
 
 private fun ContentValues.putNullable(key: String, value: Long?) {
     if (value == null) putNull(key) else put(key, value)
+}
+
+private fun ContentValues.putNullable(key: String, value: Boolean?) {
+    if (value == null) putNull(key) else put(key, if (value) 1 else 0)
 }
 
 private fun Cursor.toDownload() = Download(
@@ -417,6 +422,7 @@ private fun Cursor.toDownload() = Download(
     updatedAtEpochMillis = getLong(getColumnIndexOrThrow("updated_at")),
     startedAtEpochMillis = nullableLong("started_at"),
     completedAtEpochMillis = nullableLong("completed_at"),
+    acceptsRanges = nullableBoolean("accepts_ranges"),
 )
 
 private fun Cursor.nullableString(column: String): String? =
@@ -424,3 +430,6 @@ private fun Cursor.nullableString(column: String): String? =
 
 private fun Cursor.nullableLong(column: String): Long? =
     getColumnIndexOrThrow(column).let { if (isNull(it)) null else getLong(it) }
+
+private fun Cursor.nullableBoolean(column: String): Boolean? =
+    getColumnIndexOrThrow(column).let { if (isNull(it)) null else getInt(it) != 0 }

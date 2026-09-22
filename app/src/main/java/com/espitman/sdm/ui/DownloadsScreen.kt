@@ -648,8 +648,15 @@ private fun DownloadDetailsScreen(
     onCancel: () -> Unit,
     onPriority: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }; var headersOpen by remember { mutableStateOf(false) }; var segmentsOpen by remember { mutableStateOf(false) }; var cancelOpen by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var headersOpen by remember(download.id) { mutableStateOf(false) }
+    var segmentsOpen by remember(download.id) { mutableStateOf(false) }
+    var cancelOpen by remember { mutableStateOf(false) }
+    val speedTracker = remember(download.id) { DownloadDetailsSpeedTracker() }
     val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis)
+    val telemetry = remember(download, nowEpochMillis) {
+        mapDownloadDetailsTelemetry(download, speedTracker.observe(download, nowEpochMillis))
+    }
     val paused = download.state == DownloadState.PAUSED
     val clipboard = LocalClipboardManager.current
     BackHandler(onBack = onBack)
@@ -666,11 +673,20 @@ private fun DownloadDetailsScreen(
         Box(Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize().padding(bottom = 67.dp)) {
                 item { DetailsHero(hero) }
-                item { MetricsGrid() }
-                item { SpeedChart() }
+                item { MetricsGrid(telemetry.metrics) }
+                item { SpeedChart(telemetry) }
                 item { DetailsActions(paused, priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString(hero.sourceUrl)); onToast("Source URL copied") }) }
-                item { TechnicalInfo() }
-                item { DisclosureInfo(headersOpen, segmentsOpen, { headersOpen = !headersOpen }, { segmentsOpen = !segmentsOpen }) }
+                item { TechnicalInfo(telemetry.technical) }
+                item {
+                    DisclosureInfo(
+                        headersOpen = headersOpen && telemetry.requestHeaders.available,
+                        segmentsOpen = segmentsOpen && telemetry.segments.available,
+                        headers = telemetry.requestHeaders,
+                        segments = telemetry.segments,
+                        onHeaders = { if (telemetry.requestHeaders.available) headersOpen = !headersOpen },
+                        onSegments = { if (telemetry.segments.available) segmentsOpen = !segmentsOpen },
+                    )
+                }
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast(detailsOpenFolderToast(download.destinationPath)) }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
         }
@@ -713,20 +729,31 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
     }
 }
 
-@Composable private fun MetricsGrid() { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("12.4" to "MB/s", "1.57/2.18" to "GB", "01:04" to "Remaining", "16" to "Connections").forEach { (v, l) -> Column(Modifier.weight(1f).heightIn(min = 62.dp).background(SdmSurface, RoundedCornerShape(12.dp)).border(1.dp, SdmLine, RoundedCornerShape(12.dp)).padding(horizontal = 6.dp, vertical = 11.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text(v, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1); Text(l.uppercase(), color = SdmMuted, fontSize = 9.sp, letterSpacing = .54.sp, maxLines = 1, modifier = Modifier.padding(top = 4.dp)) } } } }
+@Composable private fun MetricsGrid(metrics: DownloadDetailsMetricValues) { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf(metrics.speedValue to metrics.speedUnit, metrics.sizeValue to metrics.sizeUnit, metrics.remaining to "Remaining", metrics.connections to "Connections").forEach { (v, l) -> Column(Modifier.weight(1f).heightIn(min = 62.dp).background(SdmSurface, RoundedCornerShape(12.dp)).border(1.dp, SdmLine, RoundedCornerShape(12.dp)).padding(horizontal = 6.dp, vertical = 11.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text(v, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1); Text(l.uppercase(), color = SdmMuted, fontSize = 9.sp, letterSpacing = .54.sp, maxLines = 1, modifier = Modifier.padding(top = 4.dp)) } } } }
 
-@Composable private fun SpeedChart() {
+@Composable private fun SpeedChart(telemetry: DownloadDetailsTelemetryPresentation) {
     val gridColor = SdmLine
     val chartColor = SdmGold
+    val points = normalizeDownloadDetailsSpeedChartPoints(telemetry.speedSamples)
+    val caption = downloadDetailsSpeedChartCaption(
+        samples = telemetry.speedSamples,
+        speedValue = telemetry.metrics.speedValue,
+        speedUnit = telemetry.metrics.speedUnit,
+    )
     Surface(color = SdmSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, gridColor), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
         Column(Modifier.padding(15.dp)) {
-            Row { Text("Speed history", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text("Last 60 sec · 12.4 MB/s", color = SdmMuted, fontSize = 10.sp) }
+            Row { Text("Speed history", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(caption, color = SdmMuted, fontSize = 10.sp) }
             Canvas(Modifier.fillMaxWidth().padding(top = 10.dp).height(72.dp)) {
-                val points = listOf(57f,50f,53f,40f,43f,28f,34f,25f,31f,19f,24f,16f,22f,13f,18f,11f,15f,9f)
-                val step = size.width / (points.size - 1)
                 listOf(12f, 36f, 60f).forEach { v -> val y = size.height * v / 72f; drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 1.dp.toPx()) }
+                if (points.isEmpty()) return@Canvas
+                val mapped = points.map { Offset(it.x * size.width, it.y * size.height) }
                 val path = Path()
-                points.forEachIndexed { i, value -> val x = i * step; val y = value * size.height / 72f; if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+                if (mapped.size == 1) {
+                    path.moveTo(0f, mapped[0].y)
+                    path.lineTo(size.width, mapped[0].y)
+                } else {
+                    mapped.forEachIndexed { i, point -> if (i == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }
+                }
                 val areaPath = Path().apply {
                     addPath(path)
                     lineTo(size.width, size.height)
@@ -742,16 +769,16 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
 
 @Composable private fun DetailsActions(paused: Boolean, priorityActive: Boolean, onPause: () -> Unit, onCancel: () -> Unit, onPriority: () -> Unit, onCopy: () -> Unit) { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(if(paused) SdmIcons.Play else SdmIcons.Pause,if(paused)"Resume" else "Pause",onPause),Triple(SdmIcons.Close,"Cancel",onCancel),Triple(SdmIcons.Star,"Priority",onPriority),Triple(SdmIcons.Copy,"Copy URL",onCopy)).forEachIndexed { i,(icon,label,action)-> val emphasized = i == 0 || (i == 2 && priorityActive); Column(Modifier.weight(1f).heightIn(min=68.dp).background(SdmSurface,RoundedCornerShape(13.dp)).border(1.dp,if(i == 0)SdmGold.copy(alpha=.38f)else SdmLine,RoundedCornerShape(13.dp)).clickable(onClick=action),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,modifier=Modifier.size(20.dp));Text(label,color=if(i==1)sdmColor(0xFFF39A92,0xFFC2473E)else if(emphasized)SdmGoldHigh else SdmText,fontSize=10.sp,modifier=Modifier.padding(top=7.dp))} } } }
 
-@Composable private fun TechnicalInfo() {
+@Composable private fun TechnicalInfo(technical: DownloadDetailsTechnicalValues) {
     Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
         Text("TECHNICAL INFORMATION", color = SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.43.sp, modifier = Modifier.padding(bottom = 12.dp))
         Surface(color = SdmSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine)) {
             Column {
-                listOf("Source host" to "media.sibicdn.net", "Save path" to "/Download/SDM", "Security" to "HTTPS · TLS 1.3", "Resume support" to "Available", "Connection threads" to "16 parallel").forEachIndexed { i, (a, b) ->
+                listOf("Source host" to technical.sourceHost, "Save path" to technical.savePath, "Security" to technical.security, "Resume support" to technical.resumeSupport, "Connection threads" to technical.connectionThreads).forEachIndexed { i, (a, b) ->
                     if (i > 0) HorizontalDivider(color = SdmLine)
                     Row(Modifier.fillMaxWidth().heightIn(min = if (i == 0) 55.dp else 53.dp).padding(horizontal = 15.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(a, color = SdmMuted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        Text(b, color = if (a == "Resume support") SdmSuccess else SdmText, fontSize = 12.sp)
+                        Text(b, color = if (a == "Resume support" && b == "Available") SdmSuccess else SdmText, fontSize = 12.sp)
                     }
                 }
             }
@@ -760,17 +787,31 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
 }
 
 @Composable
-private fun DisclosureInfo(headers: Boolean, segments: Boolean, onHeaders: () -> Unit, onSegments: () -> Unit) {
+private fun DisclosureInfo(
+    headersOpen: Boolean,
+    segmentsOpen: Boolean,
+    headers: DownloadDetailsRequestHeaders,
+    segments: DownloadDetailsSegmentBreakdown,
+    onHeaders: () -> Unit,
+    onSegments: () -> Unit,
+) {
     Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp).background(SdmSurface, RoundedCornerShape(16.dp)).border(1.dp, SdmLine, RoundedCornerShape(16.dp)).padding(1.dp)) {
-        DisclosureRow("Request headers", "2 headers", headers, onHeaders)
-        if (headers) Text("Accept: video/x-matroska\nUser-Agent: SDM/4.8 Android", color = SdmMuted, fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 15.5.sp, modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 12.dp).background(sdmColor(0xFF0B0C0D, 0xFFECE8DF), RoundedCornerShape(10.dp)).padding(10.dp))
-        DisclosureRow("Segment breakdown", "16 threads", segments, onSegments)
-        if (segments) Column(Modifier.padding(horizontal = 14.dp).padding(bottom = 12.dp)) {
-            listOf("#01–04" to .86f, "#05–08" to .74f, "#09–12" to .68f, "#13–16" to .6f).forEach { (label, progress) ->
+        DisclosureRow("Request headers", headers.summary, headersOpen, onHeaders)
+        if (headersOpen && headers.entries.isNotEmpty()) Text(
+            headers.entries.joinToString("\n") { "${it.first}: ${it.second}" },
+            color = SdmMuted,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            lineHeight = 15.5.sp,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 12.dp).background(sdmColor(0xFF0B0C0D, 0xFFECE8DF), RoundedCornerShape(10.dp)).padding(10.dp),
+        )
+        DisclosureRow("Segment breakdown", segments.summary, segmentsOpen, onSegments)
+        if (segmentsOpen && segments.segments.isNotEmpty()) Column(Modifier.padding(horizontal = 14.dp).padding(bottom = 12.dp)) {
+            segments.segments.forEach { segment ->
                 Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(label, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.width(44.dp))
-                    Box(Modifier.weight(1f).height(3.dp).background(sdmColor(0xFF30302C, 0xFFDED8CB), CircleShape)) { Box(Modifier.fillMaxWidth(progress).height(3.dp).background(SdmGold, CircleShape)) }
-                    Text("${(progress * 100).toInt()}%", color = SdmMuted, fontSize = 10.sp, modifier = Modifier.width(40.dp))
+                    Text(segment.label, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.width(44.dp))
+                    Box(Modifier.weight(1f).height(3.dp).background(sdmColor(0xFF30302C, 0xFFDED8CB), CircleShape)) { Box(Modifier.fillMaxWidth(segment.fraction.coerceIn(0f, 1f)).height(3.dp).background(SdmGold, CircleShape)) }
+                    Text(segment.percentLabel, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.width(40.dp))
                 }
             }
         }

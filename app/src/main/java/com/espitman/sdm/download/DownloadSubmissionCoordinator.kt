@@ -162,6 +162,7 @@ class DownloadSubmissionCoordinator(
                 updatedAtEpochMillis = now,
                 startedAtEpochMillis = null,
                 completedAtEpochMillis = null,
+                acceptsRanges = metadata.acceptsRanges,
             )
 
             // 3. Persist exactly one QUEUED download

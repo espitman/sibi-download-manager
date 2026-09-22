@@ -129,6 +129,63 @@ class SqliteDownloadRepositoryTest {
     }
 
     @Test
+    fun versionFourDatabaseMigratesWithoutLosingRecords() = runBlocking {
+        seedLegacyDatabase(4)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        val migrated = repository!!.downloads.value.single()
+        assertEquals("legacy", migrated.id)
+        assertNull(migrated.acceptsRanges)
+        assertEquals(0L, repository!!.transferredBytesForLocalDay(10L, ZoneOffset.UTC))
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertDailyTransferTableExists()
+        assertAcceptsRangesColumnExists()
+    }
+
+    @Test
+    fun acceptsRangesRoundTripsNullTrueAndFalse() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "unknown",
+                url = "https://example.com/unknown.bin",
+                fileName = "unknown.bin",
+                createdAtEpochMillis = 100,
+                acceptsRanges = null,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "supported",
+                url = "https://example.com/supported.bin",
+                fileName = "supported.bin",
+                createdAtEpochMillis = 101,
+                acceptsRanges = true,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "unsupported",
+                url = "https://example.com/unsupported.bin",
+                fileName = "unsupported.bin",
+                createdAtEpochMillis = 102,
+                acceptsRanges = false,
+            ),
+        )
+
+        fun values() = repository!!.downloads.value.associate { it.id to it.acceptsRanges }
+        assertEquals(mapOf("unknown" to null, "supported" to true, "unsupported" to false), values())
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(mapOf("unknown" to null, "supported" to true, "unsupported" to false), values())
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+    }
+
+    @Test
     fun concurrentConflictingTransitionsAreSerializedAndOnlyOneCommits() = runBlocking {
         repository = SqliteDownloadRepository(context, databaseName = databaseName)
         repository!!.awaitInitialized()
@@ -331,6 +388,7 @@ class SqliteDownloadRepositoryTest {
             DownloadDatabase.createVersionOne(db)
             if (version >= 2) DownloadDatabase.migrateOneToTwo(db)
             if (version >= 3) DownloadDatabase.migrateTwoToThree(db)
+            if (version >= 4) DownloadDatabase.migrateThreeToFour(db)
             db.execSQL(
                 """INSERT INTO downloads
                     (id,url,file_name,downloaded_bytes,state,priority,created_at,updated_at)
@@ -346,6 +404,22 @@ class SqliteDownloadRepositoryTest {
         null,
         SQLiteDatabase.OPEN_READONLY,
     ).use { it.version }
+
+    private fun assertAcceptsRangesColumnExists() {
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            db.rawQuery("PRAGMA table_info(downloads)", null).use { cursor ->
+                val names = buildList {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+                assertEquals(true, names.contains("accepts_ranges"))
+            }
+        }
+    }
 
     private fun assertDailyTransferTableExists() {
         SQLiteDatabase.openDatabase(

@@ -21,6 +21,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -611,5 +612,50 @@ class DownloadSubmissionCoordinatorTest {
         assertTrue(immediate is SubmissionResult.Success)
         assertEquals(0, transferStarter.startedTransfers.size)
         assertEquals(2, repository.downloads.value.count { it.state == DownloadState.QUEUED })
+    }
+
+    @Test
+    fun submissionPersistsAcceptsRangesTrueFromMetadata() = runBlocking {
+        val persisted = submitWithAcceptsRanges(acceptsRanges = true)
+        assertEquals(true, persisted.acceptsRanges)
+    }
+
+    @Test
+    fun submissionPersistsAcceptsRangesFalseFromMetadata() = runBlocking {
+        val persisted = submitWithAcceptsRanges(acceptsRanges = false)
+        assertEquals(false, persisted.acceptsRanges)
+        assertNull(
+            Download(
+                id = "legacy-unknown",
+                url = "https://example.com/legacy.bin",
+                fileName = "legacy.bin",
+                createdAtEpochMillis = 1L,
+            ).acceptsRanges,
+        )
+    }
+
+    private suspend fun submitWithAcceptsRanges(acceptsRanges: Boolean): Download {
+        val repository = FakeDownloadRepository()
+        val retriever = FakeMetadataRetriever(
+            DownloadMetadataResult.Success(
+                DownloadMetadata(
+                    url = "https://example.com/ranges.bin",
+                    contentLength = 128L,
+                    contentType = "application/octet-stream",
+                    suggestedFilename = "ranges.bin",
+                    acceptsRanges = acceptsRanges,
+                )
+            )
+        )
+        val coordinator = coordinator(
+            repository = repository,
+            retriever = retriever,
+            transferStarter = FakeTransferStarter(),
+        )
+        val result = coordinator.submit("https://example.com/ranges.bin", startNow = true)
+        assertTrue("Expected Success, got $result", result is SubmissionResult.Success)
+        val persisted = (result as SubmissionResult.Success).download
+        assertEquals(persisted.acceptsRanges, repository.insertedDownloads.single().acceptsRanges)
+        return persisted
     }
 }

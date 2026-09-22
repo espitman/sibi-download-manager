@@ -29,6 +29,12 @@ data class Download(
     val updatedAtEpochMillis: Long = createdAtEpochMillis,
     val startedAtEpochMillis: Long? = null,
     val completedAtEpochMillis: Long? = null,
+    /**
+     * Resume-capability evidence from the origin server.
+     * `null` means unavailable (legacy rows or unknown), `false` means the server did not
+     * advertise byte ranges, and `true` means it did.
+     */
+    val acceptsRanges: Boolean? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }

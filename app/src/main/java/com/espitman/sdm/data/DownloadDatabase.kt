@@ -19,6 +19,7 @@ internal class DownloadDatabase(
         migrateOneToTwo(db)
         migrateTwoToThree(db)
         migrateThreeToFour(db)
+        migrateFourToFive(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -35,12 +36,16 @@ internal class DownloadDatabase(
             migrateThreeToFour(db)
             version = 4
         }
+        if (version == 4 && newVersion >= 5) {
+            migrateFourToFive(db)
+            version = 5
+        }
         check(version == newVersion) { "Missing database migration from $version to $newVersion" }
     }
 
     companion object {
         const val DATABASE_NAME = "sdm-downloads.db"
-        const val DATABASE_VERSION = 4
+        const val DATABASE_VERSION = 5
 
         internal fun createVersionOne(db: SQLiteDatabase) {
             db.execSQL(
@@ -88,6 +93,10 @@ internal class DownloadDatabase(
                 )
                 """.trimIndent(),
             )
+        }
+
+        internal fun migrateFourToFive(db: SQLiteDatabase) {
+            db.execSQL("ALTER TABLE downloads ADD COLUMN accepts_ranges INTEGER")
         }
     }
 }
