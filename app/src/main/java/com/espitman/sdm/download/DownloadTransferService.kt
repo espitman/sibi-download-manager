@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import com.espitman.sdm.notification.TransferNotificationPendingIntentSpec
@@ -48,11 +49,7 @@ class DownloadTransferService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val command = DownloadTransferCommand.parse(
-            action = intent?.action,
-            downloadId = intent?.getStringExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID),
-            tempFilePath = intent?.getStringExtra(DownloadTransferCommand.EXTRA_TEMP_FILE_PATH),
-        )
+        val command = resolveCommand(intent)
         val enteredForeground = notifications.tryEnterForeground(this)
         if (!enteredForeground) {
             session.handleCommand(startId, command = null)
@@ -277,12 +274,32 @@ class DownloadTransferService : Service() {
         return if (partFile.exists()) partFile.length().coerceAtLeast(0L) else 0L
     }
 
+    private fun resolveCommand(intent: Intent?): TransferCommand? {
+        val parsed = DownloadTransferCommand.parse(
+            action = intent?.action,
+            downloadId = intent?.getStringExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID),
+            tempFilePath = intent?.getStringExtra(DownloadTransferCommand.EXTRA_TEMP_FILE_PATH),
+        )
+        if (parsed !is PauseTransferCommand) return parsed
+        val rawCause = intent?.getStringExtra(DownloadTransferCommand.EXTRA_PAUSE_CAUSE)
+        val cause = rawCause?.let { runCatching { DownloadPauseCause.valueOf(it) }.getOrNull() }
+        return if (cause == null) parsed else parsed.copy(pauseCause = cause)
+    }
+
     private suspend fun executeTransfer(command: StartTransferCommand) {
         val repository = AppRepositories.downloads(applicationContext)
         val download = repository.get(command.downloadId) ?: return
         val downloadId = download.id
         val url = download.url
         val tempFile = File(command.tempFilePath)
+        val blocked = NetworkRestrictionStartGuard.blockStartIfDisallowed(
+            allowed = AppRepositories.transferAllowance(applicationContext).isAllowed(),
+            repository = repository,
+            downloadId = downloadId,
+            fileLengthBytes = onDiskPartLength(download, command.tempFilePath),
+            nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
+        )
+        if (blocked) return
         DownloadAutoRetryRunner(repository).run(downloadId) {
             AppRepositories.transferEngine(applicationContext).executeTransfer(
                 downloadId = downloadId,
@@ -290,6 +307,7 @@ class DownloadTransferService : Service() {
                 tempFile = tempFile,
                 repository = repository,
                 pauseRequested = { session.isPauseRequested(command.downloadId) },
+                pauseCause = { session.pauseCause(command.downloadId) },
             )
         }
     }
@@ -314,8 +332,17 @@ class DownloadTransferService : Service() {
             ContextCompat.startForegroundService(appContext, intent)
         }
 
-        fun pauseTransfer(context: Context, downloadId: String) {
-            startControl(context, downloadId, DownloadTransferCommand.ACTION_PAUSE_TRANSFER)
+        fun pauseTransfer(
+            context: Context,
+            downloadId: String,
+            pauseCause: DownloadPauseCause? = null,
+        ) {
+            startControl(
+                context,
+                downloadId,
+                DownloadTransferCommand.ACTION_PAUSE_TRANSFER,
+                pauseCause,
+            )
         }
 
         fun cancelTransfer(context: Context, downloadId: String) {
@@ -348,9 +375,17 @@ class DownloadTransferService : Service() {
             }
         }
 
-        private fun startControl(context: Context, downloadId: String, action: String) {
+        private fun startControl(
+            context: Context,
+            downloadId: String,
+            action: String,
+            pauseCause: DownloadPauseCause? = null,
+        ) {
             val appContext = context.applicationContext
             val intent = controlIntent(appContext, downloadId, action) ?: return
+            if (pauseCause != null) {
+                intent.putExtra(DownloadTransferCommand.EXTRA_PAUSE_CAUSE, pauseCause.name)
+            }
             ContextCompat.startForegroundService(appContext, intent)
         }
     }

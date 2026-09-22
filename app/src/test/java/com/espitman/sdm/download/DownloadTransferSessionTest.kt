@@ -96,6 +96,29 @@ class DownloadTransferSessionTest {
 
         assertEquals(3, session.onTransferFinished(command.downloadId))
         assertFalse(session.isPauseRequested(command.downloadId))
+        assertNull(session.pauseCause(command.downloadId))
+    }
+
+    @Test
+    fun networkPolicyPauseCauseSurvivesUntilManualPauseWins() {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("dl-1", "/tmp/a.part")
+        session.handleCommand(1, command)
+        session.attachJob(command.downloadId, Job())
+
+        session.handleCommand(
+            2,
+            PauseTransferCommand(command.downloadId, com.espitman.sdm.domain.DownloadPauseCause.NETWORK_POLICY),
+        )
+        assertTrue(session.isPauseRequested(command.downloadId))
+        assertEquals(
+            com.espitman.sdm.domain.DownloadPauseCause.NETWORK_POLICY,
+            session.pauseCause(command.downloadId),
+        )
+
+        session.handleCommand(3, PauseTransferCommand(command.downloadId))
+        assertTrue(session.isPauseRequested(command.downloadId))
+        assertNull(session.pauseCause(command.downloadId))
     }
 
     @Test

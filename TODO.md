@@ -146,7 +146,8 @@ Acceptance: Files displays real files only. File operations, storage locations, 
 
 Depends on stages 4 and 6.
 
-- [ ] SDM-046 — Enforce Wi-Fi only and pause/recover appropriately when network type changes.
+- [x] SDM-046 — Enforce Wi-Fi only and pause/recover appropriately when network type changes.
+  - Verification: 548 JVM tests and 56 connected-device tests passed; debug APK, test APK, lint, and diff checks passed on 2026-09-22.
 - [ ] SDM-047 — Enforce aggregate speed limits, Unlimited, and Wi-Fi-specific limits; measure actual throughput.
 - [ ] SDM-048 — Connect Auto-resume to network recovery and download state while respecting manual pauses.
 - [ ] SDM-049 — Implement completion notifications and stalled-transfer alerts according to the settings toggles.

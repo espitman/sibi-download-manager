@@ -125,9 +125,16 @@ internal class ContractDownloadRepository(
         id: String,
         fileLengthBytes: Long,
         nowEpochMillis: Long,
+    ): Download? = pauseAtExactOffset(id, fileLengthBytes, nowEpochMillis, pauseCause = null)
+
+    override suspend fun pauseAtExactOffset(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+        pauseCause: com.espitman.sdm.domain.DownloadPauseCause?,
     ): Download? = mutex.withLock {
         val current = _downloads.value.find { it.id == id } ?: return@withLock null
-        val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+        val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis, pauseCause)
         if (paused != current) replaceLocked(paused)
         paused
     }
@@ -160,10 +167,16 @@ internal class ContractDownloadRepository(
         updated
     }
 
-    override suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> = mutex.withLock {
+    override suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> =
+        pauseQueuedPreservingOffsets(nowEpochMillis, pauseCause = null)
+
+    override suspend fun pauseQueuedPreservingOffsets(
+        nowEpochMillis: Long,
+        pauseCause: com.espitman.sdm.domain.DownloadPauseCause?,
+    ): List<Download> = mutex.withLock {
         val updated = ArrayList<Download>()
         for (download in _downloads.value) {
-            val next = PauseQueuedMutation.apply(download, nowEpochMillis) ?: continue
+            val next = PauseQueuedMutation.apply(download, nowEpochMillis, pauseCause) ?: continue
             replaceLocked(next)
             updated += next
         }

@@ -2,6 +2,8 @@ package com.espitman.sdm.data
 
 import android.content.Context
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.domain.DownloadPauseCause
+import com.espitman.sdm.download.AndroidValidatedConnectivityMonitor
 import com.espitman.sdm.download.Clock
 import com.espitman.sdm.download.DownloadInterruptionRecovery
 import com.espitman.sdm.download.DownloadInterruptionTrigger
@@ -11,6 +13,8 @@ import com.espitman.sdm.download.DownloadRecoveryOnceGate
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
 import com.espitman.sdm.download.DownloadTransferEngine
 import com.espitman.sdm.download.DownloadTransferService
+import com.espitman.sdm.download.MutableTransferAllowance
+import com.espitman.sdm.download.NetworkRestrictionCoordinator
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import com.espitman.sdm.network.HttpDownloadMetadataRetriever
 import com.espitman.sdm.storage.AndroidStorageCapacityProbe
@@ -25,6 +29,13 @@ import com.espitman.sdm.storage.SaveLocationStorageCapacity
 import com.espitman.sdm.storage.SaveLocationStore
 import com.espitman.sdm.storage.StorageCapacityProbe
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /** Application-owned dependencies; never retain an Activity. */
 object AppRepositories {
@@ -32,6 +43,11 @@ object AppRepositories {
     @Volatile private var metadataRetriever: DownloadMetadataRetriever? = null
     @Volatile private var transferEngine: DownloadTransferEngine? = null
     @Volatile private var queueScheduler: DownloadQueueScheduler? = null
+    @Volatile private var transferAllowance: MutableTransferAllowance? = null
+    @Volatile private var networkRestriction: NetworkRestrictionCoordinator? = null
+    @Volatile private var connectivityMonitor: AndroidValidatedConnectivityMonitor? = null
+    @Volatile private var restrictionCollectorStarted = false
+    private val restrictionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var submissionCoordinator: DownloadSubmissionCoordinator? = null
     @Volatile private var saveLocationCoordinator: SaveLocationCoordinator? = null
     @Volatile private var storageCapacityProbe: StorageCapacityProbe? = null
@@ -100,30 +116,88 @@ object AppRepositories {
                 trigger = trigger,
             )
         }
-        queueScheduler(context).schedule()
+        networkRestriction(context).apply()
     }
 
-    fun queueScheduler(context: Context): DownloadQueueScheduler = queueScheduler ?: synchronized(this) {
-        queueScheduler ?: run {
+    fun transferAllowance(context: Context): MutableTransferAllowance {
+        ensureNetworkRestriction(context)
+        return transferAllowance!!
+    }
+
+    fun networkRestriction(context: Context): NetworkRestrictionCoordinator {
+        ensureNetworkRestriction(context)
+        return networkRestriction!!
+    }
+
+    fun queueScheduler(context: Context): DownloadQueueScheduler {
+        ensureNetworkRestriction(context)
+        return queueScheduler!!
+    }
+
+    private fun ensureNetworkRestriction(context: Context) {
+        if (networkRestriction != null && queueScheduler != null && restrictionCollectorStarted) return
+        synchronized(this) {
             val appContext = context.applicationContext
-            DownloadQueueScheduler(
-                repository = downloads(appContext),
-                concurrentLimit = {
-                    SettingsRepository.get(appContext).settings.value.simultaneous
-                },
-                starter = { download ->
-                    val destination = download.destinationPath
-                        ?: throw IllegalStateException("Download ${download.id} is missing a destination")
-                    if (DownloadDestinationRef.isContentUri(destination)) {
-                        throw IllegalStateException("Download ${download.id} is missing a local destination")
-                    }
-                    DownloadTransferService.startTransfer(
-                        appContext,
-                        download.id,
-                        DownloadPartFile.forDestination(File(destination)).absolutePath,
-                    )
-                },
-            ).also { queueScheduler = it }
+            val allowance = transferAllowance ?: MutableTransferAllowance(initiallyAllowed = false)
+                .also { transferAllowance = it }
+            if (queueScheduler == null) {
+                queueScheduler = DownloadQueueScheduler(
+                    repository = downloads(appContext),
+                    concurrentLimit = {
+                        SettingsRepository.get(appContext).settings.value.simultaneous
+                    },
+                    starter = { download ->
+                        val destination = download.destinationPath
+                            ?: throw IllegalStateException("Download ${download.id} is missing a destination")
+                        if (DownloadDestinationRef.isContentUri(destination)) {
+                            throw IllegalStateException("Download ${download.id} is missing a local destination")
+                        }
+                        DownloadTransferService.startTransfer(
+                            appContext,
+                            download.id,
+                            DownloadPartFile.forDestination(File(destination)).absolutePath,
+                        )
+                    },
+                    transferAllowance = allowance,
+                )
+            }
+            if (connectivityMonitor == null) {
+                connectivityMonitor = AndroidValidatedConnectivityMonitor(appContext)
+            }
+            if (networkRestriction == null) {
+                val monitor = connectivityMonitor!!
+                networkRestriction = NetworkRestrictionCoordinator(
+                    repository = downloads(appContext),
+                    wifiOnly = { SettingsRepository.get(appContext).settings.value.wifiOnly },
+                    connectivity = { monitor.current() },
+                    allowance = allowance,
+                    scheduler = queueScheduler!!,
+                    pauseActive = { id ->
+                        DownloadTransferService.pauseTransfer(
+                            appContext,
+                            id,
+                            DownloadPauseCause.NETWORK_POLICY,
+                        )
+                    },
+                ).also { it.syncAllowanceFromSnapshot() }
+            }
+            if (!restrictionCollectorStarted) {
+                restrictionCollectorStarted = true
+                val monitor = connectivityMonitor!!
+                val coordinator = networkRestriction!!
+                restrictionScope.launch {
+                    combine(
+                        downloads(appContext).downloads
+                            .map { records -> records.map { it.id to it.state } }
+                            .distinctUntilChanged(),
+                        SettingsRepository.get(appContext).settings
+                            .map { it.wifiOnly }
+                            .distinctUntilChanged(),
+                        monitor.connectivity,
+                    ) { _, _, _ -> }
+                        .collect { coordinator.apply() }
+                }
+            }
         }
     }
 

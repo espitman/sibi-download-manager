@@ -23,6 +23,28 @@ class PauseQueuedMutationTest {
         assertEquals(777L, paused.downloadedBytes)
         assertEquals(1_500L, paused.updatedAtEpochMillis)
         assertNull(paused.error)
+        assertNull(paused.pauseCause)
+    }
+
+    @Test
+    fun networkPolicyCauseIsPersistedOnQueuedPause() {
+        val queued = Download(
+            id = "queued",
+            url = "https://example.com/queued.bin",
+            fileName = "queued.bin",
+            downloadedBytes = 12L,
+            createdAtEpochMillis = 1_000L,
+        )
+
+        val paused = PauseQueuedMutation.apply(
+            queued,
+            nowEpochMillis = 2_000L,
+            pauseCause = DownloadPauseCause.NETWORK_POLICY,
+        )!!
+
+        assertEquals(DownloadState.PAUSED, paused.state)
+        assertEquals(12L, paused.downloadedBytes)
+        assertEquals(DownloadPauseCause.NETWORK_POLICY, paused.pauseCause)
     }
 
     @Test

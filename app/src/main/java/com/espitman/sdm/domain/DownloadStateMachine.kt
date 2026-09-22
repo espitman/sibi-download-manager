@@ -56,6 +56,7 @@ object DownloadStateMachine {
         return download.copy(
             state = to,
             error = error,
+            pauseCause = if (to == DownloadState.PAUSED) download.pauseCause else null,
             updatedAtEpochMillis = nowEpochMillis,
             startedAtEpochMillis = when {
                 download.startedAtEpochMillis != null -> download.startedAtEpochMillis

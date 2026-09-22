@@ -50,6 +50,12 @@ data class Download(
     val destinationTreeUri: String? = null,
     /** Stable user-facing folder label for a user-selected tree; `null` for app-private files. */
     val destinationDisplayLabel: String? = null,
+    /**
+     * Why a PAUSED record was paused. `null` is a manual or legacy pause.
+     * Only [DownloadPauseCause.NETWORK_POLICY] is auto-requeued when transfers
+     * become allowed again.
+     */
+    val pauseCause: DownloadPauseCause? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }
@@ -93,6 +99,9 @@ data class Download(
         }
         require(destinationDisplayLabel == null || destinationDisplayLabel.isNotBlank()) {
             "Destination display label cannot be blank"
+        }
+        require(pauseCause == null || state == DownloadState.PAUSED) {
+            "Only paused downloads may record a pause cause"
         }
     }
 }

@@ -2,6 +2,7 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.storage.DownloadDestinationPublisher
 import com.espitman.sdm.storage.DownloadDestinationRef
@@ -59,6 +60,7 @@ class DownloadTransferEngine(
         tempFile: File,
         repository: DownloadRepository,
         pauseRequested: () -> Boolean = { false },
+        pauseCause: () -> DownloadPauseCause? = { null },
     ) = withContext(ioDispatcher) {
         require(downloadId.isNotBlank()) { "Download ID cannot be blank" }
         require(url.isNotBlank()) { "URL cannot be blank" }
@@ -451,14 +453,14 @@ class DownloadTransferEngine(
             }
         } catch (cancellation: CancellationException) {
             activeCall.cancel()
-            persistPausedIfRequested(repository, downloadId, writeFile, pauseRequested)
+            persistPausedIfRequested(repository, downloadId, writeFile, pauseRequested, pauseCause)
             commitRestartPartial(tempFile, restartFile, restartAccepted)
             throw cancellation
         } catch (e: Throwable) {
             try {
                 currentCoroutineContext().ensureActive()
             } catch (cancellation: CancellationException) {
-                persistPausedIfRequested(repository, downloadId, writeFile, pauseRequested)
+                persistPausedIfRequested(repository, downloadId, writeFile, pauseRequested, pauseCause)
                 commitRestartPartial(tempFile, restartFile, restartAccepted)
                 throw cancellation
             }
@@ -473,7 +475,7 @@ class DownloadTransferEngine(
             }
         } finally {
             cancellationHandle.dispose()
-            persistPausedIfRequested(repository, downloadId, writeFile, pauseRequested)
+            persistPausedIfRequested(repository, downloadId, writeFile, pauseRequested, pauseCause)
             if (!completedSuccessfully && restartAccepted) {
                 commitRestartPartial(tempFile, restartFile, restartAccepted)
             } else if (!completedSuccessfully && !restartAccepted) {
@@ -528,7 +530,7 @@ class DownloadTransferEngine(
         tempFile: File,
         repository: DownloadRepository,
     ) {
-        persistPausedIfRequested(repository, downloadId, tempFile) { true }
+        persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested = { true })
     }
 
     private fun shouldPublishProgress(
@@ -564,6 +566,7 @@ class DownloadTransferEngine(
         downloadId: String,
         tempFile: File,
         pauseRequested: () -> Boolean,
+        pauseCause: () -> DownloadPauseCause? = { null },
     ) {
         if (!pauseRequested()) return
         withContext(NonCancellable) {
@@ -573,6 +576,7 @@ class DownloadTransferEngine(
                 id = downloadId,
                 fileLengthBytes = fileLength,
                 nowEpochMillis = validTimestamp(current.updatedAtEpochMillis),
+                pauseCause = pauseCause(),
             )
         }
     }

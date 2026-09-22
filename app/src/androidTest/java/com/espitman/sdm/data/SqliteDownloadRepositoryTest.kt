@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -190,8 +191,75 @@ class SqliteDownloadRepositoryTest {
         assertEquals(0, migrated.automaticRetryCount)
         assertNull(migrated.destinationTreeUri)
         assertNull(migrated.destinationDisplayLabel)
+        assertNull(migrated.pauseCause)
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
         assertDestinationColumnsExist()
+    }
+
+    @Test
+    fun versionEightDatabaseMigratesPauseCauseToNull() = runBlocking {
+        seedLegacyDatabase(8)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        val migrated = repository!!.downloads.value.single()
+        assertEquals("legacy", migrated.id)
+        assertNull(migrated.pauseCause)
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertPauseCauseColumnExists()
+    }
+
+    @Test
+    fun pauseCauseRoundTripsNullAndNetworkPolicyAndSurvivesReopen() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "manual",
+                url = "https://example.com/manual.bin",
+                fileName = "manual.bin",
+                createdAtEpochMillis = 100,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "policy",
+                url = "https://example.com/policy.bin",
+                fileName = "policy.bin",
+                createdAtEpochMillis = 101,
+            ),
+        )
+        repository!!.transition("manual", DownloadState.CONNECTING, 200)
+        repository!!.transition("policy", DownloadState.CONNECTING, 201)
+        repository!!.pauseAtExactOffset("manual", fileLengthBytes = 0, nowEpochMillis = 300)
+        repository!!.pauseAtExactOffset(
+            "policy",
+            fileLengthBytes = 0,
+            nowEpochMillis = 301,
+            pauseCause = DownloadPauseCause.NETWORK_POLICY,
+        )
+
+        fun values() = repository!!.downloads.value.associate { it.id to it.pauseCause }
+        assertEquals(
+            mapOf("manual" to null, "policy" to DownloadPauseCause.NETWORK_POLICY),
+            values(),
+        )
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(
+            mapOf("manual" to null, "policy" to DownloadPauseCause.NETWORK_POLICY),
+            values(),
+        )
+
+        val requeued = repository!!.requeueNetworkPolicyPaused(400)
+        assertEquals(listOf("policy"), requeued.map { it.id })
+        assertEquals(DownloadState.QUEUED, repository!!.get("policy")!!.state)
+        assertNull(repository!!.get("policy")!!.pauseCause)
+        assertEquals(DownloadState.PAUSED, repository!!.get("manual")!!.state)
+        assertNull(repository!!.get("manual")!!.pauseCause)
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
     }
 
     @Test
@@ -696,6 +764,7 @@ class SqliteDownloadRepositoryTest {
             if (version >= 5) DownloadDatabase.migrateFourToFive(db)
             if (version >= 6) DownloadDatabase.migrateFiveToSix(db)
             if (version >= 7) DownloadDatabase.migrateSixToSeven(db)
+            if (version >= 8) DownloadDatabase.migrateSevenToEight(db)
             db.execSQL(
                 """INSERT INTO downloads
                     (id,url,file_name,downloaded_bytes,state,priority,created_at,updated_at)
@@ -756,6 +825,22 @@ class SqliteDownloadRepositoryTest {
                     while (cursor.moveToNext()) add(cursor.getString(nameIndex))
                 }
                 assertEquals(true, names.contains("automatic_retry_count"))
+            }
+        }
+    }
+
+    private fun assertPauseCauseColumnExists() {
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            db.rawQuery("PRAGMA table_info(downloads)", null).use { cursor ->
+                val names = buildList {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+                assertEquals(true, names.contains("pause_cause"))
             }
         }
     }

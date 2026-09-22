@@ -1,5 +1,6 @@
 package com.espitman.sdm.download
 
+import com.espitman.sdm.domain.DownloadPauseCause
 import kotlinx.coroutines.Job
 
 sealed interface SessionCommandResult {
@@ -23,7 +24,13 @@ class DownloadTransferSession {
             }
             is PauseTransferCommand -> {
                 val transfer = active[command.downloadId] ?: return@synchronized SessionCommandResult.None
+                val alreadyPauseRequested = transfer.pauseRequested
                 transfer.pauseRequested = true
+                if (command.pauseCause == null) {
+                    transfer.pauseCause = null
+                } else if (!alreadyPauseRequested) {
+                    transfer.pauseCause = command.pauseCause
+                }
                 cancelAttachedJobIfNeeded(command.downloadId, transfer)
             }
             is CancelTransferCommand -> {
@@ -46,6 +53,12 @@ class DownloadTransferSession {
     fun isPauseRequested(downloadId: String): Boolean = synchronized(lock) {
         val transfer = active[downloadId] ?: return false
         transfer.pauseRequested && !transfer.cancelRequested
+    }
+
+    fun pauseCause(downloadId: String): DownloadPauseCause? = synchronized(lock) {
+        val transfer = active[downloadId] ?: return null
+        if (!transfer.pauseRequested || transfer.cancelRequested) return null
+        transfer.pauseCause
     }
 
     fun isCancelRequested(downloadId: String): Boolean = synchronized(lock) {
@@ -79,5 +92,6 @@ class DownloadTransferSession {
         var job: Job? = null,
         var pauseRequested: Boolean = false,
         var cancelRequested: Boolean = false,
+        var pauseCause: DownloadPauseCause? = null,
     )
 }

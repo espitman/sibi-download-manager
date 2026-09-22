@@ -28,6 +28,28 @@ class DownloadPauseMutationTest {
         assertEquals(3_000L, paused.downloadedBytes)
         assertEquals(3_000L, paused.updatedAtEpochMillis)
         assertEquals(null, paused.error)
+        assertEquals(null, paused.pauseCause)
+    }
+
+    @Test
+    fun recordsNetworkPolicyCauseWithoutClearingOffset() {
+        val downloading = DownloadStateMachine.transition(
+            DownloadStateMachine.transition(queued(), DownloadState.CONNECTING, 2_000),
+            DownloadState.DOWNLOADING,
+            3_000,
+        ).copy(downloadedBytes = 2_000L)
+
+        val paused = DownloadPauseMutation.apply(
+            downloading,
+            fileLengthBytes = 2_000L,
+            nowEpochMillis = 4_000L,
+            pauseCause = DownloadPauseCause.NETWORK_POLICY,
+        )
+
+        assertEquals(DownloadState.PAUSED, paused.state)
+        assertEquals(2_000L, paused.downloadedBytes)
+        assertEquals(DownloadPauseCause.NETWORK_POLICY, paused.pauseCause)
+        assertEquals(null, paused.error)
     }
 
     @Test

@@ -78,5 +78,20 @@ class DownloadStateMachineTest {
         assertThrows(IllegalArgumentException::class.java) {
             queued().copy(destinationDisplayLabel = " ")
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            queued().copy(pauseCause = DownloadPauseCause.NETWORK_POLICY)
+        }
+    }
+
+    @Test
+    fun leavingPausedClearsPauseCause() {
+        val paused = DownloadStateMachine.transition(
+            DownloadStateMachine.transition(queued(), DownloadState.CONNECTING, 2_000),
+            DownloadState.PAUSED,
+            3_000,
+        ).copy(pauseCause = DownloadPauseCause.NETWORK_POLICY)
+        val queuedAgain = DownloadStateMachine.transition(paused, DownloadState.QUEUED, 4_000)
+        assertEquals(null, queuedAgain.pauseCause)
+        assertEquals(DownloadState.QUEUED, queuedAgain.state)
     }
 }

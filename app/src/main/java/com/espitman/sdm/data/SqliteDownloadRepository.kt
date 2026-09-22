@@ -7,8 +7,10 @@ import android.database.sqlite.SQLiteDatabase
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
+import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadMoveToTopMutation
+import com.espitman.sdm.domain.RequeueNetworkPausedMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadRenameMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
@@ -117,13 +119,25 @@ class SqliteDownloadRepository(
         id: String,
         fileLengthBytes: Long,
         nowEpochMillis: Long,
+    ): Download? = pauseAtExactOffset(id, fileLengthBytes, nowEpochMillis, pauseCause = null)
+
+    override suspend fun pauseAtExactOffset(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+        pauseCause: DownloadPauseCause?,
     ): Download? = onIo {
         awaitInitialized()
         mutex.withLock {
             var updated: Download? = null
             database.writableDatabase.inTransaction { db ->
                 val current = queryOne(db, id) ?: return@inTransaction
-                val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+                val paused = DownloadPauseMutation.apply(
+                    current,
+                    fileLengthBytes,
+                    nowEpochMillis,
+                    pauseCause,
+                )
                 if (paused === current || paused == current) {
                     updated = current
                     return@inTransaction
@@ -223,13 +237,37 @@ class SqliteDownloadRepository(
         }
     }
 
-    override suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> = onIo {
+    override suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> =
+        pauseQueuedPreservingOffsets(nowEpochMillis, pauseCause = null)
+
+    override suspend fun pauseQueuedPreservingOffsets(
+        nowEpochMillis: Long,
+        pauseCause: DownloadPauseCause?,
+    ): List<Download> = onIo {
         awaitInitialized()
         mutex.withLock {
             val updated = ArrayList<Download>()
             database.writableDatabase.inTransaction { db ->
                 for (current in downloads.value) {
-                    val next = PauseQueuedMutation.apply(current, nowEpochMillis) ?: continue
+                    val next = PauseQueuedMutation.apply(current, nowEpochMillis, pauseCause) ?: continue
+                    persistDownloadMutation(db, current.id, current, next)
+                    updated += next
+                }
+            }
+            if (updated.isNotEmpty()) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun requeueNetworkPolicyPaused(nowEpochMillis: Long): List<Download> = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            val updated = ArrayList<Download>()
+            database.writableDatabase.inTransaction { db ->
+                for (current in downloads.value) {
+                    val next = RequeueNetworkPausedMutation.apply(current, nowEpochMillis) ?: continue
                     persistDownloadMutation(db, current.id, current, next)
                     updated += next
                 }
@@ -489,7 +527,7 @@ class SqliteDownloadRepository(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
             "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count",
-            "destination_tree_uri", "destination_display_label",
+            "destination_tree_uri", "destination_display_label", "pause_cause",
         )
     }
 }
@@ -526,6 +564,7 @@ private fun Download.toValues() = ContentValues().apply {
     put("automatic_retry_count", automaticRetryCount)
     putNullable("destination_tree_uri", destinationTreeUri)
     putNullable("destination_display_label", destinationDisplayLabel)
+    putNullable("pause_cause", pauseCause?.name)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -563,6 +602,10 @@ private fun Cursor.toDownload() = Download(
     automaticRetryCount = getInt(getColumnIndexOrThrow("automatic_retry_count")),
     destinationTreeUri = nullableString("destination_tree_uri"),
     destinationDisplayLabel = nullableString("destination_display_label"),
+    pauseCause = nullableString("pause_cause")?.let { raw ->
+        DownloadPauseCause.entries.find { it.name == raw }
+            ?: error("Unknown pause cause: $raw")
+    },
 )
 
 private fun Cursor.nullableString(column: String): String? =

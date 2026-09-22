@@ -10,6 +10,7 @@ object DownloadPauseMutation {
         current: Download,
         fileLengthBytes: Long,
         nowEpochMillis: Long,
+        pauseCause: DownloadPauseCause? = null,
     ): Download {
         if (current.state !in ACTIVE) return current
         require(fileLengthBytes >= 0L) { "Paused offset cannot be negative" }
@@ -19,6 +20,6 @@ object DownloadPauseMutation {
             current.copy(downloadedBytes = boundedOffset),
             DownloadState.PAUSED,
             timestamp,
-        )
+        ).copy(pauseCause = pauseCause)
     }
 }

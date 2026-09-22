@@ -316,6 +316,27 @@ class DownloadQueueSchedulerTest {
     }
 
     @Test
+    fun blockedAllowanceDoesNotClaimOrSpinQueuedRecords() = runBlocking {
+        val repo = FakeDownloadRepository(
+            listOf(
+                queued("first", createdAt = 1),
+                queued("second", createdAt = 2),
+            ),
+        )
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
+        val scheduler = DownloadQueueScheduler(repo, { 2 }, starter, transferAllowance = allowance)
+
+        repeat(5) { scheduler.schedule() }
+        assertTrue(starter.startedIds().isEmpty())
+        assertEquals(DownloadState.QUEUED, repo.get("first")!!.state)
+
+        allowance.setAllowed(true)
+        scheduler.schedule()
+        assertEquals(listOf("first", "second"), starter.startedIds())
+    }
+
+    @Test
     fun explicitQueuedStartMovesTheSelectedRecordAheadWithinItsPriorityTier() = runBlocking {
         val repo = FakeDownloadRepository(
             listOf(
@@ -417,13 +438,37 @@ class DownloadQueueSchedulerTest {
             id: String,
             fileLengthBytes: Long,
             nowEpochMillis: Long,
+        ): Download? = pauseAtExactOffset(id, fileLengthBytes, nowEpochMillis, pauseCause = null)
+
+        override suspend fun pauseAtExactOffset(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+            pauseCause: com.espitman.sdm.domain.DownloadPauseCause?,
         ): Download? = mutex.withLock {
             val current = _downloads.value.find { it.id == id } ?: return@withLock null
-            val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+            val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis, pauseCause)
             if (paused != current) {
                 _downloads.value = _downloads.value.filterNot { it.id == id } + paused
             }
             paused
+        }
+
+        override suspend fun pauseQueuedPreservingOffsets(
+            nowEpochMillis: Long,
+            pauseCause: com.espitman.sdm.domain.DownloadPauseCause?,
+        ): List<Download> = mutex.withLock {
+            val updated = ArrayList<Download>()
+            _downloads.value = _downloads.value.map { current ->
+                val next = com.espitman.sdm.domain.PauseQueuedMutation.apply(
+                    current,
+                    nowEpochMillis,
+                    pauseCause,
+                ) ?: return@map current
+                updated += next
+                next
+            }
+            updated
         }
 
         override suspend fun cancelAtExactOffset(

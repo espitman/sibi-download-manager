@@ -32,6 +32,26 @@ class DownloadResumeMutationTest {
         assertEquals(4_000L, queuedAgain.downloadedBytes)
         assertEquals(4_000L, queuedAgain.updatedAtEpochMillis)
         assertEquals(null, queuedAgain.error)
+        assertEquals(null, queuedAgain.pauseCause)
+    }
+
+    @Test
+    fun resumeClearsNetworkPolicyCause() {
+        val paused = DownloadStateMachine.transition(
+            DownloadStateMachine.transition(
+                DownloadStateMachine.transition(queued(), DownloadState.CONNECTING, 2_000),
+                DownloadState.DOWNLOADING,
+                3_000,
+            ).copy(downloadedBytes = 4_000L),
+            DownloadState.PAUSED,
+            4_000,
+        ).copy(pauseCause = DownloadPauseCause.NETWORK_POLICY)
+
+        val queuedAgain = DownloadResumeMutation.apply(paused, nowEpochMillis = 5_000L)
+
+        assertEquals(DownloadState.QUEUED, queuedAgain!!.state)
+        assertEquals(null, queuedAgain.pauseCause)
+        assertEquals(4_000L, queuedAgain.downloadedBytes)
     }
 
     @Test

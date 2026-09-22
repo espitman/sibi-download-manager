@@ -1,5 +1,7 @@
 package com.espitman.sdm.download
 
+import com.espitman.sdm.domain.DownloadPauseCause
+
 sealed interface TransferCommand {
     val downloadId: String
 }
@@ -11,6 +13,7 @@ data class StartTransferCommand(
 
 data class PauseTransferCommand(
     override val downloadId: String,
+    val pauseCause: DownloadPauseCause? = null,
 ) : TransferCommand
 
 data class CancelTransferCommand(
@@ -28,6 +31,7 @@ object DownloadTransferCommand {
     const val ACTION_RESUME_TRANSFER = "com.espitman.sdm.download.action.RESUME_TRANSFER"
     const val EXTRA_DOWNLOAD_ID = "com.espitman.sdm.download.extra.DOWNLOAD_ID"
     const val EXTRA_TEMP_FILE_PATH = "com.espitman.sdm.download.extra.TEMP_FILE_PATH"
+    const val EXTRA_PAUSE_CAUSE = "com.espitman.sdm.download.extra.PAUSE_CAUSE"
 
     fun parse(
         action: String?,

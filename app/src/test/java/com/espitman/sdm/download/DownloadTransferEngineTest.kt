@@ -3,6 +3,7 @@ package com.espitman.sdm.download
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadFailure
+import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
@@ -104,9 +105,16 @@ class DownloadTransferEngineTest {
             id: String,
             fileLengthBytes: Long,
             nowEpochMillis: Long,
+        ): Download? = pauseAtExactOffset(id, fileLengthBytes, nowEpochMillis, pauseCause = null)
+
+        override suspend fun pauseAtExactOffset(
+            id: String,
+            fileLengthBytes: Long,
+            nowEpochMillis: Long,
+            pauseCause: com.espitman.sdm.domain.DownloadPauseCause?,
         ): Download? {
             val current = get(id) ?: return null
-            val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis)
+            val paused = DownloadPauseMutation.apply(current, fileLengthBytes, nowEpochMillis, pauseCause)
             if (paused != current) {
                 transitions.add(Triple(id, DownloadState.PAUSED, null))
                 insert(paused)
@@ -1387,6 +1395,7 @@ class DownloadTransferEngineTest {
                 tempFile = tempFile,
                 repository = repo,
                 pauseRequested = { pauseOnCancel.get() },
+                pauseCause = { DownloadPauseCause.NETWORK_POLICY },
             )
         }
         withTimeout(5000L) {
@@ -1415,6 +1424,7 @@ class DownloadTransferEngineTest {
         assertEquals(DownloadState.PAUSED, paused.state)
         assertEquals(partial.size.toLong(), paused.downloadedBytes)
         assertEquals("\"file-v2\"", paused.etag)
+        assertEquals(DownloadPauseCause.NETWORK_POLICY, paused.pauseCause)
     }
 
     @Test

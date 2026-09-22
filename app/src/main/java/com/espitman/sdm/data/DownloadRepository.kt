@@ -2,8 +2,10 @@ package com.espitman.sdm.data
 
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadAllMutation
+import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.PauseQueuedMutation
+import com.espitman.sdm.domain.RequeueNetworkPausedMutation
 import java.time.ZoneId
 import kotlinx.coroutines.flow.StateFlow
 
@@ -27,6 +29,12 @@ interface DownloadRepository {
     ): Download
     suspend fun updateProgress(id: String, downloadedBytes: Long, nowEpochMillis: Long): Download
     suspend fun pauseAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
+    suspend fun pauseAtExactOffset(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+        pauseCause: DownloadPauseCause?,
+    ): Download? = pauseAtExactOffset(id, fileLengthBytes, nowEpochMillis)
     suspend fun cancelAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun resumePaused(id: String, nowEpochMillis: Long): Download?
     /**
@@ -55,14 +63,59 @@ interface DownloadRepository {
         return updated
     }
     /** Atomically move currently QUEUED records to PAUSED, preserving exact downloaded offsets. */
-    suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> {
+    suspend fun pauseQueuedPreservingOffsets(nowEpochMillis: Long): List<Download> =
+        pauseQueuedPreservingOffsets(nowEpochMillis, pauseCause = null)
+
+    suspend fun pauseQueuedPreservingOffsets(
+        nowEpochMillis: Long,
+        pauseCause: DownloadPauseCause?,
+    ): List<Download> {
         awaitInitialized()
         val updated = ArrayList<Download>()
         for (download in downloads.value) {
-            val next = PauseQueuedMutation.apply(download, nowEpochMillis) ?: continue
+            val next = PauseQueuedMutation.apply(download, nowEpochMillis, pauseCause) ?: continue
             updated += transition(download.id, DownloadState.PAUSED, next.updatedAtEpochMillis)
         }
         return updated
+    }
+
+    /**
+     * Re-queues only records paused by network policy. Manual pauses stay paused.
+     */
+    suspend fun requeueNetworkPolicyPaused(nowEpochMillis: Long): List<Download> {
+        awaitInitialized()
+        val updated = ArrayList<Download>()
+        for (download in downloads.value) {
+            val next = RequeueNetworkPausedMutation.apply(download, nowEpochMillis) ?: continue
+            resumePaused(download.id, next.updatedAtEpochMillis)?.let(updated::add)
+        }
+        return updated
+    }
+
+    /**
+     * Pause a queued or active record for network policy without recording a failure.
+     * Preserves the exact downloaded offset for resumable partial bytes.
+     */
+    suspend fun pauseRecordForNetworkPolicy(
+        id: String,
+        fileLengthBytes: Long,
+        nowEpochMillis: Long,
+    ): Download? {
+        val current = get(id) ?: return null
+        return when (current.state) {
+            DownloadState.QUEUED -> {
+                pauseQueuedPreservingOffsets(nowEpochMillis, DownloadPauseCause.NETWORK_POLICY)
+                get(id)
+            }
+            DownloadState.CONNECTING, DownloadState.DOWNLOADING ->
+                pauseAtExactOffset(
+                    id,
+                    fileLengthBytes,
+                    nowEpochMillis,
+                    DownloadPauseCause.NETWORK_POLICY,
+                )
+            else -> current
+        }
     }
     suspend fun togglePriority(id: String, nowEpochMillis: Long): Download?
     /** Moves a QUEUED record first within its priority tier via a lower sortOrder; no-op if missing, non-queued, or already first. */

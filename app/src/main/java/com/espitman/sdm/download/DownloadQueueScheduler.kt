@@ -20,6 +20,7 @@ class DownloadQueueScheduler(
     private val concurrentLimit: ConcurrentDownloadLimit,
     private val starter: QueuedTransferStarter,
     private val clock: Clock = Clock.SystemClock,
+    private val transferAllowance: TransferAllowance = TransferAllowance { true },
 ) {
     private val mutex = Mutex()
     private val bulkMutex = Mutex()
@@ -118,6 +119,7 @@ class DownloadQueueScheduler(
 
     private suspend fun claimLocked(excludeIds: Set<String>): List<Download> {
         repository.awaitInitialized()
+        if (!transferAllowance.isAllowed()) return emptyList()
         val snapshot = repository.schedulingSnapshot()
         pruneLaunchingLocked(snapshot)
         val selected = DownloadQueuePolicy.select(
