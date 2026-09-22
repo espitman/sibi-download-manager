@@ -13,6 +13,7 @@ class NetworkRestrictionCoordinator(
     private val scheduler: DownloadQueueScheduler,
     private val pauseActive: (String) -> Unit,
     private val clock: Clock = Clock.SystemClock,
+    private val autoResume: () -> Boolean = { true },
 ) {
     private val mutex = Mutex()
 
@@ -31,7 +32,9 @@ class NetworkRestrictionCoordinator(
         allowance.setAllowed(allowed)
         repository.awaitInitialized()
         if (allowed) {
-            repository.requeueNetworkPolicyPaused(clock.currentTimeMillis())
+            if (autoResume()) {
+                repository.requeueNetworkPolicyPaused(clock.currentTimeMillis())
+            }
             scheduler.schedule()
         } else {
             repository.pauseQueuedPreservingOffsets(

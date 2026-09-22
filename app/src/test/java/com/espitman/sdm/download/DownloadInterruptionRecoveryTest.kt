@@ -6,6 +6,7 @@ import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
+import com.espitman.sdm.domain.RecoverInterruptedActiveMutation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -191,6 +193,159 @@ class DownloadInterruptionRecoveryTest {
     }
 
     @Test
+    fun autoResumeRequeuesStaleActiveWithoutFailureOrRetryBudget() = runBlocking {
+        val clock = FakeClock(5_000)
+        val repo = FakeDownloadRepository(
+            listOf(
+                download(id = "queued", state = DownloadState.QUEUED),
+                download(id = "connecting", state = DownloadState.CONNECTING, downloadedBytes = 0),
+                download(
+                    id = "downloading",
+                    state = DownloadState.DOWNLOADING,
+                    downloadedBytes = 40,
+                    totalBytes = 100,
+                    destinationPath = "/tmp/partial.bin",
+                    automaticRetryCount = 2,
+                ),
+                download(id = "paused", state = DownloadState.PAUSED, downloadedBytes = 10),
+                download(
+                    id = "completed",
+                    state = DownloadState.COMPLETED,
+                    downloadedBytes = 100,
+                    totalBytes = 100,
+                    completedAt = 2_000,
+                ),
+                download(id = "failed", state = DownloadState.FAILED, error = "HTTP 500: Internal Server Error"),
+                download(id = "cancelled", state = DownloadState.CANCELLED),
+            ),
+        )
+
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.PROCESS_RESTART,
+            autoResume = true,
+        )
+
+        assertEquals(listOf("connecting", "downloading"), repo.transitions.map { it.id })
+        assertEquals(DownloadState.QUEUED, repo.require("queued").state)
+        assertEquals(DownloadState.PAUSED, repo.require("paused").state)
+        assertNull(repo.require("paused").pauseCause)
+        assertEquals(DownloadState.COMPLETED, repo.require("completed").state)
+        assertEquals(DownloadState.FAILED, repo.require("failed").state)
+        assertEquals("HTTP 500: Internal Server Error", repo.require("failed").error)
+        assertEquals(DownloadState.CANCELLED, repo.require("cancelled").state)
+        assertEquals(DownloadState.QUEUED, repo.require("connecting").state)
+        assertEquals(DownloadState.QUEUED, repo.require("downloading").state)
+        assertNull(repo.require("connecting").error)
+        assertNull(repo.require("downloading").error)
+        assertEquals(40L, repo.require("downloading").downloadedBytes)
+        assertEquals("/tmp/partial.bin", repo.require("downloading").destinationPath)
+        assertEquals(2, repo.require("downloading").automaticRetryCount)
+        assertEquals(0, repo.deletes)
+        repo.transitions.forEach { recorded ->
+            assertEquals(DownloadState.QUEUED, recorded.to)
+            assertNull(recorded.error)
+        }
+    }
+
+    @Test
+    fun autoResumeDeviceBootMatchesProcessRestartAndIsIdempotent() = runBlocking {
+        val clock = FakeClock(5_000)
+        val repo = FakeDownloadRepository(
+            listOf(download(id = "active", state = DownloadState.DOWNLOADING, downloadedBytes = 8, totalBytes = 50)),
+        )
+
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.DEVICE_BOOT,
+            autoResume = true,
+        )
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.PROCESS_RESTART,
+            autoResume = true,
+        )
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.DEVICE_BOOT,
+            autoResume = false,
+        )
+
+        assertEquals(1, repo.transitions.size)
+        assertEquals(DownloadState.QUEUED, repo.require("active").state)
+        assertNull(repo.require("active").error)
+        assertEquals(8L, repo.require("active").downloadedBytes)
+    }
+
+    @Test
+    fun autoResumeSnapshotPlusRereadSkipsMissingAndNoLongerActiveRecords() = runBlocking {
+        val clock = FakeClock(5_000)
+        val repo = FakeDownloadRepository(
+            listOf(
+                download(id = "missing", state = DownloadState.CONNECTING),
+                download(id = "paused-after-snapshot", state = DownloadState.CONNECTING),
+                download(id = "still-active", state = DownloadState.DOWNLOADING, downloadedBytes = 12, totalBytes = 100),
+            ),
+        )
+        repo.overrideGet["missing"] = { null }
+        repo.overrideGet["paused-after-snapshot"] = {
+            download(id = "paused-after-snapshot", state = DownloadState.PAUSED)
+        }
+
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.DEVICE_BOOT,
+            autoResume = true,
+        )
+
+        assertEquals(listOf("still-active"), repo.transitions.map { it.id })
+        assertEquals(DownloadState.QUEUED, repo.require("still-active").state)
+        assertNull(repo.require("still-active").error)
+    }
+
+    @Test
+    fun autoResumeTransitionFailureIsToleratedOnlyWhenRereadIsMissingOrInactive() = runBlocking {
+        val clock = FakeClock(5_000)
+        val tolerated = FakeDownloadRepository(
+            listOf(download(id = "raced", state = DownloadState.CONNECTING)),
+        )
+        tolerated.transitionFailure = IllegalStateException("concurrent update")
+        tolerated.overrideGetAfterTransition["raced"] = {
+            download(id = "raced", state = DownloadState.PAUSED)
+        }
+
+        DownloadInterruptionRecovery.recover(
+            tolerated,
+            clock,
+            DownloadInterruptionTrigger.PROCESS_RESTART,
+            autoResume = true,
+        )
+
+        val propagated = FakeDownloadRepository(
+            listOf(download(id = "stuck", state = DownloadState.DOWNLOADING, downloadedBytes = 3, totalBytes = 10)),
+        )
+        val failure = IllegalStateException("still active")
+        propagated.transitionFailure = failure
+
+        try {
+            DownloadInterruptionRecovery.recover(
+                propagated,
+                clock,
+                DownloadInterruptionTrigger.PROCESS_RESTART,
+                autoResume = true,
+            )
+            fail("expected transition failure to propagate")
+        } catch (thrown: IllegalStateException) {
+            assertSame(failure, thrown)
+        }
+    }
+
+    @Test
     fun concurrentGateRunsRecoveryExactlyOnceAndSharesSuccess() = runBlocking {
         val gate = DownloadRecoveryOnceGate()
         val started = CompletableDeferred<Unit>()
@@ -266,6 +421,7 @@ class DownloadInterruptionRecoveryTest {
         destinationPath: String? = null,
         updatedAt: Long = 1_000,
         completedAt: Long? = null,
+        automaticRetryCount: Int = 0,
     ) = Download(
         id = id,
         url = "https://example.com/$id.bin",
@@ -279,6 +435,7 @@ class DownloadInterruptionRecoveryTest {
         updatedAtEpochMillis = updatedAt,
         startedAtEpochMillis = if (state == DownloadState.QUEUED) null else 1_000,
         completedAtEpochMillis = completedAt,
+        automaticRetryCount = automaticRetryCount,
     )
 
     private class FakeClock(private val currentTime: Long) : Clock {
@@ -375,6 +532,16 @@ class DownloadInterruptionRecoveryTest {
             )
             if (cancelled != current) insert(cancelled)
             return cancelled
+        }
+
+        override suspend fun requeueInterruptedActive(
+            id: String,
+            nowEpochMillis: Long,
+        ): Download? {
+            val current = _downloads.value.find { it.id == id } ?: return null
+            val queued = RecoverInterruptedActiveMutation.apply(current, nowEpochMillis)
+                ?: return null
+            return transition(id, DownloadState.QUEUED, queued.updatedAtEpochMillis)
         }
 
         override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? {

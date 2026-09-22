@@ -129,6 +129,7 @@ object AppRepositories {
                 repository = downloads(context),
                 clock = clock,
                 trigger = trigger,
+                autoResume = SettingsRepository.get(context).settings.value.autoResume,
             )
         }
         networkRestriction(context).apply()
@@ -195,6 +196,7 @@ object AppRepositories {
                             DownloadPauseCause.NETWORK_POLICY,
                         )
                     },
+                    autoResume = { SettingsRepository.get(appContext).settings.value.autoResume },
                 ).also { it.syncAllowanceFromSnapshot() }
             }
             if (!restrictionCollectorStarted) {
@@ -207,7 +209,7 @@ object AppRepositories {
                             .map { records -> records.map { it.id to it.state } }
                             .distinctUntilChanged(),
                         SettingsRepository.get(appContext).settings
-                            .map { it.wifiOnly }
+                            .map { settings -> settings.wifiOnly to settings.autoResume }
                             .distinctUntilChanged(),
                         monitor.connectivity,
                     ) { _, _, _ -> }

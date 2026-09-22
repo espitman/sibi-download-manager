@@ -9,11 +9,13 @@ object DownloadStateMachine {
         ),
         DownloadState.CONNECTING to setOf(
             DownloadState.DOWNLOADING,
+            DownloadState.QUEUED,
             DownloadState.PAUSED,
             DownloadState.FAILED,
             DownloadState.CANCELLED,
         ),
         DownloadState.DOWNLOADING to setOf(
+            DownloadState.QUEUED,
             DownloadState.PAUSED,
             DownloadState.COMPLETED,
             DownloadState.FAILED,

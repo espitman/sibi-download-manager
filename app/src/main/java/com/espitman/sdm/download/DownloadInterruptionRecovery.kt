@@ -16,6 +16,7 @@ object DownloadInterruptionRecovery {
         repository: DownloadRepository,
         clock: Clock,
         trigger: DownloadInterruptionTrigger,
+        autoResume: Boolean = false,
     ) {
         repository.awaitInitialized()
         val snapshotIds = repository.downloads.value
@@ -26,12 +27,16 @@ object DownloadInterruptionRecovery {
             if (current.state !in ACTIVE_STATES) continue
             val nowEpochMillis = max(clock.currentTimeMillis(), current.updatedAtEpochMillis)
             try {
-                repository.transition(
-                    id = id,
-                    to = DownloadState.FAILED,
-                    nowEpochMillis = nowEpochMillis,
-                    error = trigger.errorMessage,
-                )
+                if (autoResume) {
+                    repository.requeueInterruptedActive(id, nowEpochMillis)
+                } else {
+                    repository.transition(
+                        id = id,
+                        to = DownloadState.FAILED,
+                        nowEpochMillis = nowEpochMillis,
+                        error = trigger.errorMessage,
+                    )
+                }
             } catch (thrown: Throwable) {
                 val latest = repository.get(id)
                 if (latest == null || latest.state !in ACTIVE_STATES) continue

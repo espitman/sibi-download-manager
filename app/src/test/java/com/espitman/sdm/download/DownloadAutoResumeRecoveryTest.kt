@@ -5,11 +5,19 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
+import com.espitman.sdm.domain.DownloadRetryFailedMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import com.espitman.sdm.domain.PauseQueuedMutation
 import com.espitman.sdm.domain.RecoverInterruptedActiveMutation
 import com.espitman.sdm.domain.RequeueNetworkPausedMutation
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,289 +29,295 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 
-class NetworkRestrictionCoordinatorTest {
+class DownloadAutoResumeRecoveryTest {
     @Test
-    fun snapshotBlocksCellularWhenWifiOnlyBeforeAnySchedule() = runBlocking {
+    fun recoverThenApplyDoesNotStartBeforeAllowanceSnapshot() = runBlocking {
         val repo = FakeRepo(
             listOf(
+                active("stale", DownloadState.DOWNLOADING, downloadedBytes = 22L),
                 queued("waiting"),
-                active("live", DownloadState.DOWNLOADING, downloadedBytes = 25L),
-                paused("manual"),
             ),
         )
         val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance(initiallyAllowed = true)
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
         val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
-        val pausedActive = CopyOnWriteArrayList<String>()
+        val coordinator = coordinator(
+            repo = repo,
+            allowance = allowance,
+            scheduler = scheduler,
+            wifiOnly = true,
+            transport = ValidatedTransport.WIFI,
+        )
+
+        assertFalse(allowance.isAllowed())
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.PROCESS_RESTART,
+            autoResume = true,
+        )
+        assertEquals(DownloadState.QUEUED, repo.get("stale")!!.state)
+        assertEquals(22L, repo.get("stale")!!.downloadedBytes)
+        assertEquals(0, repo.retryFailedCalls.get())
+        assertFalse(allowance.isAllowed())
+        assertTrue(starter.startedIds().isEmpty())
+
+        coordinator.apply()
+        assertTrue(allowance.isAllowed())
+        assertEquals(setOf("stale", "waiting"), starter.startedIds().toSet())
+    }
+
+    @Test
+    fun recoveredWorkStaysPausedWhenNetworkStillDisallowed() = runBlocking {
+        val repo = FakeRepo(
+            listOf(active("stale", DownloadState.CONNECTING, downloadedBytes = 5L)),
+        )
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
+        val scheduler = DownloadQueueScheduler(repo, { 2 }, starter, transferAllowance = allowance)
         val coordinator = coordinator(
             repo = repo,
             allowance = allowance,
             scheduler = scheduler,
             wifiOnly = true,
             transport = ValidatedTransport.CELLULAR,
-            pauseActive = { pausedActive += it },
         )
 
-        coordinator.syncAllowanceFromSnapshot()
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.DEVICE_BOOT,
+            autoResume = true,
+        )
+        assertEquals(DownloadState.QUEUED, repo.get("stale")!!.state)
+        assertTrue(starter.startedIds().isEmpty())
+
+        coordinator.apply()
         assertFalse(allowance.isAllowed())
-        scheduler.schedule()
-        assertTrue(starter.startedIds().isEmpty())
-
-        coordinator.apply()
-        assertEquals(DownloadState.PAUSED, repo.get("waiting")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("waiting")!!.pauseCause)
-        assertEquals(listOf("live"), pausedActive.toList())
-        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
-        assertNull(repo.get("manual")!!.pauseCause)
+        assertEquals(DownloadState.PAUSED, repo.get("stale")!!.state)
+        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("stale")!!.pauseCause)
+        assertEquals(5L, repo.get("stale")!!.downloadedBytes)
         assertTrue(starter.startedIds().isEmpty())
     }
 
     @Test
-    fun ethernetIsAllowedWhenWifiOnlyMatchesPauseOnMobileDataCopy() = runBlocking {
-        val repo = FakeRepo(listOf(queued("waiting")))
-        val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance()
-        val scheduler = DownloadQueueScheduler(repo, { 1 }, starter, transferAllowance = allowance)
-        val coordinator = coordinator(
-            repo = repo,
-            allowance = allowance,
-            scheduler = scheduler,
-            wifiOnly = true,
-            transport = ValidatedTransport.ETHERNET,
-        )
-
-        coordinator.apply()
-        assertTrue(allowance.isAllowed())
-        assertEquals(listOf("waiting"), starter.startedIds())
-        assertEquals(DownloadState.QUEUED, repo.get("waiting")!!.state)
-    }
-
-    @Test
-    fun turningWifiOnlyOffOnCellularRequeuesOnlyNetworkPausedRecords() = runBlocking {
+    fun recoveredWorkRespectsConcurrencyAfterAllowanceIsEstablished() = runBlocking {
         val repo = FakeRepo(
             listOf(
-                paused("network").copy(pauseCause = DownloadPauseCause.NETWORK_POLICY, downloadedBytes = 8L),
-                paused("manual", downloadedBytes = 9L),
-                queued("already-queued"),
+                active("first", DownloadState.DOWNLOADING, downloadedBytes = 1L),
+                active("second", DownloadState.CONNECTING, downloadedBytes = 2L),
+                active("third", DownloadState.DOWNLOADING, downloadedBytes = 3L),
             ),
         )
         val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance()
-        val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
-        val wifiOnly = AtomicBoolean(true)
-        val transport = AtomicReference(ValidatedTransport.CELLULAR)
-        val coordinator = coordinator(
-            repo = repo,
-            allowance = allowance,
-            scheduler = scheduler,
-            wifiOnly = { wifiOnly.get() },
-            connectivity = { ValidatedConnectivity(transport.get()) },
-        )
-
-        coordinator.apply()
-        assertTrue(starter.startedIds().isEmpty())
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("already-queued")!!.pauseCause)
-
-        wifiOnly.set(false)
-        coordinator.apply()
-        assertEquals(DownloadState.QUEUED, repo.get("network")!!.state)
-        assertNull(repo.get("network")!!.pauseCause)
-        assertEquals(8L, repo.get("network")!!.downloadedBytes)
-        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
-        assertNull(repo.get("manual")!!.pauseCause)
-        assertEquals(setOf("network", "already-queued"), starter.startedIds().toSet())
-    }
-
-    @Test
-    fun applyIsIdempotentAndDoesNotSpinBlockedQueuedWork() = runBlocking {
-        val repo = FakeRepo(listOf(queued("waiting")))
-        val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance()
-        val scheduler = DownloadQueueScheduler(repo, { 1 }, starter, transferAllowance = allowance)
-        val pauseCalls = AtomicInteger(0)
-        val coordinator = coordinator(
-            repo = repo,
-            allowance = allowance,
-            scheduler = scheduler,
-            wifiOnly = true,
-            transport = ValidatedTransport.NONE,
-            pauseActive = { pauseCalls.incrementAndGet() },
-        )
-
-        repeat(4) { coordinator.apply() }
-        scheduler.schedule()
-        scheduler.schedule()
-        assertEquals(DownloadState.PAUSED, repo.get("waiting")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("waiting")!!.pauseCause)
-        assertTrue(starter.startedIds().isEmpty())
-        assertEquals(0, pauseCalls.get())
-    }
-
-    @Test
-    fun autoResumeOffLeavesNetworkPausedWhenTransfersBecomeAllowed() = runBlocking {
-        val repo = FakeRepo(
-            listOf(
-                paused("network").copy(pauseCause = DownloadPauseCause.NETWORK_POLICY, downloadedBytes = 8L),
-                paused("manual", downloadedBytes = 9L),
-                queued("already-queued"),
-            ),
-        )
-        val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance()
-        val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
-        val wifiOnly = AtomicBoolean(true)
-        val autoResume = AtomicBoolean(false)
-        val transport = AtomicReference(ValidatedTransport.CELLULAR)
-        val coordinator = coordinator(
-            repo = repo,
-            allowance = allowance,
-            scheduler = scheduler,
-            wifiOnly = { wifiOnly.get() },
-            connectivity = { ValidatedConnectivity(transport.get()) },
-            autoResume = { autoResume.get() },
-        )
-
-        coordinator.apply()
-        assertTrue(starter.startedIds().isEmpty())
-        assertEquals(DownloadState.PAUSED, repo.get("already-queued")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("already-queued")!!.pauseCause)
-
-        wifiOnly.set(false)
-        coordinator.apply()
-        assertEquals(DownloadState.PAUSED, repo.get("network")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("network")!!.pauseCause)
-        assertEquals(8L, repo.get("network")!!.downloadedBytes)
-        assertEquals(DownloadState.PAUSED, repo.get("already-queued")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("already-queued")!!.pauseCause)
-        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
-        assertNull(repo.get("manual")!!.pauseCause)
-        assertTrue(starter.startedIds().isEmpty())
-    }
-
-    @Test
-    fun turningAutoResumeOnWhileAllowedRequeuesNetworkPausedAndSchedules() = runBlocking {
-        val repo = FakeRepo(
-            listOf(
-                paused("network").copy(pauseCause = DownloadPauseCause.NETWORK_POLICY, downloadedBytes = 15L),
-                paused("manual", downloadedBytes = 4L),
-                active("live", DownloadState.DOWNLOADING, downloadedBytes = 20L),
-            ),
-        )
-        val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance()
-        val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
-        val autoResume = AtomicBoolean(false)
-        val pausedActive = CopyOnWriteArrayList<String>()
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
+        val scheduler = DownloadQueueScheduler(repo, { 2 }, starter, transferAllowance = allowance)
         val coordinator = coordinator(
             repo = repo,
             allowance = allowance,
             scheduler = scheduler,
             wifiOnly = false,
             transport = ValidatedTransport.CELLULAR,
-            pauseActive = { pausedActive += it },
-            autoResume = { autoResume.get() },
         )
 
-        coordinator.apply()
-        assertEquals(DownloadState.PAUSED, repo.get("network")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("network")!!.pauseCause)
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.PROCESS_RESTART,
+            autoResume = true,
+        )
         assertTrue(starter.startedIds().isEmpty())
-        assertTrue(pausedActive.isEmpty())
-        assertEquals(DownloadState.DOWNLOADING, repo.get("live")!!.state)
+        assertEquals(0, repo.retryFailedCalls.get())
 
-        autoResume.set(true)
         coordinator.apply()
-        assertEquals(DownloadState.QUEUED, repo.get("network")!!.state)
-        assertNull(repo.get("network")!!.pauseCause)
-        assertEquals(15L, repo.get("network")!!.downloadedBytes)
-        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
-        assertNull(repo.get("manual")!!.pauseCause)
-        assertEquals(listOf("network"), starter.startedIds())
-        assertTrue(pausedActive.isEmpty())
-        assertEquals(DownloadState.DOWNLOADING, repo.get("live")!!.state)
+        assertTrue(allowance.isAllowed())
+        assertEquals(2, starter.startedIds().size)
+        assertTrue(starter.startedIds().contains("first"))
+        assertTrue(starter.startedIds().contains("second"))
+        assertEquals(DownloadState.QUEUED, repo.get("third")!!.state)
+        assertEquals(3L, repo.get("third")!!.downloadedBytes)
     }
 
     @Test
-    fun turningAutoResumeOffDoesNotPauseHealthyActiveTransfers() = runBlocking {
+    fun autoResumeOffKeepsStableFailedMessagesAndDoesNotSchedule() = runBlocking {
         val repo = FakeRepo(
             listOf(
-                active("live", DownloadState.DOWNLOADING, downloadedBytes = 30L),
-                queued("waiting"),
+                active("stale", DownloadState.DOWNLOADING, downloadedBytes = 11L),
+                download("http-failed", DownloadState.FAILED, downloadedBytes = 6L, error = "HTTP 404: Not Found"),
             ),
         )
         val starter = RecordingStarter()
-        val allowance = MutableTransferAllowance(initiallyAllowed = true)
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
         val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
-        val autoResume = AtomicBoolean(true)
-        val pausedActive = CopyOnWriteArrayList<String>()
         val coordinator = coordinator(
             repo = repo,
             allowance = allowance,
             scheduler = scheduler,
             wifiOnly = false,
             transport = ValidatedTransport.WIFI,
-            pauseActive = { pausedActive += it },
+        )
+
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.DEVICE_BOOT,
+            autoResume = false,
+        )
+        assertEquals(DownloadState.FAILED, repo.get("stale")!!.state)
+        assertEquals(DownloadInterruptionTrigger.DEVICE_BOOT.errorMessage, repo.get("stale")!!.error)
+        assertEquals("HTTP 404: Not Found", repo.get("http-failed")!!.error)
+        assertTrue(starter.startedIds().isEmpty())
+
+        coordinator.apply()
+        assertTrue(allowance.isAllowed())
+        assertEquals(DownloadState.FAILED, repo.get("stale")!!.state)
+        assertEquals(DownloadInterruptionTrigger.DEVICE_BOOT.errorMessage, repo.get("stale")!!.error)
+        assertEquals(DownloadState.FAILED, repo.get("http-failed")!!.state)
+        assertTrue(starter.startedIds().isEmpty())
+        assertEquals(0, repo.retryFailedCalls.get())
+    }
+
+    @Test
+    fun nonrecoverableStatesStayPutAcrossRecoveryAndAutoResumeToggle() = runBlocking {
+        val repo = FakeRepo(
+            listOf(
+                download("http-failed", DownloadState.FAILED, downloadedBytes = 7L, error = "HTTP 416: Range Not Satisfiable"),
+                download("io-failed", DownloadState.FAILED, downloadedBytes = 3L, error = "java.io.IOException: disk"),
+                download("storage-failed", DownloadState.FAILED, downloadedBytes = 1L, error = "Insufficient storage for destination"),
+                download("integrity-failed", DownloadState.FAILED, downloadedBytes = 2L, error = "Checksum mismatch"),
+                download("cancelled", DownloadState.CANCELLED, downloadedBytes = 4L),
+                download(
+                    "completed",
+                    DownloadState.COMPLETED,
+                    downloadedBytes = 100L,
+                    totalBytes = 100L,
+                    completedAt = 2_000L,
+                ),
+                paused("manual", downloadedBytes = 9L),
+            ),
+        )
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance()
+        val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
+        val autoResume = AtomicBoolean(false)
+        val coordinator = coordinator(
+            repo = repo,
+            allowance = allowance,
+            scheduler = scheduler,
+            wifiOnly = false,
+            transport = ValidatedTransport.WIFI,
+            autoResume = { autoResume.get() },
+        )
+
+        DownloadInterruptionRecovery.recover(
+            repo,
+            clock,
+            DownloadInterruptionTrigger.PROCESS_RESTART,
+            autoResume = true,
+        )
+        coordinator.apply()
+        autoResume.set(true)
+        coordinator.apply()
+
+        assertEquals(DownloadState.FAILED, repo.get("http-failed")!!.state)
+        assertEquals("HTTP 416: Range Not Satisfiable", repo.get("http-failed")!!.error)
+        assertEquals(DownloadState.FAILED, repo.get("io-failed")!!.state)
+        assertEquals(DownloadState.FAILED, repo.get("storage-failed")!!.state)
+        assertEquals(DownloadState.FAILED, repo.get("integrity-failed")!!.state)
+        assertEquals(DownloadState.CANCELLED, repo.get("cancelled")!!.state)
+        assertEquals(DownloadState.COMPLETED, repo.get("completed")!!.state)
+        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
+        assertNull(repo.get("manual")!!.pauseCause)
+        assertTrue(starter.startedIds().isEmpty())
+        assertEquals(0, repo.retryFailedCalls.get())
+    }
+
+    @Test
+    fun manualPauseStaysPausedAcrossConnectivityAndAutoResumeChanges() = runBlocking {
+        val repo = FakeRepo(
+            listOf(
+                paused("manual", downloadedBytes = 18L),
+                paused("network").copy(pauseCause = DownloadPauseCause.NETWORK_POLICY, downloadedBytes = 12L),
+            ),
+        )
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance()
+        val scheduler = DownloadQueueScheduler(repo, { 3 }, starter, transferAllowance = allowance)
+        val wifiOnly = AtomicBoolean(true)
+        val autoResume = AtomicBoolean(true)
+        val transport = AtomicReference(ValidatedTransport.CELLULAR)
+        val coordinator = coordinator(
+            repo = repo,
+            allowance = allowance,
+            scheduler = scheduler,
+            wifiOnly = { wifiOnly.get() },
+            connectivity = { ValidatedConnectivity(transport.get()) },
             autoResume = { autoResume.get() },
         )
 
         coordinator.apply()
-        assertEquals(listOf("waiting"), starter.startedIds())
-        assertEquals(DownloadState.DOWNLOADING, repo.get("live")!!.state)
-
+        wifiOnly.set(false)
+        coordinator.apply()
         autoResume.set(false)
         coordinator.apply()
-        assertTrue(pausedActive.isEmpty())
-        assertEquals(DownloadState.DOWNLOADING, repo.get("live")!!.state)
-        assertEquals(DownloadState.QUEUED, repo.get("waiting")!!.state)
-        assertTrue(allowance.isAllowed())
+        autoResume.set(true)
+        coordinator.apply()
+        transport.set(ValidatedTransport.NONE)
+        coordinator.apply()
+        transport.set(ValidatedTransport.WIFI)
+        coordinator.apply()
+
+        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
+        assertNull(repo.get("manual")!!.pauseCause)
+        assertEquals(18L, repo.get("manual")!!.downloadedBytes)
+        assertEquals(DownloadState.QUEUED, repo.get("network")!!.state)
+        assertEquals(12L, repo.get("network")!!.downloadedBytes)
+        assertEquals(listOf("network"), starter.startedIds())
     }
 
     @Test
-    fun startGuardPausesQueuedAndActiveWithoutRecordingFailure() = runBlocking {
+    fun concurrentRecoverAndApplyRemainIdempotent() = runBlocking {
         val repo = FakeRepo(
-            listOf(
-                queued("waiting", downloadedBytes = 3L),
-                active("live", DownloadState.CONNECTING, downloadedBytes = 11L),
-            ),
+            listOf(active("stale", DownloadState.DOWNLOADING, downloadedBytes = 14L)),
         )
-        assertTrue(
-            NetworkRestrictionStartGuard.blockStartIfDisallowed(
-                allowed = false,
-                repository = repo,
-                downloadId = "waiting",
-                fileLengthBytes = 3L,
-                nowEpochMillis = 5_000L,
-            ),
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
+        val scheduler = DownloadQueueScheduler(repo, { 1 }, starter, transferAllowance = allowance)
+        val coordinator = coordinator(
+            repo = repo,
+            allowance = allowance,
+            scheduler = scheduler,
+            wifiOnly = false,
+            transport = ValidatedTransport.ETHERNET,
         )
-        assertFalse(
-            NetworkRestrictionStartGuard.blockStartIfDisallowed(
-                allowed = true,
-                repository = repo,
-                downloadId = "live",
-                fileLengthBytes = 11L,
-                nowEpochMillis = 5_000L,
-            ),
-        )
-        assertTrue(
-            NetworkRestrictionStartGuard.blockStartIfDisallowed(
-                allowed = false,
-                repository = repo,
-                downloadId = "live",
-                fileLengthBytes = 11L,
-                nowEpochMillis = 5_000L,
-            ),
-        )
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("waiting")!!.pauseCause)
-        assertEquals(3L, repo.get("waiting")!!.downloadedBytes)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("live")!!.pauseCause)
-        assertEquals(11L, repo.get("live")!!.downloadedBytes)
-        assertNull(repo.get("waiting")!!.error)
-        assertNull(repo.get("live")!!.error)
+
+        coroutineScope {
+            val recoveries = List(4) {
+                async {
+                    DownloadInterruptionRecovery.recover(
+                        repo,
+                        clock,
+                        DownloadInterruptionTrigger.PROCESS_RESTART,
+                        autoResume = true,
+                    )
+                }
+            }
+            val applies = List(4) { async { coordinator.apply() } }
+            (recoveries + applies).awaitAll()
+        }
+        coordinator.apply()
+
+        assertEquals(DownloadState.QUEUED, repo.get("stale")!!.state)
+        assertNull(repo.get("stale")!!.error)
+        assertEquals(14L, repo.get("stale")!!.downloadedBytes)
+        assertEquals(0, repo.retryFailedCalls.get())
+        assertEquals(1, starter.startedIds().count { it == "stale" })
+        assertTrue(allowance.isAllowed())
+    }
+
+    private val clock = object : Clock {
+        override fun currentTimeMillis(): Long = 8_000L
     }
 
     private fun coordinator(
@@ -339,9 +353,7 @@ class NetworkRestrictionCoordinatorTest {
         allowance = allowance,
         scheduler = scheduler,
         pauseActive = pauseActive,
-        clock = object : Clock {
-            override fun currentTimeMillis(): Long = 8_000L
-        },
+        clock = clock,
         autoResume = autoResume,
     )
 
@@ -350,8 +362,29 @@ class NetworkRestrictionCoordinatorTest {
         url = "https://example.com/$id.bin",
         fileName = "$id.bin",
         destinationPath = "/tmp/$id.bin",
+        totalBytes = 100L,
         downloadedBytes = downloadedBytes,
         createdAtEpochMillis = 1_000L,
+    )
+
+    private fun download(
+        id: String,
+        state: DownloadState,
+        downloadedBytes: Long = 0L,
+        totalBytes: Long? = 100L,
+        error: String? = null,
+        completedAt: Long? = null,
+    ) = Download(
+        id = id,
+        url = "https://example.com/$id.bin",
+        fileName = "$id.bin",
+        destinationPath = "/tmp/$id.bin",
+        totalBytes = totalBytes,
+        downloadedBytes = downloadedBytes,
+        state = state,
+        error = error,
+        createdAtEpochMillis = 1_000L,
+        completedAtEpochMillis = completedAt,
     )
 
     private fun paused(id: String, downloadedBytes: Long = 0L) = DownloadStateMachine.transition(
@@ -384,6 +417,7 @@ class NetworkRestrictionCoordinatorTest {
         private val mutex = Mutex()
         private val _downloads = MutableStateFlow(initial)
         override val downloads: StateFlow<List<Download>> = _downloads.asStateFlow()
+        val retryFailedCalls = AtomicInteger(0)
 
         override suspend fun awaitInitialized() {}
 
@@ -450,6 +484,29 @@ class NetworkRestrictionCoordinatorTest {
             queued
         }
 
+        override suspend fun retryFailed(
+            id: String,
+            automatic: Boolean,
+            nowEpochMillis: Long,
+        ): Download? = mutex.withLock {
+            retryFailedCalls.incrementAndGet()
+            val current = _downloads.value.find { it.id == id } ?: return@withLock null
+            val queued = DownloadRetryFailedMutation.apply(current, automatic, nowEpochMillis)
+                ?: return@withLock null
+            replace(queued)
+            queued
+        }
+
+        override suspend fun requeueInterruptedActive(
+            id: String,
+            nowEpochMillis: Long,
+        ): Download? = mutex.withLock {
+            val current = _downloads.value.find { it.id == id } ?: return@withLock null
+            val queued = RecoverInterruptedActiveMutation.apply(current, nowEpochMillis) ?: return@withLock null
+            replace(queued)
+            queued
+        }
+
         override suspend fun pauseQueuedPreservingOffsets(
             nowEpochMillis: Long,
             pauseCause: DownloadPauseCause?,
@@ -461,17 +518,6 @@ class NetworkRestrictionCoordinatorTest {
                 next
             }
             updated
-        }
-
-        override suspend fun requeueInterruptedActive(
-            id: String,
-            nowEpochMillis: Long,
-        ): Download? = mutex.withLock {
-            val current = _downloads.value.find { it.id == id } ?: return@withLock null
-            val queued = RecoverInterruptedActiveMutation.apply(current, nowEpochMillis)
-                ?: return@withLock null
-            replace(queued)
-            queued
         }
 
         override suspend fun requeueNetworkPolicyPaused(nowEpochMillis: Long): List<Download> = mutex.withLock {

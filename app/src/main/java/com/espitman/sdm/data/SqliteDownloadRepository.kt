@@ -17,6 +17,7 @@ import com.espitman.sdm.domain.DownloadResumeMutation
 import com.espitman.sdm.domain.DownloadRetryFailedMutation
 import com.espitman.sdm.domain.DownloadAllMutation
 import com.espitman.sdm.domain.PauseQueuedMutation
+import com.espitman.sdm.domain.RecoverInterruptedActiveMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.CompletableDeferred
@@ -255,6 +256,27 @@ class SqliteDownloadRepository(
                 }
             }
             if (updated.isNotEmpty()) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun requeueInterruptedActive(
+        id: String,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val queued = RecoverInterruptedActiveMutation.apply(current, nowEpochMillis)
+                    ?: return@inTransaction
+                persistDownloadMutation(db, id, current, queued)
+                updated = queued
+            }
+            if (updated != null && updated!!.state == DownloadState.QUEUED) {
                 refreshLocked(database.readableDatabase)
             }
             updated

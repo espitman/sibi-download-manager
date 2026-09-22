@@ -474,6 +474,78 @@ class SqliteDownloadRepositoryTest {
     }
 
     @Test
+    fun requeueInterruptedActiveRequeuesOnlyStaleActiveAndPreservesProgress() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "active",
+                url = "https://example.com/active.bin",
+                fileName = "active.bin",
+                destinationPath = "/tmp/active.bin",
+                totalBytes = 100,
+                downloadedBytes = 0,
+                createdAtEpochMillis = 100,
+                automaticRetryCount = 2,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "failed",
+                url = "https://example.com/failed.bin",
+                fileName = "failed.bin",
+                destinationPath = "/tmp/failed.bin",
+                totalBytes = 100,
+                downloadedBytes = 40,
+                state = DownloadState.FAILED,
+                error = "HTTP 500: Internal Server Error",
+                createdAtEpochMillis = 100,
+                updatedAtEpochMillis = 400,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "paused",
+                url = "https://example.com/paused.bin",
+                fileName = "paused.bin",
+                createdAtEpochMillis = 100,
+            ),
+        )
+        repository!!.transition("active", DownloadState.CONNECTING, 200)
+        repository!!.transition("active", DownloadState.DOWNLOADING, 300)
+        repository!!.updateProgress("active", 55, 350)
+        repository!!.transition("paused", DownloadState.CONNECTING, 200)
+        repository!!.pauseAtExactOffset("paused", fileLengthBytes = 9, nowEpochMillis = 300)
+
+        assertNull(repository!!.requeueInterruptedActive("missing", nowEpochMillis = 500))
+        assertNull(repository!!.requeueInterruptedActive("failed", nowEpochMillis = 500))
+        assertEquals(DownloadState.FAILED, repository!!.get("failed")!!.state)
+        assertEquals("HTTP 500: Internal Server Error", repository!!.get("failed")!!.error)
+        assertNull(repository!!.requeueInterruptedActive("paused", nowEpochMillis = 500))
+        assertEquals(DownloadState.PAUSED, repository!!.get("paused")!!.state)
+        assertNull(repository!!.get("paused")!!.pauseCause)
+
+        val recovered = repository!!.requeueInterruptedActive("active", nowEpochMillis = 250)!!
+        assertEquals(DownloadState.QUEUED, recovered.state)
+        assertNull(recovered.error)
+        assertEquals(55L, recovered.downloadedBytes)
+        assertEquals("/tmp/active.bin", recovered.destinationPath)
+        assertEquals(2, recovered.automaticRetryCount)
+        assertEquals(350L, recovered.updatedAtEpochMillis)
+        assertNull(repository!!.requeueInterruptedActive("active", nowEpochMillis = 600))
+        assertEquals(DownloadState.QUEUED, repository!!.get("active")!!.state)
+        assertEquals(2, repository!!.get("active")!!.automaticRetryCount)
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(DownloadState.QUEUED, repository!!.get("active")!!.state)
+        assertEquals(55L, repository!!.get("active")!!.downloadedBytes)
+        assertEquals(2, repository!!.get("active")!!.automaticRetryCount)
+        assertEquals(DownloadState.FAILED, repository!!.get("failed")!!.state)
+    }
+
+    @Test
     fun concurrentConflictingTransitionsAreSerializedAndOnlyOneCommits() = runBlocking {
         repository = SqliteDownloadRepository(context, databaseName = databaseName)
         repository!!.awaitInitialized()

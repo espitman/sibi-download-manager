@@ -43,6 +43,8 @@ class DownloadStateMachineTest {
         assertTrue(DownloadStateMachine.canTransition(DownloadState.DOWNLOADING, DownloadState.PAUSED))
         assertTrue(DownloadStateMachine.canTransition(DownloadState.PAUSED, DownloadState.QUEUED))
         assertTrue(DownloadStateMachine.canTransition(DownloadState.FAILED, DownloadState.QUEUED))
+        assertTrue(DownloadStateMachine.canTransition(DownloadState.CONNECTING, DownloadState.QUEUED))
+        assertTrue(DownloadStateMachine.canTransition(DownloadState.DOWNLOADING, DownloadState.QUEUED))
         assertFalse(DownloadStateMachine.canTransition(DownloadState.PAUSED, DownloadState.DOWNLOADING))
     }
 

@@ -5,6 +5,7 @@ import com.espitman.sdm.domain.DownloadAllMutation
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.PauseQueuedMutation
+import com.espitman.sdm.domain.RecoverInterruptedActiveMutation
 import com.espitman.sdm.domain.RequeueNetworkPausedMutation
 import java.time.ZoneId
 import kotlinx.coroutines.flow.StateFlow
@@ -77,6 +78,20 @@ interface DownloadRepository {
             updated += transition(download.id, DownloadState.PAUSED, next.updatedAtEpochMillis)
         }
         return updated
+    }
+
+    /**
+     * Re-queues a stale CONNECTING/DOWNLOADING record after process or device
+     * interruption without recording a failure or consuming the automatic retry budget.
+     * Missing and non-active records return null and leave stored state unchanged.
+     */
+    suspend fun requeueInterruptedActive(
+        id: String,
+        nowEpochMillis: Long,
+    ): Download? {
+        val current = get(id) ?: return null
+        val next = RecoverInterruptedActiveMutation.apply(current, nowEpochMillis) ?: return null
+        return transition(id, DownloadState.QUEUED, next.updatedAtEpochMillis)
     }
 
     /**
