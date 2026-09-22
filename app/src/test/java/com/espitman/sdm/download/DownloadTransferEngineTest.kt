@@ -1445,4 +1445,90 @@ class DownloadTransferEngineTest {
         assertArrayEquals(expectedDigest, MessageDigest.getInstance("SHA-256").digest(destFile.readBytes()))
         assertFalse(tempFile.exists())
     }
+
+    @Test
+    fun slowTransferPublishesProgressAfterOneSecondBefore64KiB() = runBlocking {
+        val payload = ByteArray(10_000) { 7 }
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+
+        val downloadId = "slow-progress"
+        val clock = FakeClock(10_000L)
+        val destFile = File(tempDir, "slow.bin")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/slow.bin").toString(),
+                    fileName = "slow.bin",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 10_000L,
+                )
+            )
+        )
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+            bufferSizeBytes = 1_000,
+            progressUpdateIntervalBytes = 64 * 1024L,
+            onChunkRead = { clock.advance(250L) },
+        )
+
+        engine.executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/slow.bin").toString(),
+            tempFile = File(tempDir, "slow.tmp"),
+            repository = repo,
+        )
+
+        val published = repo.progressUpdates.map { it.second }
+        assertTrue(published.any { it < 64 * 1024L && it < payload.size.toLong() })
+        assertEquals(4_000L, published.first())
+        assertTrue(published.none { it in 1L until 4_000L })
+        assertEquals(payload.size.toLong(), published.last())
+        assertEquals(DownloadState.COMPLETED, repo.get(downloadId)!!.state)
+        assertArrayEquals(payload, destFile.readBytes())
+    }
+
+    @Test
+    fun progressDoesNotPublishBeforeByteOrOneSecondThreshold() = runBlocking {
+        val payload = ByteArray(20_000) { 9 }
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+
+        val downloadId = "quiet-progress"
+        val clock = FakeClock(5_000L)
+        val destFile = File(tempDir, "quiet.bin")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = downloadId,
+                    url = server.url("/quiet.bin").toString(),
+                    fileName = "quiet.bin",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 5_000L,
+                )
+            )
+        )
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            clock = clock,
+            bufferSizeBytes = 5_000,
+            progressUpdateIntervalBytes = 64 * 1024L,
+            onChunkRead = { clock.advance(100L) },
+        ).executeTransfer(
+            downloadId = downloadId,
+            url = server.url("/quiet.bin").toString(),
+            tempFile = File(tempDir, "quiet.tmp"),
+            repository = repo,
+        )
+
+        assertEquals(listOf(payload.size.toLong()), repo.progressUpdates.map { it.second })
+        assertEquals(DownloadState.COMPLETED, repo.get(downloadId)!!.state)
+        assertArrayEquals(payload, destFile.readBytes())
+    }
 }

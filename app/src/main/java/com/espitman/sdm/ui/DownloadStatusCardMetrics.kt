@@ -4,6 +4,10 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import java.time.Instant
 import java.time.ZoneId
+import java.util.Locale
+import kotlin.math.max
+import kotlin.math.min
+import kotlinx.coroutines.CancellationException
 
 internal data class DownloadStatusCardValues(
     val activeCount: Int,
@@ -15,69 +19,44 @@ internal data class DownloadStatusCardValues(
 
 internal fun downloadStatusCardValues(
     records: List<Download>,
-    nowEpochMillis: Long,
-    zoneId: ZoneId = ZoneId.systemDefault(),
+    downloadedTodayBytes: Long,
+    recentBytesPerSecond: Long,
 ): DownloadStatusCardValues {
     val activeRecords = records.filter { it.state == DownloadState.DOWNLOADING || it.state == DownloadState.CONNECTING }
     val activeCount = activeRecords.size
-    val remainingBytes = remainingBytesOf(activeRecords)
+    val connections = activeRecords.count { it.state == DownloadState.DOWNLOADING }
     val remaining = when {
+        activeRecords.isEmpty() -> formatBytes(0L)
         activeRecords.any { it.totalBytes == null } -> "—"
-        else -> formatBytes(remainingBytes)
-    }
-    val totalBytesPerSecond = activeRecords.fold(0L) { acc, record ->
-        saturatingAdd(acc, calculateDownloadProgressMetrics(record, nowEpochMillis).bytesPerSecond)
+        else -> formatBytes(remainingBytesOf(activeRecords))
     }
     val speedValue = if (activeCount == 0) {
         "0"
     } else {
-        String.format(java.util.Locale.US, "%.1f", totalBytesPerSecond / (1024.0 * 1024.0))
+        String.format(Locale.US, "%.1f", recentBytesPerSecond.coerceAtLeast(0L) / (1024.0 * 1024.0))
     }
     return DownloadStatusCardValues(
         activeCount = activeCount,
         speedValue = speedValue,
-        downloadedToday = formatBytes(sumDownloadedTodayBytes(records, nowEpochMillis, zoneId)),
+        downloadedToday = formatBytes(downloadedTodayBytes.coerceAtLeast(0L)),
         remaining = remaining,
-        connections = activeCount.toString(),
+        connections = connections.toString(),
     )
 }
 
-internal fun sumDownloadedTodayBytes(
-    records: List<Download>,
+internal fun nextDownloadsStatusRefreshDelayMillis(
     nowEpochMillis: Long,
-    zoneId: ZoneId = ZoneId.systemDefault(),
+    zoneId: ZoneId,
+    hasActiveTransfers: Boolean,
+    maxIdleDelayMillis: Long = DEFAULT_IDLE_STATUS_REFRESH_MAX_DELAY_MILLIS,
 ): Long {
-    // Records store only a running downloadedBytes total, not per-day deltas.
-    val dayStart = startOfLocalDay(nowEpochMillis, zoneId)
-    val dayEndExclusive = startOfLocalDayExclusiveEnd(nowEpochMillis, zoneId)
-    return records.fold(0L) { acc, record ->
-        if (!countsTowardDownloadedToday(record, dayStart, dayEndExclusive)) acc
-        else saturatingAdd(acc, record.downloadedBytes)
-    }
+    if (hasActiveTransfers) return ACTIVE_STATUS_REFRESH_DELAY_MILLIS
+    val untilNextLocalDay = startOfNextLocalDay(nowEpochMillis, zoneId) - nowEpochMillis
+    if (untilNextLocalDay <= 0L) return 1L
+    return max(1L, min(untilNextLocalDay, maxIdleDelayMillis))
 }
 
-internal fun countsTowardDownloadedToday(
-    record: Download,
-    dayStartEpochMillis: Long,
-    dayEndExclusiveEpochMillis: Long,
-): Boolean {
-    if (record.state == DownloadState.CONNECTING || record.state == DownloadState.DOWNLOADING) return true
-    val completedAt = record.completedAtEpochMillis
-    if (completedAt != null && inLocalDay(completedAt, dayStartEpochMillis, dayEndExclusiveEpochMillis)) {
-        return true
-    }
-    return inLocalDay(record.updatedAtEpochMillis, dayStartEpochMillis, dayEndExclusiveEpochMillis)
-}
-
-internal fun startOfLocalDay(nowEpochMillis: Long, zoneId: ZoneId): Long =
-    Instant.ofEpochMilli(nowEpochMillis)
-        .atZone(zoneId)
-        .toLocalDate()
-        .atStartOfDay(zoneId)
-        .toInstant()
-        .toEpochMilli()
-
-internal fun startOfLocalDayExclusiveEnd(nowEpochMillis: Long, zoneId: ZoneId): Long =
+internal fun startOfNextLocalDay(nowEpochMillis: Long, zoneId: ZoneId): Long =
     Instant.ofEpochMilli(nowEpochMillis)
         .atZone(zoneId)
         .toLocalDate()
@@ -86,15 +65,30 @@ internal fun startOfLocalDayExclusiveEnd(nowEpochMillis: Long, zoneId: ZoneId): 
         .toInstant()
         .toEpochMilli()
 
-private fun inLocalDay(epochMillis: Long, dayStart: Long, dayEndExclusive: Long): Boolean =
-    epochMillis >= dayStart && epochMillis < dayEndExclusive
+internal fun remainingBytesContribution(totalBytes: Long, downloadedBytes: Long): Long {
+    if (downloadedBytes >= totalBytes) return 0L
+    return totalBytes - downloadedBytes
+}
 
 private fun remainingBytesOf(activeRecords: List<Download>): Long = activeRecords.fold(0L) { acc, record ->
     val total = record.totalBytes ?: return@fold acc
-    saturatingAdd(acc, total - record.downloadedBytes)
+    saturatingAdd(acc, remainingBytesContribution(total, record.downloadedBytes))
 }
 
 internal fun saturatingAdd(left: Long, right: Long): Long {
     val sum = left + right
     return if (left xor right < 0L || left xor sum >= 0L) sum else Long.MAX_VALUE
+}
+
+internal const val ACTIVE_STATUS_REFRESH_DELAY_MILLIS = 1_000L
+internal const val DEFAULT_IDLE_STATUS_REFRESH_MAX_DELAY_MILLIS = 15 * 60 * 1000L
+
+internal suspend fun transferredBytesForLocalDayOrZero(query: suspend () -> Long): Long {
+    return try {
+        query()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        0L
+    }
 }

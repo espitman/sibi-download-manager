@@ -25,11 +25,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.time.ZoneId
 
 class SqliteDownloadRepository(
     context: Context,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     databaseName: String = DownloadDatabase.DATABASE_NAME,
+    private val localZoneId: ZoneId = ZoneId.systemDefault(),
 ) : DownloadRepository, AutoCloseable {
     private val database = DownloadDatabase(context, databaseName)
     private val mutex = Mutex()
@@ -123,9 +125,7 @@ class SqliteDownloadRepository(
                     updated = current
                     return@inTransaction
                 }
-                check(db.update("downloads", paused.toValues(), "id = ?", arrayOf(id)) == 1) {
-                    "Concurrent update failed for download $id"
-                }
+                persistDownloadMutation(db, id, current, paused)
                 updated = paused
             }
             if (updated != null && updated!!.state == DownloadState.PAUSED) {
@@ -150,9 +150,7 @@ class SqliteDownloadRepository(
                     updated = current
                     return@inTransaction
                 }
-                check(db.update("downloads", cancelled.toValues(), "id = ?", arrayOf(id)) == 1) {
-                    "Concurrent update failed for download $id"
-                }
+                persistDownloadMutation(db, id, current, cancelled)
                 updated = cancelled
             }
             if (updated != null && updated!!.state == DownloadState.CANCELLED) {
@@ -172,9 +170,7 @@ class SqliteDownloadRepository(
             database.writableDatabase.inTransaction { db ->
                 val current = queryOne(db, id) ?: return@inTransaction
                 val queued = DownloadResumeMutation.apply(current, nowEpochMillis) ?: return@inTransaction
-                check(db.update("downloads", queued.toValues(), "id = ?", arrayOf(id)) == 1) {
-                    "Concurrent update failed for download $id"
-                }
+                persistDownloadMutation(db, id, current, queued)
                 updated = queued
             }
             if (updated != null && updated!!.state == DownloadState.QUEUED) {
@@ -191,9 +187,7 @@ class SqliteDownloadRepository(
             database.writableDatabase.inTransaction { db ->
                 for (current in downloads.value) {
                     val next = DownloadAllMutation.apply(current, nowEpochMillis) ?: continue
-                    check(db.update("downloads", next.toValues(), "id = ?", arrayOf(current.id)) == 1) {
-                        "Concurrent update failed for download ${current.id}"
-                    }
+                    persistDownloadMutation(db, current.id, current, next)
                     updated += next
                 }
             }
@@ -211,9 +205,7 @@ class SqliteDownloadRepository(
             database.writableDatabase.inTransaction { db ->
                 for (current in downloads.value) {
                     val next = PauseQueuedMutation.apply(current, nowEpochMillis) ?: continue
-                    check(db.update("downloads", next.toValues(), "id = ?", arrayOf(current.id)) == 1) {
-                        "Concurrent update failed for download ${current.id}"
-                    }
+                    persistDownloadMutation(db, current.id, current, next)
                     updated += next
                 }
             }
@@ -239,9 +231,7 @@ class SqliteDownloadRepository(
                     updated = current
                     return@inTransaction
                 }
-                check(db.update("downloads", next.toValues(), "id = ?", arrayOf(id)) == 1) {
-                    "Concurrent update failed for download $id"
-                }
+                persistDownloadMutation(db, id, current, next)
                 updated = next
                 changed = true
             }
@@ -275,14 +265,67 @@ class SqliteDownloadRepository(
             database.writableDatabase.inTransaction { db ->
                 val current = queryOne(db, id) ?: error("Download $id does not exist")
                 updated = update(current)
-                check(db.update("downloads", updated.toValues(), "id = ?", arrayOf(id)) == 1) {
-                    "Concurrent update failed for download $id"
-                }
+                persistDownloadMutation(db, id, current, updated)
             }
             refreshLocked(database.readableDatabase)
             updated
         }
     }
+
+    override suspend fun transferredBytesForLocalDay(
+        nowEpochMillis: Long,
+        zoneId: ZoneId,
+    ): Long = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            queryDailyTotal(database.readableDatabase, DailyTransferAccounting.dayKey(nowEpochMillis, zoneId))
+        }
+    }
+
+    private fun persistDownloadMutation(
+        db: SQLiteDatabase,
+        id: String,
+        current: Download,
+        next: Download,
+    ) {
+        check(db.update("downloads", next.toValues(), "id = ?", arrayOf(id)) == 1) {
+            "Concurrent update failed for download $id"
+        }
+        addDailyTransferLocked(db, current.downloadedBytes, next.downloadedBytes, next.updatedAtEpochMillis)
+    }
+
+    private fun addDailyTransferLocked(
+        db: SQLiteDatabase,
+        previousBytes: Long,
+        nextBytes: Long,
+        atEpochMillis: Long,
+    ) {
+        val delta = DailyTransferAccounting.positiveDelta(previousBytes, nextBytes)
+        if (delta == 0L) return
+        val dayKey = DailyTransferAccounting.dayKey(atEpochMillis, localZoneId)
+        val total = DailyTransferAccounting.saturatingAdd(queryDailyTotal(db, dayKey), delta)
+        val values = ContentValues().apply {
+            put("day_key", dayKey)
+            put("transferred_bytes", total)
+        }
+        if (db.update("daily_transfer_totals", values, "day_key = ?", arrayOf(dayKey)) == 0) {
+            check(db.insertOrThrow("daily_transfer_totals", null, values) != -1L) {
+                "Unable to persist daily transfer total for $dayKey"
+            }
+        }
+    }
+
+    private fun queryDailyTotal(db: SQLiteDatabase, dayKey: String): Long =
+        db.query(
+            "daily_transfer_totals",
+            arrayOf("transferred_bytes"),
+            "day_key = ?",
+            arrayOf(dayKey),
+            null,
+            null,
+            null,
+            "1",
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
 
     private fun refreshLocked(db: SQLiteDatabase) {
         mutableDownloads.value = db.query(

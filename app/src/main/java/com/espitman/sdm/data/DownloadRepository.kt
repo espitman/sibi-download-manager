@@ -4,6 +4,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadAllMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.PauseQueuedMutation
+import java.time.ZoneId
 import kotlinx.coroutines.flow.StateFlow
 
 interface DownloadRepository {
@@ -61,4 +62,10 @@ interface DownloadRepository {
         lastModified: String?,
         totalBytes: Long?,
     ): Download
+
+    /** Bytes newly transferred on the local calendar day containing [nowEpochMillis] in [zoneId]. */
+    suspend fun transferredBytesForLocalDay(
+        nowEpochMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+    ): Long = 0L
 }

@@ -70,11 +70,13 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.IntOffset
 import com.espitman.sdm.ui.theme.*
 import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.data.DailyTransferAccounting
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.download.DownloadTransferService
+import java.time.ZoneId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
@@ -161,16 +163,33 @@ internal fun InteractiveDownloadsScreen(
     val context = LocalContext.current
     val repository = AppRepositories.downloads(context)
     val records by repository.downloads.collectAsState()
+    val speedTracker = remember { RecentTransferSpeedTracker() }
     var nowEpochMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val hasActive = remember(records) {
         records.any { it.state == DownloadState.CONNECTING || it.state == DownloadState.DOWNLOADING }
     }
     LaunchedEffect(hasActive) {
-        if (!hasActive) return@LaunchedEffect
-        while (hasActive) {
+        while (true) {
             nowEpochMillis = System.currentTimeMillis()
-            delay(1000)
+            delay(
+                nextDownloadsStatusRefreshDelayMillis(
+                    nowEpochMillis = nowEpochMillis,
+                    zoneId = ZoneId.systemDefault(),
+                    hasActiveTransfers = hasActive,
+                ),
+            )
         }
+    }
+    val zoneId = ZoneId.systemDefault()
+    val dayKey = DailyTransferAccounting.dayKey(nowEpochMillis, zoneId)
+    var downloadedTodayBytes by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(records, dayKey) {
+        downloadedTodayBytes = transferredBytesForLocalDayOrZero {
+            repository.transferredBytesForLocalDay(nowEpochMillis, zoneId)
+        }
+    }
+    val recentBytesPerSecond = remember(records, nowEpochMillis) {
+        speedTracker.aggregateBytesPerSecond(records, nowEpochMillis)
     }
     val downloads = records.map { record -> mapDownloadToCard(record, nowEpochMillis) }
     var overlayClosing by remember { mutableStateOf(false) }
@@ -233,7 +252,7 @@ internal fun InteractiveDownloadsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
-            item { DownloadStatusCard(records, nowEpochMillis) }
+            item { DownloadStatusCard(records, downloadedTodayBytes, recentBytesPerSecond) }
             item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size,
                 onDownloadAll = {
                     overlayScope.launch {
@@ -395,8 +414,12 @@ private fun HomeMenuItem(icon: ImageVector, title: String, subtitle: String, onC
 }
 
 @Composable
-private fun DownloadStatusCard(records: List<Download>, nowEpochMillis: Long) {
-    val values = downloadStatusCardValues(records, nowEpochMillis)
+private fun DownloadStatusCard(
+    records: List<Download>,
+    downloadedTodayBytes: Long,
+    recentBytesPerSecond: Long,
+) {
+    val values = downloadStatusCardValues(records, downloadedTodayBytes, recentBytesPerSecond)
     Surface(color = SdmSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .34f)), modifier = Modifier.fillMaxWidth()) {
         Box {
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))

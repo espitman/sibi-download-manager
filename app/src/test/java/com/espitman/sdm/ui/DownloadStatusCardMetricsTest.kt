@@ -3,27 +3,25 @@ package com.espitman.sdm.ui
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneOffset
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
 
 class DownloadStatusCardMetricsTest {
     private val zone = ZoneOffset.ofHours(3)
     private val noon = 1_700_000_000_000L
-    private val dayStart = startOfLocalDay(noon, zone)
-    private val nextDayStart = startOfLocalDayExclusiveEnd(noon, zone)
 
     private fun record(
         id: String = "download-id",
         state: DownloadState = DownloadState.QUEUED,
         totalBytes: Long? = 1_000L,
         downloadedBytes: Long = 0L,
-        createdAt: Long = dayStart,
-        updatedAt: Long = createdAt,
-        startedAt: Long? = null,
-        completedAt: Long? = null,
+        createdAt: Long = noon,
         error: String? = null,
+        completedAt: Long? = null,
     ) = Download(
         id = id,
         url = "https://example.com/$id.zip",
@@ -33,14 +31,14 @@ class DownloadStatusCardMetricsTest {
         state = state,
         error = error,
         createdAtEpochMillis = createdAt,
-        updatedAtEpochMillis = updatedAt,
-        startedAtEpochMillis = startedAt,
+        updatedAtEpochMillis = createdAt,
+        startedAtEpochMillis = createdAt,
         completedAtEpochMillis = completedAt,
     )
 
     @Test
-    fun emptyRecordsShowZeroTrafficAndConnections() {
-        val values = downloadStatusCardValues(emptyList(), noon, zone)
+    fun emptyRecordsShowZeroForAllFiveValues() {
+        val values = downloadStatusCardValues(emptyList(), downloadedTodayBytes = 0L, recentBytesPerSecond = 0L)
 
         assertEquals(0, values.activeCount)
         assertEquals("0", values.speedValue)
@@ -50,203 +48,146 @@ class DownloadStatusCardMetricsTest {
     }
 
     @Test
-    fun connectionsMatchOneStreamPerActiveRecord() {
+    fun mixedConnectingAndDownloadingCountActiveAndLiveStreamsSeparately() {
         val values = downloadStatusCardValues(
             listOf(
-                record(id = "connecting", state = DownloadState.CONNECTING, downloadedBytes = 0L, startedAt = noon),
-                record(id = "downloading", state = DownloadState.DOWNLOADING, downloadedBytes = 10L, startedAt = noon),
+                record(id = "connecting", state = DownloadState.CONNECTING, downloadedBytes = 0L),
+                record(id = "downloading", state = DownloadState.DOWNLOADING, downloadedBytes = 10L),
                 record(id = "queued", state = DownloadState.QUEUED),
+                record(id = "paused", state = DownloadState.PAUSED, downloadedBytes = 40L),
             ),
-            noon,
-            zone,
+            downloadedTodayBytes = 0L,
+            recentBytesPerSecond = 0L,
         )
 
         assertEquals(2, values.activeCount)
-        assertEquals("2", values.connections)
+        assertEquals("1", values.connections)
+        assertEquals("0.0", values.speedValue)
     }
 
     @Test
-    fun downloadedTodayIncludesActiveRecordsEvenIfStartedYesterday() {
-        val yesterday = dayStart - 60_000L
-        val active = record(
-            id = "overnight",
-            state = DownloadState.DOWNLOADING,
-            downloadedBytes = 250L,
-            createdAt = yesterday,
-            updatedAt = yesterday,
-            startedAt = yesterday,
-        )
+    fun remainingUsesActiveAndConnectingUnknownMarkerClampAndSaturation() {
+        val none = downloadStatusCardValues(emptyList(), 0L, 0L)
+        assertEquals("0 B", none.remaining)
 
-        assertTrue(countsTowardDownloadedToday(active, dayStart, nextDayStart))
-        assertEquals(250L, sumDownloadedTodayBytes(listOf(active), noon, zone))
-    }
-
-    @Test
-    fun downloadedTodayIncludesRecordsUpdatedOrCompletedToday() {
-        val completedToday = record(
-            id = "done-today",
-            state = DownloadState.COMPLETED,
-            totalBytes = 400L,
-            downloadedBytes = 400L,
-            createdAt = dayStart,
-            updatedAt = noon,
-            startedAt = dayStart,
-            completedAt = noon,
-        )
-        val pausedToday = record(
-            id = "paused-today",
-            state = DownloadState.PAUSED,
-            downloadedBytes = 50L,
-            createdAt = dayStart,
-            updatedAt = noon,
-            startedAt = dayStart,
-        )
-        val completedYesterday = record(
-            id = "done-yesterday",
-            state = DownloadState.COMPLETED,
-            totalBytes = 800L,
-            downloadedBytes = 800L,
-            createdAt = dayStart - 86_400_000L,
-            updatedAt = dayStart - 1L,
-            startedAt = dayStart - 86_400_000L,
-            completedAt = dayStart - 1L,
-        )
-
-        assertEquals(450L, sumDownloadedTodayBytes(listOf(completedToday, pausedToday, completedYesterday), noon, zone))
-        assertFalse(countsTowardDownloadedToday(completedYesterday, dayStart, nextDayStart))
-    }
-
-    @Test
-    fun downloadedTodayUsesLocalDayBoundsAndSaturatesOverflow() {
-        val justBeforeMidnight = dayStart - 1L
-        val atMidnight = dayStart
-        val justBeforeNext = nextDayStart - 1L
-        val atNext = nextDayStart
-        val yesterdayUpdate = record(
-            id = "before-day",
-            state = DownloadState.PAUSED,
-            downloadedBytes = 90L,
-            createdAt = justBeforeMidnight,
-            updatedAt = justBeforeMidnight,
-            startedAt = justBeforeMidnight,
-        )
-        val todayStartUpdate = record(
-            id = "start-day",
-            state = DownloadState.PAUSED,
-            downloadedBytes = 10L,
-            createdAt = atMidnight,
-            updatedAt = atMidnight,
-            startedAt = atMidnight,
-        )
-        val todayEndUpdate = record(
-            id = "end-day",
-            state = DownloadState.PAUSED,
-            downloadedBytes = 20L,
-            createdAt = dayStart,
-            updatedAt = justBeforeNext,
-            startedAt = dayStart,
-        )
-        val nextDayUpdate = record(
-            id = "next-day",
-            state = DownloadState.PAUSED,
-            downloadedBytes = 40L,
-            createdAt = dayStart,
-            updatedAt = atNext,
-            startedAt = dayStart,
-        )
-
-        assertEquals(
-            30L,
-            sumDownloadedTodayBytes(
-                listOf(yesterdayUpdate, todayStartUpdate, todayEndUpdate, nextDayUpdate),
-                noon,
-                zone,
-            ),
-        )
-        assertEquals(
-            Long.MAX_VALUE,
-            saturatingAdd(Long.MAX_VALUE - 1L, 2L),
-        )
-        assertEquals(
-            Long.MAX_VALUE,
-            sumDownloadedTodayBytes(
-                listOf(
-                    record(
-                        id = "huge-a",
-                        state = DownloadState.DOWNLOADING,
-                        totalBytes = Long.MAX_VALUE,
-                        downloadedBytes = Long.MAX_VALUE - 1L,
-                        createdAt = dayStart,
-                        updatedAt = noon,
-                        startedAt = dayStart,
-                    ),
-                    record(
-                        id = "huge-b",
-                        state = DownloadState.DOWNLOADING,
-                        totalBytes = Long.MAX_VALUE,
-                        downloadedBytes = 2L,
-                        createdAt = dayStart,
-                        updatedAt = noon,
-                        startedAt = dayStart,
-                    ),
-                ),
-                noon,
-                zone,
-            ),
-        )
-    }
-
-    @Test
-    fun remainingShowsDashForUnknownSizeAndSaturatesKnownRemainders() {
         val unknown = downloadStatusCardValues(
             listOf(
-                record(
-                    id = "unknown",
-                    state = DownloadState.DOWNLOADING,
-                    totalBytes = null,
-                    downloadedBytes = 10L,
-                    startedAt = noon,
-                ),
+                record(id = "connecting", state = DownloadState.CONNECTING, totalBytes = 100L, downloadedBytes = 10L),
+                record(id = "unknown", state = DownloadState.DOWNLOADING, totalBytes = null, downloadedBytes = 10L),
             ),
-            noon,
-            zone,
+            downloadedTodayBytes = 0L,
+            recentBytesPerSecond = 1_572_864L,
         )
         assertEquals("—", unknown.remaining)
+        assertEquals("1.5", unknown.speedValue)
 
         val remaining = downloadStatusCardValues(
             listOf(
-                record(
-                    id = "left",
-                    state = DownloadState.DOWNLOADING,
-                    totalBytes = 1_000L,
-                    downloadedBytes = 250L,
-                    startedAt = noon,
-                ),
+                record(id = "left", state = DownloadState.DOWNLOADING, totalBytes = 1_000L, downloadedBytes = 250L),
+                record(id = "connecting", state = DownloadState.CONNECTING, totalBytes = 400L, downloadedBytes = 400L),
             ),
-            noon,
-            zone,
+            downloadedTodayBytes = 0L,
+            recentBytesPerSecond = 0L,
         )
         assertEquals(formatBytes(750L), remaining.remaining)
 
-        val overflow = remainingBytesOverflowFixture()
+        assertEquals(0L, remainingBytesContribution(10L, 15L))
+        assertEquals(0L, remainingBytesContribution(10L, 10L))
+        assertEquals(4L, remainingBytesContribution(10L, 6L))
+
+        val overflow = downloadStatusCardValues(
+            listOf(
+                record(
+                    id = "remain-a",
+                    state = DownloadState.DOWNLOADING,
+                    totalBytes = Long.MAX_VALUE,
+                    downloadedBytes = 0L,
+                ),
+                record(
+                    id = "remain-b",
+                    state = DownloadState.CONNECTING,
+                    totalBytes = 2L,
+                    downloadedBytes = 0L,
+                ),
+            ),
+            downloadedTodayBytes = 0L,
+            recentBytesPerSecond = 0L,
+        )
         assertEquals(formatBytes(Long.MAX_VALUE), overflow.remaining)
+        assertEquals(Long.MAX_VALUE, saturatingAdd(Long.MAX_VALUE - 1L, 2L))
     }
 
-    private fun remainingBytesOverflowFixture(): DownloadStatusCardValues {
-        val first = record(
-            id = "remain-a",
-            state = DownloadState.DOWNLOADING,
-            totalBytes = Long.MAX_VALUE,
-            downloadedBytes = 0L,
-            startedAt = noon,
+    @Test
+    fun persistedDailyTotalAndMeasuredSpeedAreFormattedWithoutInference() {
+        val idle = downloadStatusCardValues(
+            listOf(record(id = "done", state = DownloadState.COMPLETED, totalBytes = 400L, downloadedBytes = 400L, completedAt = noon)),
+            downloadedTodayBytes = 8_192L,
+            recentBytesPerSecond = 9_437_184L,
         )
-        val second = record(
-            id = "remain-b",
-            state = DownloadState.DOWNLOADING,
-            totalBytes = 2L,
-            downloadedBytes = 0L,
-            startedAt = noon,
+        assertEquals(0, idle.activeCount)
+        assertEquals("0", idle.speedValue)
+        assertEquals(formatBytes(8_192L), idle.downloadedToday)
+        assertEquals("0 B", idle.remaining)
+        assertEquals("0", idle.connections)
+
+        val live = downloadStatusCardValues(
+            listOf(record(id = "live", state = DownloadState.DOWNLOADING, totalBytes = null, downloadedBytes = 50L)),
+            downloadedTodayBytes = 250L,
+            recentBytesPerSecond = 2_097_152L,
         )
-        return downloadStatusCardValues(listOf(first, second), noon, zone)
+        assertEquals(1, live.activeCount)
+        assertEquals("2.0", live.speedValue)
+        assertEquals(formatBytes(250L), live.downloadedToday)
+        assertEquals("—", live.remaining)
+        assertEquals("1", live.connections)
+    }
+
+    @Test
+    fun idleWakeIsBoundedUntilLocalMidnightAndActiveTicksEverySecond() {
+        val dayStart = LocalDate.of(2023, 11, 14).atStartOfDay(zone).toInstant().toEpochMilli()
+        val nextMidnight = LocalDate.of(2023, 11, 15).atStartOfDay(zone).toInstant().toEpochMilli()
+        val justBeforeMidnight = nextMidnight - 1L
+
+        assertEquals(
+            ACTIVE_STATUS_REFRESH_DELAY_MILLIS,
+            nextDownloadsStatusRefreshDelayMillis(noon, zone, hasActiveTransfers = true),
+        )
+        assertEquals(
+            1L,
+            nextDownloadsStatusRefreshDelayMillis(justBeforeMidnight, zone, hasActiveTransfers = false),
+        )
+        assertEquals(
+            60_000L,
+            nextDownloadsStatusRefreshDelayMillis(
+                dayStart,
+                zone,
+                hasActiveTransfers = false,
+                maxIdleDelayMillis = 60_000L,
+            ),
+        )
+        assertEquals(nextMidnight, startOfNextLocalDay(dayStart, zone))
+        assertEquals(
+            90_000L,
+            nextDownloadsStatusRefreshDelayMillis(
+                nextMidnight - 90_000L,
+                zone,
+                hasActiveTransfers = false,
+                maxIdleDelayMillis = 120_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun transferredBytesForLocalDayOrZeroRethrowsCancellationAndMapsFailuresToZero() {
+        runBlocking {
+            assertEquals(12L, transferredBytesForLocalDayOrZero { 12L })
+            assertEquals(0L, transferredBytesForLocalDayOrZero { throw IllegalStateException("query failed") })
+        }
+        val cancelled = assertThrows(CancellationException::class.java) {
+            runBlocking {
+                transferredBytesForLocalDayOrZero { throw CancellationException("effect cancelled") }
+            }
+        }
+        assertEquals("effect cancelled", cancelled.message)
     }
 }

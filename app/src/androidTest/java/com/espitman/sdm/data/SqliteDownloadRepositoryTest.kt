@@ -17,6 +17,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 @RunWith(AndroidJUnit4::class)
 class SqliteDownloadRepositoryTest {
@@ -97,11 +99,33 @@ class SqliteDownloadRepositoryTest {
         repository!!.awaitInitialized()
 
         assertEquals("legacy", repository!!.downloads.value.single().id)
-        assertEquals(DownloadDatabase.DATABASE_VERSION, SQLiteDatabase.openDatabase(
-            context.getDatabasePath(databaseName).path,
-            null,
-            SQLiteDatabase.OPEN_READONLY,
-        ).use { it.version })
+        assertEquals(0L, repository!!.transferredBytesForLocalDay(10L, ZoneOffset.UTC))
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertDailyTransferTableExists()
+    }
+
+    @Test
+    fun versionTwoDatabaseMigratesWithoutLosingRecords() = runBlocking {
+        seedLegacyDatabase(2)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        assertEquals("legacy", repository!!.downloads.value.single().id)
+        assertEquals(0L, repository!!.transferredBytesForLocalDay(10L, ZoneOffset.UTC))
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertDailyTransferTableExists()
+    }
+
+    @Test
+    fun versionThreeDatabaseMigratesWithoutLosingRecords() = runBlocking {
+        seedLegacyDatabase(3)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        assertEquals("legacy", repository!!.downloads.value.single().id)
+        assertEquals(0L, repository!!.transferredBytesForLocalDay(10L, ZoneOffset.UTC))
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertDailyTransferTableExists()
     }
 
     @Test
@@ -194,5 +218,144 @@ class SqliteDownloadRepositoryTest {
         assertEquals(DownloadState.CANCELLED, cancelled.state)
         assertEquals(200L, cancelled.updatedAtEpochMillis)
         assertNull(repository!!.togglePriority("missing", 400))
+    }
+
+    @Test
+    fun dailyTotalsCountOnlyPositiveDeltasAndSurviveRecreation() = runBlocking {
+        val zone = ZoneOffset.UTC
+        repository = SqliteDownloadRepository(
+            context,
+            databaseName = databaseName,
+            localZoneId = zone,
+        )
+        repository!!.awaitInitialized()
+        startDownloading("progress", totalBytes = Long.MAX_VALUE, createdAt = 100)
+
+        repository!!.updateProgress("progress", 40, 400)
+        repository!!.updateProgress("progress", 40, 401)
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(400, zone))
+
+        val paused = repository!!.pauseAtExactOffset("progress", fileLengthBytes = 55, nowEpochMillis = 500)
+        assertEquals(55L, paused!!.downloadedBytes)
+        assertEquals(55L, repository!!.transferredBytesForLocalDay(500, zone))
+
+        repository!!.resumePaused("progress", 600)
+        repository!!.togglePriority("progress", 700)
+        repository!!.transition("progress", DownloadState.CONNECTING, 800)
+        repository!!.beginFreshRestart("progress", 900, etag = null, lastModified = null, totalBytes = Long.MAX_VALUE)
+        assertEquals(0L, repository!!.get("progress")!!.downloadedBytes)
+        assertEquals(55L, repository!!.transferredBytesForLocalDay(900, zone))
+
+        repository!!.transition("progress", DownloadState.DOWNLOADING, 1_000)
+        repository!!.updateProgress("progress", 20, 1_100)
+        val cancelled = repository!!.cancelAtExactOffset("progress", fileLengthBytes = 30, nowEpochMillis = 1_200)
+        assertEquals(30L, cancelled!!.downloadedBytes)
+        assertEquals(85L, repository!!.transferredBytesForLocalDay(1_200, zone))
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(
+            context,
+            databaseName = databaseName,
+            localZoneId = zone,
+        )
+        repository!!.awaitInitialized()
+        assertEquals(85L, repository!!.transferredBytesForLocalDay(1_200, zone))
+    }
+
+    @Test
+    fun pauseAndCancelRewindsDoNotSubtractAndStateMutationsAddZero() = runBlocking {
+        val zone = ZoneOffset.UTC
+        repository = SqliteDownloadRepository(
+            context,
+            databaseName = databaseName,
+            localZoneId = zone,
+        )
+        repository!!.awaitInitialized()
+        startDownloading("rewind", totalBytes = 100, createdAt = 100)
+        repository!!.updateProgress("rewind", 40, 400)
+        repository!!.pauseAtExactOffset("rewind", fileLengthBytes = 20, nowEpochMillis = 500)
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(500, zone))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repository!!.transition("rewind", DownloadState.COMPLETED, 600) }
+        }
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(600, zone))
+
+        repository!!.resumePaused("rewind", 700)
+        repository!!.transition("rewind", DownloadState.CONNECTING, 800)
+        repository!!.transition("rewind", DownloadState.DOWNLOADING, 900)
+        repository!!.updateProgress("rewind", 20, 1_000)
+        repository!!.cancelAtExactOffset("rewind", fileLengthBytes = 10, nowEpochMillis = 1_100)
+        assertEquals(40L, repository!!.transferredBytesForLocalDay(1_100, zone))
+    }
+
+    @Test
+    fun dailyTotalsUseLocalDayOfMutationTimestampAndSaturate() = runBlocking {
+        val zone = ZoneOffset.ofHours(3)
+        val dayStart = LocalDate.of(2023, 11, 14).atStartOfDay(zone).toInstant().toEpochMilli()
+        val yesterday = dayStart - 1L
+        repository = SqliteDownloadRepository(
+            context,
+            databaseName = databaseName,
+            localZoneId = zone,
+        )
+        repository!!.awaitInitialized()
+        startDownloading("overnight", totalBytes = Long.MAX_VALUE, createdAt = yesterday - 10)
+        repository!!.updateProgress("overnight", 25, yesterday)
+        startDownloading("today", totalBytes = Long.MAX_VALUE, createdAt = dayStart)
+        repository!!.updateProgress("today", Long.MAX_VALUE - 1L, dayStart + 10)
+        startDownloading("overflow", totalBytes = 10, createdAt = dayStart + 20)
+        repository!!.updateProgress("overflow", 2, dayStart + 30)
+
+        assertEquals(25L, repository!!.transferredBytesForLocalDay(yesterday, zone))
+        assertEquals(Long.MAX_VALUE, repository!!.transferredBytesForLocalDay(dayStart, zone))
+        assertEquals(0L, repository!!.transferredBytesForLocalDay(dayStart + 86_400_000L, zone))
+    }
+
+    private suspend fun startDownloading(id: String, totalBytes: Long, createdAt: Long) {
+        repository!!.insert(
+            Download(
+                id = id,
+                url = "https://example.com/$id.bin",
+                fileName = "$id.bin",
+                totalBytes = totalBytes,
+                createdAtEpochMillis = createdAt,
+            ),
+        )
+        repository!!.transition(id, DownloadState.CONNECTING, createdAt + 1)
+        repository!!.transition(id, DownloadState.DOWNLOADING, createdAt + 2)
+    }
+
+    private fun seedLegacyDatabase(version: Int) {
+        SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(databaseName), null).use { db ->
+            DownloadDatabase.createVersionOne(db)
+            if (version >= 2) DownloadDatabase.migrateOneToTwo(db)
+            if (version >= 3) DownloadDatabase.migrateTwoToThree(db)
+            db.execSQL(
+                """INSERT INTO downloads
+                    (id,url,file_name,downloaded_bytes,state,priority,created_at,updated_at)
+                    VALUES ('legacy','https://example.com/legacy','legacy',0,'QUEUED',0,10,10)
+                """.trimIndent(),
+            )
+            db.version = version
+        }
+    }
+
+    private fun openedVersion(): Int = SQLiteDatabase.openDatabase(
+        context.getDatabasePath(databaseName).path,
+        null,
+        SQLiteDatabase.OPEN_READONLY,
+    ).use { it.version }
+
+    private fun assertDailyTransferTableExists() {
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            db.rawQuery("SELECT day_key, transferred_bytes FROM daily_transfer_totals", null).use { cursor ->
+                assertEquals(0, cursor.count)
+            }
+        }
     }
 }

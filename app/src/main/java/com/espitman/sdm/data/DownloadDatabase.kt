@@ -18,6 +18,7 @@ internal class DownloadDatabase(
         createVersionOne(db)
         migrateOneToTwo(db)
         migrateTwoToThree(db)
+        migrateThreeToFour(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -30,12 +31,16 @@ internal class DownloadDatabase(
             migrateTwoToThree(db)
             version = 3
         }
+        if (version == 3 && newVersion >= 4) {
+            migrateThreeToFour(db)
+            version = 4
+        }
         check(version == newVersion) { "Missing database migration from $version to $newVersion" }
     }
 
     companion object {
         const val DATABASE_NAME = "sdm-downloads.db"
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
 
         internal fun createVersionOne(db: SQLiteDatabase) {
             db.execSQL(
@@ -62,15 +67,27 @@ internal class DownloadDatabase(
             )
         }
 
-        private fun migrateOneToTwo(db: SQLiteDatabase) {
+        internal fun migrateOneToTwo(db: SQLiteDatabase) {
             db.execSQL("ALTER TABLE downloads ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
             db.execSQL("CREATE INDEX index_downloads_state ON downloads(state)")
             db.execSQL("CREATE INDEX index_downloads_priority ON downloads(priority DESC, sort_order ASC)")
         }
 
-        private fun migrateTwoToThree(db: SQLiteDatabase) {
+        internal fun migrateTwoToThree(db: SQLiteDatabase) {
             db.execSQL("ALTER TABLE downloads ADD COLUMN etag TEXT")
             db.execSQL("ALTER TABLE downloads ADD COLUMN last_modified TEXT")
+        }
+
+        internal fun migrateThreeToFour(db: SQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE daily_transfer_totals (
+                    day_key TEXT NOT NULL PRIMARY KEY,
+                    transferred_bytes INTEGER NOT NULL DEFAULT 0,
+                    CHECK(transferred_bytes >= 0)
+                )
+                """.trimIndent(),
+            )
         }
     }
 }

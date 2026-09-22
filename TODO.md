@@ -104,7 +104,8 @@ Depends on stage 4.
 
 - [x] SDM-031 — Connect Downloads search and filters to real data and preserve selection state.
   - Verification: The Open Design Downloading, Queued, and Completed tabs and case-insensitive filename search operate on live repository records; category, search visibility, and query now restore together while transient menus stay closed. All 293 JVM tests, forced assembleDebug/assembleDebugAndroidTest, lintDebug, and git diff --check passed. On Xiaomi Android 14, two controlled HTTP downloads populated real Completed data, `BETA` displayed only `beta-notes.txt`, and the Completed tab/query survived process recreation plus a details round trip.
-- [ ] SDM-032 — Calculate actual active count, aggregate speed, remaining bytes, daily downloads, and connection count; handle unknown sizes.
+- [x] SDM-032 — Calculate actual active count, aggregate speed, remaining bytes, daily downloads, and connection count; handle unknown sizes.
+  - Verification: The status card now separates active records from live HTTP connections, derives aggregate speed from recent repository deltas, sums bounded remaining bytes with an unavailable state for unknown totals, and reads exact persisted per-day transfer totals through the additive database v4 migration. Slow transfers publish progress at least every second; all 304 JVM tests, forced assembleDebug/assembleDebugAndroidTest, lintDebug, and git diff --check passed. Device migration tests are compiled for the section-level phone pass in SDM-038.
 - [ ] SDM-033 — Open each download's details by its ID; remove the dependency on a fixed sample file.
 - [ ] SDM-034 — Connect the speed chart, HTTP information, and technical sections to actual measurements; represent unavailable values without fabricating data.
 - [ ] SDM-035 — Implement Copy URL, Rename, and Move to top; keep filenames and records consistent.

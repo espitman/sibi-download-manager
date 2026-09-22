@@ -253,6 +253,7 @@ class DownloadTransferEngine(
 
                     var totalBytesRead = startOffset
                     var lastReportedBytes = startOffset
+                    var lastReportedAtEpochMillis = clock.currentTimeMillis()
                     var extraResumeBytes = false
 
                     FileOutputStream(writeFile, appendToWriteFile).use { fileOutputStream ->
@@ -296,13 +297,11 @@ class DownloadTransferEngine(
                                 onChunkRead(allowedBytes)
                                 currentCoroutineContext().ensureActive()
 
-                                if (
-                                    totalBytesRead - lastReportedBytes >= progressUpdateIntervalBytes &&
-                                    (expectedTotal == null || totalBytesRead <= expectedTotal)
-                                ) {
+                                if (shouldPublishProgress(totalBytesRead, lastReportedBytes, lastReportedAtEpochMillis, expectedTotal)) {
                                     fileOutputStream.flush()
                                     updateProgress(repository, downloadId, totalBytesRead)
                                     lastReportedBytes = totalBytesRead
+                                    lastReportedAtEpochMillis = clock.currentTimeMillis()
                                 }
                                 if (extraResumeBytes) break
                             }
@@ -469,6 +468,20 @@ class DownloadTransferEngine(
         persistPausedIfRequested(repository, downloadId, tempFile) { true }
     }
 
+    private fun shouldPublishProgress(
+        totalBytesRead: Long,
+        lastReportedBytes: Long,
+        lastReportedAtEpochMillis: Long,
+        expectedTotal: Long?,
+    ): Boolean {
+        val unread = totalBytesRead - lastReportedBytes
+        if (unread <= 0L) return false
+        if (expectedTotal != null && totalBytesRead > expectedTotal) return false
+        val elapsedMillis = clock.currentTimeMillis() - lastReportedAtEpochMillis
+        return unread >= progressUpdateIntervalBytes ||
+            elapsedMillis >= DEFAULT_PROGRESS_UPDATE_INTERVAL_MILLIS
+    }
+
     private suspend fun updateProgress(
         repository: DownloadRepository,
         downloadId: String,
@@ -577,5 +590,6 @@ class DownloadTransferEngine(
     companion object {
         const val DEFAULT_BUFFER_SIZE_BYTES = 8 * 1024 // 8 KB bounded buffer
         const val DEFAULT_PROGRESS_UPDATE_INTERVAL_BYTES = 64 * 1024L // 64 KB
+        const val DEFAULT_PROGRESS_UPDATE_INTERVAL_MILLIS = 1_000L
     }
 }
