@@ -2,4 +2,8 @@
     <string name="app_name">SDM</string>
     <string name="transfer_notification_channel_name">File transfers</string>
     <string name="transfer_notification_channel_description">Ongoing file transfers while SDM downloads in the background</string>
+    <string name="transfer_alert_channel_name">Download alerts</string>
+    <string name="transfer_alert_channel_description">Download completion and stalled transfer alerts</string>
+    <string name="download_complete_notification">Download complete</string>
+    <string name="download_stalled_notification">Transfer stalled</string>
 </resources>

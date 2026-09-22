@@ -155,7 +155,10 @@ class DownloadTransferService : Service() {
             applyKeepActiveWakeLockLocked(shouldHold = false)
         }
         val teardownSnapshot = AppRepositories.downloads(applicationContext).downloads.value
-        notifications.onServiceTeardown(teardownSnapshot)
+        notifications.onServiceTeardown(
+            downloads = teardownSnapshot,
+            settings = SettingsRepository.get(applicationContext).settings.value,
+        )
         serviceJob.cancel()
         super.onDestroy()
     }
@@ -168,7 +171,11 @@ class DownloadTransferService : Service() {
                 SettingsRepository.get(applicationContext).settings,
             ) { downloads, settings -> downloads to settings }
                 .collectLatest { (downloads, settings) ->
-                    notifications.updateActiveTransfers(downloads)
+                    notifications.updateActiveTransfers(
+                        downloads = downloads,
+                        settings = settings,
+                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                    )
                     val shouldHold = KeepActivePolicy.shouldHoldWakeLock(
                         keepActive = settings.keepActive,
                         keepActiveDuration = settings.keepActiveDuration,
@@ -181,6 +188,16 @@ class DownloadTransferService : Service() {
                         applyKeepActiveWakeLock(shouldHold = true)
                     }
                 }
+        }
+        serviceScope.launch {
+            while (true) {
+                delay(ALERT_TICK_INTERVAL_MS)
+                notifications.updateAlerts(
+                    downloads = AppRepositories.downloads(applicationContext).downloads.value,
+                    settings = SettingsRepository.get(applicationContext).settings.value,
+                    nowElapsedMs = SystemClock.elapsedRealtime(),
+                )
+            }
         }
     }
 
@@ -313,6 +330,7 @@ class DownloadTransferService : Service() {
     }
 
     companion object {
+        private const val ALERT_TICK_INTERVAL_MS = 1_000L
         private const val WAKE_LOCK_TAG = "sdm:keep-active"
 
         fun startTransfer(context: Context, downloadId: String, tempFilePath: String) {

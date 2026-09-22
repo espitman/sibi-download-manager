@@ -152,7 +152,8 @@ Depends on stages 4 and 6.
   - Verification: 572 JVM tests and 56 connected-device tests passed; measured single and concurrent throughput stayed within 1.35× of the aggregate cap, and both debug APKs plus lint passed on 2026-09-22.
 - [x] SDM-048 — Connect Auto-resume to network recovery and download state while respecting manual pauses.
   - Verification: 588 JVM tests and 57 connected-device tests passed; process/boot and network recovery scenarios passed with manual-pause immunity on 2026-09-22.
-- [ ] SDM-049 — Implement completion notifications and stalled-transfer alerts according to the settings toggles.
+- [x] SDM-049 — Implement completion notifications and stalled-transfer alerts according to the settings toggles.
+  - Verification: Completion alerts are emitted once for live completed transitions only; stalled-transfer alerts use a 30-second monotonic no-progress window, clear on recovery/state/removal/toggle-off, and can alert again for a new stall episode. The existing foreground channel remains silent and separate from the new default-importance alert channel. All 595 JVM tests, assembleDebug, assembleDebugAndroidTest, lintDebug, git diff --check, preserved-data APK installs, and all 57 on-device instrumentation tests passed on the connected Xiaomi Android 14 phone.
 - [ ] SDM-050 — Implement segmented transfers only for suitable servers and files; fall back to a single connection when unsupported.
 - [ ] SDM-051 — Connect Connections to segmented transfers with resource limits and safe segment recovery; verify final file integrity.
 - [ ] SDM-052 — Define and document when each setting applies to active or future downloads; keep Preferences and Settings consistent.
