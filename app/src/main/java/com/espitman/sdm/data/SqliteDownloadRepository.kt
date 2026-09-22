@@ -12,6 +12,7 @@ import com.espitman.sdm.domain.DownloadMoveToTopMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadRenameMutation
 import com.espitman.sdm.domain.DownloadResumeMutation
+import com.espitman.sdm.domain.DownloadRetryFailedMutation
 import com.espitman.sdm.domain.DownloadAllMutation
 import com.espitman.sdm.domain.PauseQueuedMutation
 import com.espitman.sdm.domain.DownloadState
@@ -172,6 +173,28 @@ class SqliteDownloadRepository(
             database.writableDatabase.inTransaction { db ->
                 val current = queryOne(db, id) ?: return@inTransaction
                 val queued = DownloadResumeMutation.apply(current, nowEpochMillis) ?: return@inTransaction
+                persistDownloadMutation(db, id, current, queued)
+                updated = queued
+            }
+            if (updated != null && updated!!.state == DownloadState.QUEUED) {
+                refreshLocked(database.readableDatabase)
+            }
+            updated
+        }
+    }
+
+    override suspend fun retryFailed(
+        id: String,
+        automatic: Boolean,
+        nowEpochMillis: Long,
+    ): Download? = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var updated: Download? = null
+            database.writableDatabase.inTransaction { db ->
+                val current = queryOne(db, id) ?: return@inTransaction
+                val queued = DownloadRetryFailedMutation.apply(current, automatic, nowEpochMillis)
+                    ?: return@inTransaction
                 persistDownloadMutation(db, id, current, queued)
                 updated = queued
             }
@@ -436,7 +459,7 @@ class SqliteDownloadRepository(
         val COLUMNS = arrayOf(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
-            "started_at", "completed_at", "accepts_ranges", "reference_sha256",
+            "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count",
         )
     }
 }
@@ -470,6 +493,7 @@ private fun Download.toValues() = ContentValues().apply {
     putNullable("completed_at", completedAtEpochMillis)
     putNullable("accepts_ranges", acceptsRanges)
     putNullable("reference_sha256", referenceSha256)
+    put("automatic_retry_count", automaticRetryCount)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -504,6 +528,7 @@ private fun Cursor.toDownload() = Download(
     completedAtEpochMillis = nullableLong("completed_at"),
     acceptsRanges = nullableBoolean("accepts_ranges"),
     referenceSha256 = nullableString("reference_sha256"),
+    automaticRetryCount = getInt(getColumnIndexOrThrow("automatic_retry_count")),
 )
 
 private fun Cursor.nullableString(column: String): String? =

@@ -41,6 +41,8 @@ data class Download(
      * `null` means unavailable (legacy rows or no valid checksum header).
      */
     val referenceSha256: String? = null,
+    /** Consecutive automatic requeues after failure; manual retry resets this to 0. */
+    val automaticRetryCount: Int = 0,
 ) {
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }
@@ -78,6 +80,7 @@ data class Download(
         require(referenceSha256 == null || isNormalizedReferenceSha256(referenceSha256)) {
             "Reference SHA-256 must be 64 lowercase hexadecimal characters"
         }
+        require(automaticRetryCount >= 0) { "Automatic retry count cannot be negative" }
     }
 }
 

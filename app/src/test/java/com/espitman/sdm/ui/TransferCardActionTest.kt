@@ -6,14 +6,50 @@ import org.junit.Test
 
 class TransferCardActionTest {
     @Test
-    fun onlyPausedResumesAndOnlyActiveTransfersPause() {
+    fun pausedResumesActivePausesAndFailedRetries() {
         assertEquals(TransferCardAction.Resume, transferCardAction(DownloadState.PAUSED))
         assertEquals(TransferCardAction.Pause, transferCardAction(DownloadState.CONNECTING))
         assertEquals(TransferCardAction.Pause, transferCardAction(DownloadState.DOWNLOADING))
+        assertEquals(TransferCardAction.Retry, transferCardAction(DownloadState.FAILED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.QUEUED))
-        assertEquals(TransferCardAction.None, transferCardAction(DownloadState.FAILED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.COMPLETED))
         assertEquals(TransferCardAction.None, transferCardAction(DownloadState.CANCELLED))
+    }
+
+    @Test
+    fun detailsPrimaryActionIsRetryResumeOrPause() {
+        assertEquals(TransferCardAction.Retry, detailsPrimaryAction(DownloadState.FAILED))
+        assertEquals("Retry", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.FAILED)))
+        assertEquals(TransferCardAction.Resume, detailsPrimaryAction(DownloadState.PAUSED))
+        assertEquals("Resume", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.PAUSED)))
+        assertEquals(TransferCardAction.Pause, detailsPrimaryAction(DownloadState.CONNECTING))
+        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.CONNECTING)))
+        assertEquals(TransferCardAction.Pause, detailsPrimaryAction(DownloadState.DOWNLOADING))
+        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.DOWNLOADING)))
+        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.QUEUED)))
+        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.COMPLETED)))
+        assertEquals("Pause", detailsPrimaryActionLabel(detailsPrimaryAction(DownloadState.CANCELLED)))
+    }
+
+    @Test
+    fun retryAndResumeDispatchResumeTransferWhileActivePauses() {
+        fun capture(state: DownloadState): String {
+            var dispatched = "none"
+            dispatchTransferCardAction(
+                action = transferCardAction(state),
+                pause = { dispatched = "pause" },
+                resumeOrRetry = { dispatched = "resume" },
+            )
+            return dispatched
+        }
+
+        assertEquals("resume", capture(DownloadState.FAILED))
+        assertEquals("resume", capture(DownloadState.PAUSED))
+        assertEquals("pause", capture(DownloadState.CONNECTING))
+        assertEquals("pause", capture(DownloadState.DOWNLOADING))
+        assertEquals("none", capture(DownloadState.QUEUED))
+        assertEquals("none", capture(DownloadState.COMPLETED))
+        assertEquals("none", capture(DownloadState.CANCELLED))
     }
 
     @Test

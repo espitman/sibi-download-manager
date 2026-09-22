@@ -29,6 +29,16 @@ interface DownloadRepository {
     suspend fun pauseAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun cancelAtExactOffset(id: String, fileLengthBytes: Long, nowEpochMillis: Long): Download?
     suspend fun resumePaused(id: String, nowEpochMillis: Long): Download?
+    /**
+     * Re-queues a FAILED record, preserving downloaded bytes and destination path.
+     * Automatic retries increment [Download.automaticRetryCount] once; manual retries reset it to 0.
+     * Missing and non-failed records return null and leave stored state unchanged.
+     */
+    suspend fun retryFailed(
+        id: String,
+        automatic: Boolean,
+        nowEpochMillis: Long,
+    ): Download? = null
     /** Atomically re-queue PAUSED/FAILED/CANCELLED records; progress and partial files are preserved. */
     suspend fun requeueForDownloadAll(nowEpochMillis: Long): List<Download> {
         awaitInitialized()

@@ -158,8 +158,22 @@ class SqliteDownloadRepositoryTest {
         val migrated = repository!!.downloads.value.single()
         assertEquals("legacy", migrated.id)
         assertNull(migrated.referenceSha256)
+        assertEquals(0, migrated.automaticRetryCount)
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
         assertReferenceSha256ColumnExists()
+    }
+
+    @Test
+    fun versionSixDatabaseMigratesAutomaticRetryCountToZero() = runBlocking {
+        seedLegacyDatabase(6)
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+
+        val migrated = repository!!.downloads.value.single()
+        assertEquals("legacy", migrated.id)
+        assertEquals(0, migrated.automaticRetryCount)
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertAutomaticRetryCountColumnExists()
     }
 
     @Test
@@ -236,6 +250,97 @@ class SqliteDownloadRepositoryTest {
         assertEquals(mapOf("unknown" to null, "hashed" to EMPTY_SHA256_HEX), values())
         assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
         assertReferenceSha256ColumnExists()
+    }
+
+    @Test
+    fun automaticRetryCountRoundTripsDefaultAndPositiveValues() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "fresh",
+                url = "https://example.com/fresh.bin",
+                fileName = "fresh.bin",
+                createdAtEpochMillis = 100,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "retried",
+                url = "https://example.com/retried.bin",
+                fileName = "retried.bin",
+                createdAtEpochMillis = 101,
+                automaticRetryCount = 3,
+            ),
+        )
+
+        fun values() = repository!!.downloads.value.associate { it.id to it.automaticRetryCount }
+        assertEquals(mapOf("fresh" to 0, "retried" to 3), values())
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(mapOf("fresh" to 0, "retried" to 3), values())
+        assertEquals(DownloadDatabase.DATABASE_VERSION, openedVersion())
+        assertAutomaticRetryCountColumnExists()
+    }
+
+    @Test
+    fun retryFailedRequeuesOnlyFailedRecordsAndPreservesProgress() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(
+            Download(
+                id = "failed",
+                url = "https://example.com/failed.bin",
+                fileName = "failed.bin",
+                destinationPath = "/tmp/failed.bin",
+                totalBytes = 100,
+                downloadedBytes = 40,
+                state = DownloadState.FAILED,
+                error = "HTTP 503: Service Unavailable",
+                createdAtEpochMillis = 100,
+                updatedAtEpochMillis = 400,
+                automaticRetryCount = 1,
+            ),
+        )
+        repository!!.insert(
+            Download(
+                id = "queued",
+                url = "https://example.com/queued.bin",
+                fileName = "queued.bin",
+                createdAtEpochMillis = 100,
+                automaticRetryCount = 2,
+            ),
+        )
+
+        assertNull(repository!!.retryFailed("missing", automatic = true, nowEpochMillis = 500))
+        val queuedUnchanged = repository!!.get("queued")!!
+        assertNull(repository!!.retryFailed("queued", automatic = true, nowEpochMillis = 500))
+        assertEquals(queuedUnchanged, repository!!.get("queued"))
+
+        val automatic = repository!!.retryFailed("failed", automatic = true, nowEpochMillis = 300)!!
+        assertEquals(DownloadState.QUEUED, automatic.state)
+        assertNull(automatic.error)
+        assertEquals(40L, automatic.downloadedBytes)
+        assertEquals("/tmp/failed.bin", automatic.destinationPath)
+        assertEquals(2, automatic.automaticRetryCount)
+        assertEquals(400L, automatic.updatedAtEpochMillis)
+
+        repository!!.transition("failed", DownloadState.CONNECTING, 500)
+        repository!!.transition("failed", DownloadState.FAILED, 600, "timeout")
+        val manual = repository!!.retryFailed("failed", automatic = false, nowEpochMillis = 700)!!
+        assertEquals(0, manual.automaticRetryCount)
+        assertEquals(DownloadState.QUEUED, manual.state)
+        assertEquals(40L, manual.downloadedBytes)
+        assertNull(manual.error)
+        assertEquals(700L, manual.updatedAtEpochMillis)
+
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(0, repository!!.get("failed")!!.automaticRetryCount)
+        assertEquals(DownloadState.QUEUED, repository!!.get("failed")!!.state)
     }
 
     @Test
@@ -527,6 +632,7 @@ class SqliteDownloadRepositoryTest {
             if (version >= 3) DownloadDatabase.migrateTwoToThree(db)
             if (version >= 4) DownloadDatabase.migrateThreeToFour(db)
             if (version >= 5) DownloadDatabase.migrateFourToFive(db)
+            if (version >= 6) DownloadDatabase.migrateFiveToSix(db)
             db.execSQL(
                 """INSERT INTO downloads
                     (id,url,file_name,downloaded_bytes,state,priority,created_at,updated_at)
@@ -571,6 +677,22 @@ class SqliteDownloadRepositoryTest {
                     while (cursor.moveToNext()) add(cursor.getString(nameIndex))
                 }
                 assertEquals(true, names.contains("reference_sha256"))
+            }
+        }
+    }
+
+    private fun assertAutomaticRetryCountColumnExists() {
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            db.rawQuery("PRAGMA table_info(downloads)", null).use { cursor ->
+                val names = buildList {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+                assertEquals(true, names.contains("automatic_retry_count"))
             }
         }
     }

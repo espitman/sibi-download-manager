@@ -22,6 +22,7 @@ internal data class DownloadDetailsTechnicalValues(
     val security: String,
     val resumeSupport: String,
     val connectionThreads: String,
+    val lastError: String? = null,
 )
 
 internal data class DownloadDetailsRequestHeaders(
@@ -80,6 +81,11 @@ internal fun mapDownloadDetailsTelemetry(
             security = detailsSecurityLabel(download.url),
             resumeSupport = detailsResumeSupportLabel(download),
             connectionThreads = if (connections == 1) "one active stream" else "zero active streams",
+            lastError = if (download.state == DownloadState.FAILED) {
+                failedDownloadLastError(download.error)
+            } else {
+                null
+            },
         ),
         requestHeaders = UNAVAILABLE_REQUEST_HEADERS,
         segments = UNAVAILABLE_SEGMENTS,

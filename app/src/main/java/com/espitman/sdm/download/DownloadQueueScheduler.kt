@@ -72,10 +72,16 @@ class DownloadQueueScheduler(
     suspend fun resume(downloadId: String) {
         repository.awaitInitialized()
         val current = repository.get(downloadId) ?: return
-        repository.resumePaused(
-            id = downloadId,
-            nowEpochMillis = max(clock.currentTimeMillis(), current.updatedAtEpochMillis),
-        )
+        val nowEpochMillis = max(clock.currentTimeMillis(), current.updatedAtEpochMillis)
+        when (current.state) {
+            DownloadState.PAUSED -> repository.resumePaused(id = downloadId, nowEpochMillis = nowEpochMillis)
+            DownloadState.FAILED -> repository.retryFailed(
+                id = downloadId,
+                automatic = false,
+                nowEpochMillis = nowEpochMillis,
+            )
+            else -> return
+        }
         schedule()
     }
 

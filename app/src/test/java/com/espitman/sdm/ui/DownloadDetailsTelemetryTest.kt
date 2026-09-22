@@ -248,4 +248,70 @@ class DownloadDetailsTelemetryTest {
         )
         assertEquals("02:00:00", longEta.metrics.remaining)
     }
+
+    @Test
+    fun lastErrorAppearsOnlyForFailedRecordsAndStaysDistinctPerCategory() {
+        val samples = listOf(
+            "Failed to connect to example.com/1.2.3.4:443" to "Network lost",
+            "Read time out" to "Timed out",
+            "HTTP 401: Unauthorized" to "Link expired",
+            "Insufficient storage for destination" to "Not enough storage",
+        )
+        samples.forEach { (error, label) ->
+            val presentation = mapDownloadDetailsTelemetry(
+                record(state = DownloadState.FAILED, error = error, downloadedBytes = 250L),
+                speed(),
+            )
+            val lastError = presentation.technical.lastError
+            assertTrue(lastError != null)
+            assertTrue(lastError!!.startsWith("$label · "))
+            assertTrue(lastError.contains(error))
+            assertFalse(lastError.contains("\n"))
+        }
+
+        val otherStates = listOf(
+            record(state = DownloadState.DOWNLOADING),
+            record(state = DownloadState.CONNECTING),
+            record(state = DownloadState.PAUSED),
+            record(state = DownloadState.QUEUED, startedAt = null),
+            record(
+                state = DownloadState.COMPLETED,
+                downloadedBytes = 1_000L,
+                totalBytes = 1_000L,
+                completedAt = 2_000L,
+            ),
+            record(state = DownloadState.CANCELLED),
+        )
+        otherStates.forEach { download ->
+            assertEquals(null, mapDownloadDetailsTelemetry(download, speed()).technical.lastError)
+        }
+    }
+
+    @Test
+    fun lastErrorSanitizesNewlinesAndLongPersistedDetail() {
+        val multiline = mapDownloadDetailsTelemetry(
+            record(
+                state = DownloadState.FAILED,
+                error = "java.io.IOException:\nNo space left on device",
+                downloadedBytes = 250L,
+            ),
+            speed(),
+        )
+        assertEquals(
+            "Not enough storage · java.io.IOException: No space left on device",
+            multiline.technical.lastError,
+        )
+
+        val longDetail = "HTTP 404: " + "n".repeat(FAILED_DOWNLOAD_ERROR_DETAIL_MAX_LENGTH)
+        val bounded = mapDownloadDetailsTelemetry(
+            record(state = DownloadState.FAILED, error = longDetail, downloadedBytes = 250L),
+            speed(),
+        )
+        val lastError = bounded.technical.lastError!!
+        assertTrue(lastError.startsWith("HTTP error · "))
+        assertTrue(lastError.endsWith("…"))
+        assertFalse(lastError.contains("\n"))
+        val detail = lastError.removePrefix("HTTP error · ")
+        assertEquals(FAILED_DOWNLOAD_ERROR_DETAIL_MAX_LENGTH, detail.length)
+    }
 }

@@ -1,6 +1,7 @@
 package com.espitman.sdm.ui
 
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadFailure
 import com.espitman.sdm.domain.DownloadState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -130,8 +131,8 @@ class DownloadCardMappingTest {
         assertEquals("Paused", paused.trailing)
         assertTrue(paused.showPlayAction)
         assertEquals(DownloadCategory.Downloading, failed.category)
-        assertEquals("Failed", failed.metadataValue)
-        assertEquals("Failed", failed.trailing)
+        assertEquals("Download failed", failed.metadataValue)
+        assertEquals("Retry", failed.trailing)
         assertTrue(failed.showPlayAction)
     }
 
@@ -213,6 +214,36 @@ class DownloadCardMappingTest {
             listOf("moving"),
             DownloadCategory.entries.flatMap { filterDownloadCards(current, it, "") }.map { it.id },
         )
+    }
+
+    @Test
+    fun failedCardsShowClassifiedLabelAndRetryForEveryCategory() {
+        val samples = listOf(
+            "java.net.UnknownHostException: Unable to resolve host" to DownloadFailure.NETWORK_LOSS,
+            "SocketTimeoutException: timeout" to DownloadFailure.TIMEOUT,
+            "HTTP 403: Forbidden" to DownloadFailure.EXPIRED_LINK,
+            "java.io.IOException: No space left on device" to DownloadFailure.INSUFFICIENT_STORAGE,
+            "HTTP 503: Service Unavailable" to DownloadFailure.TRANSIENT_HTTP,
+            "HTTP 404: Not Found" to DownloadFailure.HTTP_ERROR,
+            "Interrupted when the app process stopped" to DownloadFailure.OTHER,
+        )
+        assertEquals(DownloadFailure.entries.toSet(), samples.map { it.second }.toSet())
+
+        samples.forEachIndexed { index, (error, failure) ->
+            val card = mapDownloadToCard(
+                record(
+                    id = "failed-$index",
+                    state = DownloadState.FAILED,
+                    downloadedBytes = 250L,
+                    error = error,
+                ),
+                nowEpochMillis = 2_000L,
+            )
+            assertEquals(failure.label, card.metadataValue)
+            assertEquals("Retry", card.trailing)
+            assertTrue(card.showPlayAction)
+            assertEquals(DownloadCategory.Downloading, card.category)
+        }
     }
 
     private fun recordFor(state: DownloadState) = when (state) {

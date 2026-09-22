@@ -278,13 +278,18 @@ class DownloadTransferService : Service() {
     private suspend fun executeTransfer(command: StartTransferCommand) {
         val repository = AppRepositories.downloads(applicationContext)
         val download = repository.get(command.downloadId) ?: return
-        AppRepositories.transferEngine().executeTransfer(
-            downloadId = download.id,
-            url = download.url,
-            tempFile = File(command.tempFilePath),
-            repository = repository,
-            pauseRequested = { session.isPauseRequested(command.downloadId) },
-        )
+        val downloadId = download.id
+        val url = download.url
+        val tempFile = File(command.tempFilePath)
+        DownloadAutoRetryRunner(repository).run(downloadId) {
+            AppRepositories.transferEngine().executeTransfer(
+                downloadId = downloadId,
+                url = url,
+                tempFile = tempFile,
+                repository = repository,
+                pauseRequested = { session.isPauseRequested(command.downloadId) },
+            )
+        }
     }
 
     companion object {

@@ -61,8 +61,8 @@ internal fun mapDownloadToCard(
             trailing = "Completed"
         }
         DownloadState.FAILED -> {
-            metadataValue = "Failed"
-            trailing = "Failed"
+            metadataValue = failedDownloadCardLabel(download.error)
+            trailing = "Retry"
         }
         DownloadState.CANCELLED -> {
             metadataValue = "Cancelled"

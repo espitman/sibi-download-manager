@@ -5,6 +5,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseMutation
+import com.espitman.sdm.domain.DownloadRetryFailedMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +129,7 @@ class DownloadQueueSchedulerTest {
 
         scheduler.resume("paused")
         assertEquals(DownloadState.QUEUED, repo.get("paused")!!.state)
+        assertEquals(0, repo.get("paused")!!.automaticRetryCount)
         assertTrue(starter.startedIds().isEmpty())
 
         repo.complete("active-1")
@@ -270,6 +272,49 @@ class DownloadQueueSchedulerTest {
         assertNull(scheduler.togglePriority("missing"))
     }
 
+    @Test
+    fun resumeFailedRequeuesManuallyResettingAutomaticRetryCountThenSchedules() = runBlocking {
+        val repo = FakeDownloadRepository(
+            listOf(
+                queued("failed", createdAt = 1).copy(
+                    state = DownloadState.FAILED,
+                    error = "HTTP 503: Service Unavailable",
+                    downloadedBytes = 9L,
+                    automaticRetryCount = 2,
+                ),
+            ),
+        )
+        val starter = RecordingStarter()
+        val scheduler = DownloadQueueScheduler(repo, { 1 }, starter)
+
+        scheduler.resume("failed")
+
+        val retried = repo.get("failed")!!
+        assertEquals(DownloadState.QUEUED, retried.state)
+        assertEquals(0, retried.automaticRetryCount)
+        assertEquals(9L, retried.downloadedBytes)
+        assertEquals(listOf("failed"), starter.startedIds())
+    }
+
+    @Test
+    fun resumeLeavesNonPausedNonFailedRecordsUnchanged() = runBlocking {
+        val repo = FakeDownloadRepository(
+            listOf(
+                queued("waiting", createdAt = 1),
+                queued("running", createdAt = 2).copy(state = DownloadState.DOWNLOADING),
+            ),
+        )
+        val starter = RecordingStarter()
+        val scheduler = DownloadQueueScheduler(repo, { 2 }, starter)
+
+        scheduler.resume("waiting")
+        scheduler.resume("running")
+
+        assertEquals(DownloadState.QUEUED, repo.get("waiting")!!.state)
+        assertEquals(DownloadState.DOWNLOADING, repo.get("running")!!.state)
+        assertTrue(starter.startedIds().isEmpty())
+    }
+
     private fun queued(
         id: String,
         priority: Int = 0,
@@ -380,6 +425,18 @@ class DownloadQueueSchedulerTest {
         override suspend fun resumePaused(id: String, nowEpochMillis: Long): Download? = mutex.withLock {
             val current = _downloads.value.find { it.id == id } ?: return@withLock null
             val queued = com.espitman.sdm.domain.DownloadResumeMutation.apply(current, nowEpochMillis)
+                ?: return@withLock null
+            _downloads.value = _downloads.value.filterNot { it.id == id } + queued
+            queued
+        }
+
+        override suspend fun retryFailed(
+            id: String,
+            automatic: Boolean,
+            nowEpochMillis: Long,
+        ): Download? = mutex.withLock {
+            val current = _downloads.value.find { it.id == id } ?: return@withLock null
+            val queued = DownloadRetryFailedMutation.apply(current, automatic, nowEpochMillis)
                 ?: return@withLock null
             _downloads.value = _downloads.value.filterNot { it.id == id } + queued
             queued
