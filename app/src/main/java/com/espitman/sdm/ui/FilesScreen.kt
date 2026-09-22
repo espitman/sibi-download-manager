@@ -1,5 +1,6 @@
 package com.espitman.sdm.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,27 +17,36 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import com.espitman.sdm.data.AppRepositories
-import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.storage.ContentResolverCompletedFileProbe
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,7 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,56 +66,205 @@ import com.espitman.sdm.ui.theme.SdmLine
 import com.espitman.sdm.ui.theme.SdmMuted
 import com.espitman.sdm.ui.theme.SdmSuccess
 import com.espitman.sdm.ui.theme.SdmSurface
+import com.espitman.sdm.ui.theme.SdmText
 import com.espitman.sdm.ui.theme.sdmColor
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
-private data class FileUi(val type: String, val name: String, val meta: String, val verified: Boolean = false)
+@Stable
+internal class FilesUiState {
+    var filter by mutableStateOf(FileTypeFilter.All)
+    var searchOpen by mutableStateOf(false)
+    var query by mutableStateOf("")
+    var sort by mutableStateOf(FileSortOption.NewestFirst)
+}
+
+internal fun saveFilesUiState(state: FilesUiState): List<Any> = listOf(
+    state.filter.name,
+    state.searchOpen,
+    state.query,
+    state.sort.name,
+)
+
+internal fun restoreFilesUiState(saved: List<*>): FilesUiState {
+    val restored = FilesUiState()
+    restored.filter = (saved.getOrNull(0) as? String)
+        ?.let { name -> FileTypeFilter.entries.firstOrNull { it.name == name } }
+        ?: FileTypeFilter.All
+    restored.searchOpen = saved.getOrNull(1) as? Boolean ?: false
+    restored.query = saved.getOrNull(2) as? String ?: ""
+    restored.sort = (saved.getOrNull(3) as? String)
+        ?.let { name -> FileSortOption.entries.firstOrNull { it.name == name } }
+        ?: FileSortOption.NewestFirst
+    return restored
+}
+
+private val FilesUiStateSaver = listSaver<FilesUiState, Any>(
+    save = { saveFilesUiState(it) },
+    restore = { restoreFilesUiState(it) },
+)
 
 @Composable
-internal fun FilesScreen(showHeader: Boolean = true) {
-    var filter by remember { mutableStateOf("All") }
+internal fun rememberFilesUiState(): FilesUiState =
+    rememberSaveable(saver = FilesUiStateSaver) { FilesUiState() }
+
+@Composable
+internal fun FilesTopBar(
+    uiState: FilesUiState,
+    onToast: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SdmBackground),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(63.dp)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(sdmColor(0xFF171712, 0xFFF2EAD2), RoundedCornerShape(11.dp))
+                    .border(1.dp, SdmGold.copy(alpha = .5f), RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("SD", color = SdmGoldHigh, fontSize = 13.sp, fontWeight = FontWeight.Black)
+            }
+            Spacer(Modifier.width(10.dp))
+            Text("Files", color = SdmText, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.36).sp, modifier = Modifier.weight(1f))
+            FilesHeaderAction(SdmIcons.Search, "Search files") {
+                uiState.searchOpen = !uiState.searchOpen
+            }
+            Spacer(Modifier.width(6.dp))
+            FilesHeaderAction(SdmIcons.Sort, "Sort files") {
+                uiState.sort = if (uiState.sort == FileSortOption.NewestFirst) {
+                    FileSortOption.OldestFirst
+                } else {
+                    FileSortOption.NewestFirst
+                }
+                onToast(uiState.sort.toast)
+            }
+            Spacer(Modifier.width(6.dp))
+            FilesHeaderAction(SdmIcons.More, "More file options")
+        }
+        HorizontalDivider(thickness = 1.dp, color = SdmGold.copy(alpha = .14f))
+    }
+}
+
+@Composable
+private fun FilesHeaderAction(icon: ImageVector, description: String, onClick: () -> Unit = {}) {
+    IconButton(onClick = onClick, modifier = Modifier.size(42.dp)) {
+        Icon(icon, description, tint = SdmText, modifier = Modifier.size(21.dp))
+    }
+}
+
+@Composable
+internal fun FilesScreen(
+    uiState: FilesUiState = rememberFilesUiState(),
+    showHeader: Boolean = true,
+    onToast: (String) -> Unit = {},
+) {
     val context = LocalContext.current
     val records by AppRepositories.downloads(context).downloads.collectAsState()
-    val files = records.filter { it.state == DownloadState.COMPLETED }.map {
-        FileUi(it.fileName.substringAfterLast('.', "FILE").uppercase().take(5), it.fileName, formatBytes(it.downloadedBytes))
+    val probe = remember(context) { ContentResolverCompletedFileProbe(context) }
+    var completedRows by remember { mutableStateOf<List<FileRowModel>>(emptyList()) }
+    LaunchedEffect(records, probe) {
+        val snapshot = records
+        completedRows = withContext(Dispatchers.IO) {
+            snapshot.mapNotNull { download ->
+                mapCompletedFile(
+                    download = download,
+                    nowEpochMillis = System.currentTimeMillis(),
+                    zoneId = ZoneId.systemDefault(),
+                    probe = probe,
+                )
+            }
+        }
     }
-    val visibleFiles = files.filter { filter == "All" || when (it.type) {
-        "MP4", "MKV", "WEBM", "AVI" -> "Video"
-        "MP3", "FLAC", "WAV", "M4A" -> "Audio"
-        "APK" -> "APK"
-        "ZIP", "RAR", "7Z", "TAR", "GZ" -> "Archives"
-        else -> "Documents"
-    } == filter }
+    val files = remember(completedRows, uiState.filter, uiState.query, uiState.sort) {
+        filterAndSortFiles(completedRows, uiState.filter, uiState.query, uiState.sort)
+    }
     val storage by produceState<Pair<Long, Long>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             runCatching { android.os.StatFs(android.os.Environment.getExternalStorageDirectory().absolutePath).let { it.totalBytes - it.availableBytes to it.totalBytes } }.getOrNull()
         }
     }
+    BackHandler(uiState.searchOpen) { uiState.searchOpen = false }
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
-        if (showHeader) AppHeader("Files", showSort = true)
+        if (showHeader) FilesTopBar(uiState, onToast)
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (uiState.searchOpen) {
+                item {
+                    FilesSearchPanel(
+                        query = uiState.query,
+                        onQueryChange = { uiState.query = it },
+                    )
+                }
+            }
             item { StorageCard(storage) }
             item {
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf("All", "Video", "Audio", "Documents", "APK", "Archives").forEach { label ->
+                    FileTypeFilter.entries.forEach { option ->
+                        val selected = uiState.filter == option
                         Box(
-                            Modifier.height(38.dp).background(if (filter == label) sdmColor(0xFF252218, 0xFFF5EDD4) else SdmSurface, RoundedCornerShape(11.dp))
-                                .border(1.dp, if (filter == label) SdmGold.copy(alpha = .55f) else SdmLine, RoundedCornerShape(11.dp))
-                                .clickable { filter = label }.padding(horizontal = 13.dp),
+                            Modifier.height(38.dp).background(if (selected) sdmColor(0xFF252218, 0xFFF5EDD4) else SdmSurface, RoundedCornerShape(11.dp))
+                                .border(1.dp, if (selected) SdmGold.copy(alpha = .55f) else SdmLine, RoundedCornerShape(11.dp))
+                                .clickable { uiState.filter = option }.padding(horizontal = 13.dp),
                             contentAlignment = Alignment.Center,
-                        ) { Text(label, color = if (filter == label) SdmGoldHigh else SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        ) { Text(option.label, color = if (selected) SdmGoldHigh else SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
             item { Text("RECENT FILES", color = SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.43.sp, modifier = Modifier.padding(bottom = 4.dp)) }
-            if (visibleFiles.isEmpty()) {
+            if (files.isEmpty()) {
                 item {
                     SdmEmptyState("No matching files", "Try another search or file type.")
                 }
-            } else items(visibleFiles.size) { FileRow(visibleFiles[it]) }
+            } else {
+                items(files.size) { FileRow(files[it]) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilesSearchPanel(
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    val searchFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(50)
+        searchFocusRequester.requestFocus()
+    }
+    Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 13.sp),
+            cursorBrush = SolidColor(SdmGold),
+            modifier = Modifier.fillMaxWidth().height(48.dp).background(SdmSurface, RoundedCornerShape(14.dp)).border(1.dp, SdmLine, RoundedCornerShape(14.dp)).padding(start = 46.dp, end = 42.dp).focusRequester(searchFocusRequester),
+            decorationBox = { inner ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) Text("Search downloaded files", color = sdmColor(0xFF77746D, 0xFF77736A), fontSize = 13.sp)
+                    inner()
+                }
+            },
+        )
+        Icon(SdmIcons.Search, null, tint = SdmMuted, modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp).size(20.dp))
+        if (query.isNotEmpty()) {
+            IconButton(onClick = { onQueryChange("") }, modifier = Modifier.align(Alignment.CenterEnd).size(42.dp)) {
+                Icon(SdmIcons.Close, "Clear search", tint = SdmMuted, modifier = Modifier.size(17.dp))
+            }
         }
     }
 }
@@ -141,7 +300,7 @@ private fun StorageCard(storage: Pair<Long, Long>?) {
 }
 
 @Composable
-private fun FileRow(file: FileUi) {
+private fun FileRow(file: FileRowModel) {
     Card(colors = CardDefaults.cardColors(containerColor = SdmSurface), border = BorderStroke(1.dp, SdmLine), shape = RoundedCornerShape(14.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(width = 42.dp, height = 48.dp).background(sdmColor(0xFF191914, 0xFFF2EAD2), RoundedCornerShape(11.dp)).border(1.dp, SdmGold.copy(alpha = .32f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {

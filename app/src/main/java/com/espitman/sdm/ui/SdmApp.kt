@@ -105,6 +105,7 @@ fun SdmApp(
 ) {
     val downloadsStateHolder = rememberSaveableStateHolder()
     val downloadsUiState = rememberDownloadsUiState()
+    val filesUiState = rememberFilesUiState()
     var destination by remember { mutableStateOf(Destination.Downloads) }
     var showAddDownload by remember { mutableStateOf(false) }
     var selectedDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -125,6 +126,7 @@ fun SdmApp(
         downloadsUiState.searchOpen = false
         downloadsUiState.menuOpen = false
         downloadsUiState.overlay = null
+        filesUiState.searchOpen = false
         selectedDownloadId = openDownloadId
         onConsumed()
     }
@@ -145,7 +147,10 @@ fun SdmApp(
                         when (targetDestination) {
                             Destination.Downloads, Destination.Add -> DownloadsTopBar(downloadsUiState)
                             Destination.Browser -> AppHeader("Browser", privateMode = true)
-                            Destination.Files -> AppHeader("Files", showSort = true)
+                            Destination.Files -> FilesTopBar(
+                                uiState = filesUiState,
+                                onToast = { toastMessage = it; toastSequence++ },
+                            )
                             Destination.Settings -> AppHeader("Settings", showMore = false)
                         }
                     }
@@ -176,7 +181,11 @@ fun SdmApp(
                                 onOpenSettings = { selectedDownloadId = null; destination = Destination.Settings },
                             ) }
                             Destination.Browser -> BrowserScreen(showHeader = false)
-                            Destination.Files -> FilesScreen(showHeader = false)
+                            Destination.Files -> FilesScreen(
+                                uiState = filesUiState,
+                                showHeader = false,
+                                onToast = { toastMessage = it; toastSequence++ },
+                            )
                             Destination.Settings -> SettingsScreen(showHeader = false) { toastMessage = it; toastSequence++ }
                         }
                     }
@@ -191,6 +200,7 @@ fun SdmApp(
                             selectedDownloadId = null
                             downloadsUiState.searchOpen = false
                             downloadsUiState.menuOpen = false
+                            if (it != Destination.Files) filesUiState.searchOpen = false
                             destination = it
                         }
                     },
