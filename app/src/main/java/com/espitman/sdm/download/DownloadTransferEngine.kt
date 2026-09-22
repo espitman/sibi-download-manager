@@ -5,6 +5,10 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.storage.DownloadDestinationPublisher
 import com.espitman.sdm.storage.DownloadDestinationRef
+import com.espitman.sdm.storage.StorageCapacity
+import com.espitman.sdm.storage.StorageCapacityProbe
+import com.espitman.sdm.storage.TransferSpacePreflight
+import com.espitman.sdm.storage.TransferSpacePreflightResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +44,7 @@ class DownloadTransferEngine(
     private val progressUpdateIntervalBytes: Long = DEFAULT_PROGRESS_UPDATE_INTERVAL_BYTES,
     private val onChunkRead: (Int) -> Unit = {},
     private val destinationPublisher: DownloadDestinationPublisher = DownloadDestinationPublisher.KeepLocal,
+    private val storageCapacity: StorageCapacityProbe = StorageCapacityProbe.Unknown,
 ) {
     init {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
@@ -205,6 +210,7 @@ class DownloadTransferEngine(
                         return@withContext
                     }
 
+                    var pendingFreshRestart = false
                     if (treatAsFreshRestart) {
                         if (response.code != HttpRangeResume.HTTP_OK) {
                             reportFailure(
@@ -218,27 +224,60 @@ class DownloadTransferEngine(
                             reportFailure(repository, downloadId, "Response body was empty")
                             return@withContext
                         }
-                        val restartTarget = DownloadPartFile.restartForDestination(destinationFile)
                         val contentLength = response.body?.contentLength() ?: -1L
+                        expectedTotal = contentLength.takeIf { it >= 0L }
+                        resumeContentRange = null
+                        pendingFreshRestart = true
+                    }
+
+                    val body = response.body ?: run {
+                        reportFailure(repository, downloadId, "Response body was empty")
+                        return@withContext
+                    }
+
+                    val knownFinalSize = expectedTotal
+                        ?: body.contentLength().takeIf { it >= 0L && !sendRange }
+                    val localProbePath = if (pendingFreshRestart) {
+                        DownloadPartFile.restartForDestination(destinationFile)
+                    } else {
+                        writeFile
+                    }
+                    when (
+                        TransferSpacePreflight.evaluate(
+                            knownFinalSizeBytes = knownFinalSize,
+                            existingValidPartBytes = startOffset,
+                            restartingFresh = pendingFreshRestart,
+                            localCapacity = queryLocalCapacity(localProbePath),
+                            destinationTreeUri = existingDownload.destinationTreeUri,
+                            treeCapacity = queryTreeCapacity(existingDownload.destinationTreeUri),
+                        )
+                    ) {
+                        TransferSpacePreflightResult.Allowed -> Unit
+                        is TransferSpacePreflightResult.Insufficient -> {
+                            reportFailure(
+                                repository,
+                                downloadId,
+                                TransferSpacePreflight.INSUFFICIENT_STORAGE_ERROR,
+                            )
+                            return@withContext
+                        }
+                    }
+
+                    if (pendingFreshRestart) {
+                        val restartTarget = DownloadPartFile.restartForDestination(destinationFile)
                         val restarted = beginFreshRestart(
                             repository = repository,
                             downloadId = downloadId,
                             responseEtag = response.header(HttpRangeResume.HEADER_ETAG),
                             responseLastModified = response.header(HttpRangeResume.HEADER_LAST_MODIFIED),
-                            totalBytes = contentLength.takeIf { it >= 0L },
+                            totalBytes = knownFinalSize,
                         ) ?: return@withContext
                         restartFile = restartTarget
                         writeFile = restartTarget
                         appendToWriteFile = false
                         startOffset = 0L
                         expectedTotal = restarted.totalBytes
-                        resumeContentRange = null
                         restartAccepted = true
-                    }
-
-                    val body = response.body ?: run {
-                        reportFailure(repository, downloadId, "Response body was empty")
-                        return@withContext
                     }
 
                     val connectingDownload = repository.get(downloadId)
@@ -569,6 +608,23 @@ class DownloadTransferEngine(
         try {
             file.delete()
         } catch (_: Throwable) {
+        }
+    }
+
+    private fun queryLocalCapacity(path: File): StorageCapacity {
+        return try {
+            storageCapacity.queryLocalPath(path)
+        } catch (_: Exception) {
+            StorageCapacity.Unknown
+        }
+    }
+
+    private fun queryTreeCapacity(treeUri: String?): StorageCapacity {
+        if (treeUri.isNullOrBlank()) return StorageCapacity.Unknown
+        return try {
+            storageCapacity.queryTree(treeUri)
+        } catch (_: Exception) {
+            StorageCapacity.Unknown
         }
     }
 

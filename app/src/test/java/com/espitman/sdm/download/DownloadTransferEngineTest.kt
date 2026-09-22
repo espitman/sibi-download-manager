@@ -2,11 +2,15 @@ package com.espitman.sdm.download
 
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
+import com.espitman.sdm.domain.DownloadFailure
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.DownloadStateMachine
 import com.espitman.sdm.storage.DownloadDestinationPublisher
 import com.espitman.sdm.storage.PublishedDownloadDestination
+import com.espitman.sdm.storage.StorageCapacity
+import com.espitman.sdm.storage.StorageCapacityProbe
+import com.espitman.sdm.storage.TransferSpacePreflight
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -1602,5 +1606,315 @@ class DownloadTransferEngineTest {
         assertEquals(treeUri, completed.destinationTreeUri)
         assertEquals("Download", completed.destinationDisplayLabel)
         assertArrayEquals(payload, destFile.readBytes())
+    }
+
+    @Test
+    fun insufficientFreshSpaceFailsBeforeWritingResponseBytes() = runBlocking {
+        val payload = ByteArray(8) { 1 }
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+        val destFile = File(tempDir, "fresh-space.bin")
+        val tempFile = File(tempDir, "fresh-space.part")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "fresh-space",
+                    url = server.url("/fresh-space.bin").toString(),
+                    fileName = destFile.name,
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        var written = 0
+        val probe = RecordingStorageCapacityProbe(
+            local = StorageCapacity.from(totalBytes = 100L, availableBytes = 7L),
+        )
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            onChunkRead = { written += it },
+            storageCapacity = probe,
+        ).executeTransfer(
+            downloadId = "fresh-space",
+            url = server.url("/fresh-space.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+        val failed = repo.get("fresh-space")!!
+        assertEquals(DownloadState.FAILED, failed.state)
+        assertEquals(
+            DownloadFailure.INSUFFICIENT_STORAGE,
+            DownloadFailure.classify(failed.error),
+        )
+        assertEquals(TransferSpacePreflight.INSUFFICIENT_STORAGE_ERROR, failed.error)
+        assertEquals(0, written)
+        assertFalse(destFile.exists())
+        assertTrue(!tempFile.exists() || tempFile.length() == 0L)
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun exactAvailableBoundaryCompletesAFreshTransfer() = runBlocking {
+        val payload = ByteArray(8) { 2 }
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+        val destFile = File(tempDir, "exact-space.bin")
+        val tempFile = File(tempDir, "exact-space.part")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "exact-space",
+                    url = server.url("/exact-space.bin").toString(),
+                    fileName = destFile.name,
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            storageCapacity = RecordingStorageCapacityProbe(
+                local = StorageCapacity.from(totalBytes = 8L, availableBytes = 8L),
+            ),
+        ).executeTransfer(
+            downloadId = "exact-space",
+            url = server.url("/exact-space.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+        assertEquals(DownloadState.COMPLETED, repo.get("exact-space")!!.state)
+        assertArrayEquals(payload, destFile.readBytes())
+    }
+
+    @Test
+    fun resumeInsufficientRemainingPreservesExistingPartialAndWritesNothing() = runBlocking {
+        val prefix = byteArrayOf(1, 2, 3, 4)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader(HttpRangeResume.HEADER_CONTENT_RANGE, "bytes 4-7/8")
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v1\"")
+                .setBody(Buffer().write(byteArrayOf(5, 6, 7, 8))),
+        )
+        val destFile = File(tempDir, "resume-space.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "resume-space",
+                    url = server.url("/resume-space.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        var written = 0
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            onChunkRead = { written += it },
+            storageCapacity = RecordingStorageCapacityProbe(
+                local = StorageCapacity.from(totalBytes = 100L, availableBytes = 3L),
+            ),
+        ).executeTransfer(
+            downloadId = "resume-space",
+            url = server.url("/resume-space.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+        val failed = repo.get("resume-space")!!
+        assertEquals(DownloadState.FAILED, failed.state)
+        assertEquals(DownloadFailure.INSUFFICIENT_STORAGE, DownloadFailure.classify(failed.error))
+        assertEquals(0, written)
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(destFile.exists())
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+    }
+
+    @Test
+    fun safFinalCapacityBlocksWhenProviderExposesTooLittleSpace() = runBlocking {
+        val payload = ByteArray(8) { 3 }
+        val treeUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+        val destFile = File(tempDir, "saf-space.bin")
+        val tempFile = File(tempDir, "saf-space.part")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "saf-space",
+                    url = server.url("/saf-space.bin").toString(),
+                    fileName = destFile.name,
+                    destinationPath = destFile.absolutePath,
+                    destinationTreeUri = treeUri,
+                    destinationDisplayLabel = "Download",
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        var written = 0
+        val probe = RecordingStorageCapacityProbe(
+            local = StorageCapacity.from(totalBytes = 1_000L, availableBytes = 8L),
+            trees = mapOf(treeUri to StorageCapacity.from(totalBytes = 100L, availableBytes = 7L)),
+        )
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            onChunkRead = { written += it },
+            storageCapacity = probe,
+        ).executeTransfer(
+            downloadId = "saf-space",
+            url = server.url("/saf-space.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+        val failed = repo.get("saf-space")!!
+        assertEquals(DownloadState.FAILED, failed.state)
+        assertEquals(DownloadFailure.INSUFFICIENT_STORAGE, DownloadFailure.classify(failed.error))
+        assertEquals(0, written)
+        assertEquals(listOf(treeUri), probe.treeUris)
+        assertFalse(destFile.exists())
+        assertEquals(treeUri, failed.destinationTreeUri)
+    }
+
+    @Test
+    fun unknownSafCapacityDoesNotBlockWhenLocalStagingFits() = runBlocking {
+        val payload = ByteArray(8) { 4 }
+        val treeUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(payload)))
+        val destFile = File(tempDir, "saf-unknown.bin")
+        val tempFile = File(tempDir, "saf-unknown.part")
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "saf-unknown",
+                    url = server.url("/saf-unknown.bin").toString(),
+                    fileName = destFile.name,
+                    destinationPath = destFile.absolutePath,
+                    destinationTreeUri = treeUri,
+                    destinationDisplayLabel = "Download",
+                    totalBytes = payload.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            destinationPublisher = DownloadDestinationPublisher { download, _ ->
+                PublishedDownloadDestination(
+                    destinationPath = destFile.absolutePath,
+                    destinationTreeUri = download.destinationTreeUri,
+                    destinationDisplayLabel = download.destinationDisplayLabel,
+                    fileName = download.fileName,
+                )
+            },
+            storageCapacity = RecordingStorageCapacityProbe(
+                local = StorageCapacity.from(totalBytes = 1_000L, availableBytes = 8L),
+            ),
+        ).executeTransfer(
+            downloadId = "saf-unknown",
+            url = server.url("/saf-unknown.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+        assertEquals(DownloadState.COMPLETED, repo.get("saf-unknown")!!.state)
+        assertArrayEquals(payload, destFile.readBytes())
+    }
+
+    @Test
+    fun freshRestartInsufficientSpaceUsesNewSizeAndLeavesOriginalPart() = runBlocking {
+        val prefix = byteArrayOf(3, 3, 3, 3)
+        val fresh = ByteArray(8) { 9 }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader(HttpRangeResume.HEADER_ETAG, "\"file-v2\"")
+                .setBody(Buffer().write(fresh)),
+        )
+        val destFile = File(tempDir, "restart-space.bin")
+        val tempFile = DownloadPartFile.forDestination(destFile)
+        tempFile.writeBytes(prefix)
+        val restartFile = DownloadPartFile.restartForDestination(destFile)
+        val repo = FakeDownloadRepository(
+            listOf(
+                Download(
+                    id = "restart-space",
+                    url = server.url("/restart-space.bin").toString(),
+                    fileName = destFile.name,
+                    etag = "\"file-v1\"",
+                    destinationPath = destFile.absolutePath,
+                    totalBytes = 8L,
+                    downloadedBytes = prefix.size.toLong(),
+                    state = DownloadState.QUEUED,
+                    createdAtEpochMillis = 1_000L,
+                ),
+            ),
+        )
+        var written = 0
+        val probe = RecordingStorageCapacityProbe(
+            local = StorageCapacity.from(totalBytes = 100L, availableBytes = 7L),
+        )
+        DownloadTransferEngine(
+            okHttpClient = OkHttpClient(),
+            ioDispatcher = Dispatchers.IO,
+            onChunkRead = { written += it },
+            storageCapacity = probe,
+        ).executeTransfer(
+            downloadId = "restart-space",
+            url = server.url("/restart-space.bin").toString(),
+            tempFile = tempFile,
+            repository = repo,
+        )
+        val failed = repo.get("restart-space")!!
+        assertEquals(DownloadState.FAILED, failed.state)
+        assertEquals(DownloadFailure.INSUFFICIENT_STORAGE, DownloadFailure.classify(failed.error))
+        assertEquals(0, written)
+        assertArrayEquals(prefix, tempFile.readBytes())
+        assertFalse(restartFile.exists())
+        assertFalse(destFile.exists())
+        assertEquals("\"file-v1\"", failed.etag)
+        assertTrue(probe.localPaths.any { it.name == restartFile.name })
+        assertEquals(
+            listOf(DownloadState.CONNECTING, DownloadState.FAILED),
+            repo.transitions.map { it.second },
+        )
+    }
+
+    private class RecordingStorageCapacityProbe(
+        var local: StorageCapacity,
+        var trees: Map<String, StorageCapacity> = emptyMap(),
+    ) : StorageCapacityProbe {
+        val localPaths = mutableListOf<File>()
+        val treeUris = mutableListOf<String>()
+
+        override fun queryLocalPath(path: File): StorageCapacity {
+            localPaths.add(path)
+            return local
+        }
+
+        override fun queryTree(treeUri: String): StorageCapacity {
+            treeUris.add(treeUri)
+            return trees[treeUri] ?: StorageCapacity.Unknown
+        }
     }
 }

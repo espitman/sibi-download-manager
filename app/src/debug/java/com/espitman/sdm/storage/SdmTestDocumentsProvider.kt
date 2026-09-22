@@ -21,11 +21,13 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         val columns = projection ?: DEFAULT_ROOT_COLUMNS
         val cursor = MatrixCursor(columns)
         val row = cursor.newRow()
-        put(row, DocumentsContract.Root.COLUMN_ROOT_ID, ROOT_ID)
-        put(row, DocumentsContract.Root.COLUMN_DOCUMENT_ID, ROOT_DOC_ID)
+        put(row, DocumentsContract.Root.COLUMN_ROOT_ID, queryRootId)
+        put(row, DocumentsContract.Root.COLUMN_DOCUMENT_ID, queryRootDocumentId)
         put(row, DocumentsContract.Root.COLUMN_TITLE, "SDM Test Documents")
         put(row, DocumentsContract.Root.COLUMN_FLAGS, DocumentsContract.Root.FLAG_SUPPORTS_CREATE)
         put(row, DocumentsContract.Root.COLUMN_MIME_TYPES, "*/*")
+        rootAvailableBytes?.let { put(row, DocumentsContract.Root.COLUMN_AVAILABLE_BYTES, it) }
+        rootCapacityBytes?.let { put(row, DocumentsContract.Root.COLUMN_CAPACITY_BYTES, it) }
         return cursor
     }
 
@@ -148,6 +150,10 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         const val ROOT_ID = "sdm-test-root"
         const val ROOT_DOC_ID = "root"
         private val DOCUMENTS = ConcurrentHashMap<String, TestDocument>()
+        @Volatile var rootAvailableBytes: Long? = null
+        @Volatile var rootCapacityBytes: Long? = null
+        @Volatile var queryRootId: String = ROOT_ID
+        @Volatile var queryRootDocumentId: String = ROOT_DOC_ID
         private val DEFAULT_ROOT_COLUMNS = arrayOf(
             DocumentsContract.Root.COLUMN_ROOT_ID,
             DocumentsContract.Root.COLUMN_DOCUMENT_ID,
@@ -169,6 +175,8 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         // Tree URIs carry a document ID. COLUMN_ROOT_ID stays ROOT_ID in queryRoots.
         fun treeUri() = DocumentsContract.buildTreeDocumentUri(AUTHORITY, ROOT_DOC_ID)
 
+        fun treeUriFor(documentId: String) = DocumentsContract.buildTreeDocumentUri(AUTHORITY, documentId)
+
         fun documentUri(documentId: String) =
             DocumentsContract.buildDocumentUriUsingTree(treeUri(), documentId)
 
@@ -178,6 +186,10 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
             documentsDir(context).deleteRecursively()
             documentsDir(context).mkdirs()
             DOCUMENTS.clear()
+            rootAvailableBytes = null
+            rootCapacityBytes = null
+            queryRootId = ROOT_ID
+            queryRootDocumentId = ROOT_DOC_ID
         }
     }
 }

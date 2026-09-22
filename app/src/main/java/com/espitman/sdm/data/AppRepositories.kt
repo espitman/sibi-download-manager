@@ -13,6 +13,7 @@ import com.espitman.sdm.download.DownloadTransferEngine
 import com.espitman.sdm.download.DownloadTransferService
 import com.espitman.sdm.network.DownloadMetadataRetriever
 import com.espitman.sdm.network.HttpDownloadMetadataRetriever
+import com.espitman.sdm.storage.AndroidStorageCapacityProbe
 import com.espitman.sdm.storage.AppSpecificDownloadsDirectory
 import com.espitman.sdm.storage.DocumentsContractTreeAccess
 import com.espitman.sdm.storage.DownloadDestinationRef
@@ -20,7 +21,9 @@ import com.espitman.sdm.storage.PersistableTreeUriGrants
 import com.espitman.sdm.storage.SafDownloadDestinationPublisher
 import com.espitman.sdm.storage.SaveLocationCoordinator
 import com.espitman.sdm.storage.SaveLocationDestinationAllocator
+import com.espitman.sdm.storage.SaveLocationStorageCapacity
 import com.espitman.sdm.storage.SaveLocationStore
+import com.espitman.sdm.storage.StorageCapacityProbe
 import java.io.File
 
 /** Application-owned dependencies; never retain an Activity. */
@@ -31,6 +34,8 @@ object AppRepositories {
     @Volatile private var queueScheduler: DownloadQueueScheduler? = null
     @Volatile private var submissionCoordinator: DownloadSubmissionCoordinator? = null
     @Volatile private var saveLocationCoordinator: SaveLocationCoordinator? = null
+    @Volatile private var storageCapacityProbe: StorageCapacityProbe? = null
+    @Volatile private var saveLocationStorageCapacity: SaveLocationStorageCapacity? = null
 
     fun downloads(context: Context): DownloadRepository = downloadRepository ?: synchronized(this) {
         downloadRepository ?: SqliteDownloadRepository(context.applicationContext).also { downloadRepository = it }
@@ -51,6 +56,23 @@ object AppRepositories {
         }
     }
 
+    fun storageCapacityProbe(context: Context): StorageCapacityProbe = storageCapacityProbe ?: synchronized(this) {
+        storageCapacityProbe ?: AndroidStorageCapacityProbe(context.applicationContext).also {
+            storageCapacityProbe = it
+        }
+    }
+
+    fun storageCapacity(context: Context): SaveLocationStorageCapacity = saveLocationStorageCapacity ?: synchronized(this) {
+        saveLocationStorageCapacity ?: run {
+            val appContext = context.applicationContext
+            SaveLocationStorageCapacity(
+                currentLocation = { saveLocation(appContext).current() },
+                appSpecificDirectory = { AppSpecificDownloadsDirectory.from(appContext) },
+                probe = storageCapacityProbe(appContext),
+            ).also { saveLocationStorageCapacity = it }
+        }
+    }
+
     fun transferEngine(context: Context): DownloadTransferEngine = transferEngine ?: synchronized(this) {
         transferEngine ?: run {
             val appContext = context.applicationContext
@@ -60,6 +82,7 @@ object AppRepositories {
                     coordinator = saveLocation(appContext),
                     appSpecificDirectory = { AppSpecificDownloadsDirectory.from(appContext) },
                 ),
+                storageCapacity = storageCapacityProbe(appContext),
             ).also { transferEngine = it }
         }
     }

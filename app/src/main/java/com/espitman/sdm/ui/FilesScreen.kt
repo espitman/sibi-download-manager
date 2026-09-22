@@ -62,6 +62,8 @@ import com.espitman.sdm.download.DownloadRenameCoordinator
 import com.espitman.sdm.storage.CompletedFileReconciliation
 import com.espitman.sdm.storage.ContentResolverCompletedFileProbe
 import com.espitman.sdm.storage.DocumentsContractContentDocuments
+import com.espitman.sdm.storage.SaveLocationStore
+import com.espitman.sdm.storage.StorageCapacity
 import com.espitman.sdm.ui.theme.SdmDanger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -91,7 +93,6 @@ import com.espitman.sdm.ui.theme.SdmSurface
 import com.espitman.sdm.ui.theme.SdmText
 import com.espitman.sdm.ui.theme.sdmColor
 import java.time.ZoneId
-import kotlin.math.roundToInt
 
 @Stable
 internal class FilesUiState {
@@ -221,6 +222,8 @@ internal fun FilesScreen(
         filterAndSortFiles(completedRows, uiState.filter, uiState.query, uiState.sort)
     }
     val shareAccess = remember(context) { CompletedFileShareAccess(context) }
+    val saveLocationStore = remember(context) { SaveLocationStore.get(context) }
+    val saveLocation by saveLocationStore.location.collectAsState()
     var selectedId by remember { mutableStateOf<String?>(null) }
     var menuForId by remember { mutableStateOf<String?>(null) }
     var renameFor by remember { mutableStateOf<FileRowModel?>(null) }
@@ -234,9 +237,13 @@ internal fun FilesScreen(
         menuForId = null
         shareAccess.perform(action, identity).message?.let(onToast)
     }
-    val storage by produceState<Pair<Long, Long>?>(initialValue = null) {
+    val storage by produceState(
+        StorageCapacity.Unknown,
+        saveLocation,
+        filesStorageReloadKey(completedRows),
+    ) {
         value = withContext(Dispatchers.IO) {
-            runCatching { android.os.StatFs(android.os.Environment.getExternalStorageDirectory().absolutePath).let { it.totalBytes - it.availableBytes to it.totalBytes } }.getOrNull()
+            AppRepositories.storageCapacity(context).queryActive()
         }
     }
     BackHandler(uiState.searchOpen) { uiState.searchOpen = false }
@@ -403,8 +410,8 @@ private fun FilesSearchPanel(
 }
 
 @Composable
-private fun StorageCard(storage: Pair<Long, Long>?) {
-    val usedFraction = storage?.takeIf { it.second > 0 }?.let { (it.first.toFloat() / it.second).coerceIn(0f, 1f) }
+private fun StorageCard(storage: StorageCapacity) {
+    val figures = storageCardFigures(storage)
     Card(colors = CardDefaults.cardColors(containerColor = SdmSurface), border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)), shape = RoundedCornerShape(20.dp)) {
         // CSS storage-card has 18px padding inside a 1px border. Compose draws
         // its border inside the card, so include that border in the inset.
@@ -416,17 +423,17 @@ private fun StorageCard(storage: Pair<Long, Long>?) {
                     Text("SDM files across video, audio, apps, and archives.", color = SdmMuted, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 5.dp, end = 12.dp))
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(storage?.first?.let(::formatBytes) ?: "—", color = SdmGoldHigh, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                    Text(storage?.second?.let { "OF ${formatBytes(it)}" } ?: "—", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
+                    Text(figures.usedLabel, color = SdmGoldHigh, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(figures.ofTotalLabel, color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp))
                 }
             }
             Spacer(Modifier.height(16.dp))
             Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(sdmColor(0xFF34332F, 0xFFDED8CB))) {
-                Box(Modifier.fillMaxWidth(usedFraction ?: 0f).height(5.dp).background(SdmGold))
+                Box(Modifier.fillMaxWidth(figures.usedFraction).height(5.dp).background(SdmGold))
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Text(storage?.let { "${formatBytes((it.second - it.first).coerceAtLeast(0))} available" } ?: "—", color = SdmMuted, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                Text(usedFraction?.let { "${(it * 100).roundToInt()}% used" } ?: "—", color = SdmMuted, fontSize = 10.sp)
+                Text(figures.availableLabel, color = SdmMuted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Text(figures.usedPercentLabel, color = SdmMuted, fontSize = 10.sp)
             }
         }
     }

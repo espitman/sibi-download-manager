@@ -42,6 +42,7 @@ object StorageAccessPolicy {
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.MANAGE_DOCUMENTS",
     )
 
     fun validateTreeUri(uriString: String?): TreeUriValidation {

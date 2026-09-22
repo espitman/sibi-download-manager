@@ -4,6 +4,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.storage.CompletedFileProbe
 import com.espitman.sdm.storage.FilesystemCompletedFileProbe
+import com.espitman.sdm.storage.StorageCapacity
 import java.io.File
 import java.nio.file.Files
 import java.time.ZoneOffset
@@ -277,6 +278,67 @@ class FilesPresentationTest {
         )!!
         assertFalse(unverified.verified)
         assertTrue(verified.verified)
+    }
+
+    @Test
+    fun storageCardKeepsEmDashesWhenCapacityIsUnknown() {
+        val figures = storageCardFigures(StorageCapacity.Unknown)
+        assertEquals("—", figures.usedLabel)
+        assertEquals("—", figures.ofTotalLabel)
+        assertEquals("—", figures.availableLabel)
+        assertEquals("—", figures.usedPercentLabel)
+        assertEquals(0f, figures.usedFraction)
+    }
+
+    @Test
+    fun storageCardShowsKnownUsedTotalAvailableAndPercent() {
+        val figures = storageCardFigures(StorageCapacity.from(totalBytes = 100L, availableBytes = 36L))
+        assertEquals("64 B", figures.usedLabel)
+        assertEquals("OF 100 B", figures.ofTotalLabel)
+        assertEquals("36 B available", figures.availableLabel)
+        assertEquals("64% used", figures.usedPercentLabel)
+        assertEquals(64f / 100f, figures.usedFraction)
+    }
+
+    @Test
+    fun storageCardDoesNotInventUsedWhenOnlyAvailableIsKnown() {
+        val figures = storageCardFigures(StorageCapacity.from(totalBytes = null, availableBytes = 40L))
+        assertEquals("—", figures.usedLabel)
+        assertEquals("—", figures.ofTotalLabel)
+        assertEquals("40 B available", figures.availableLabel)
+        assertEquals("—", figures.usedPercentLabel)
+        assertEquals(0f, figures.usedFraction)
+    }
+
+    @Test
+    fun storageReloadKeyChangesWhenCompletedFilesChange() {
+        val first = File(tempDir, "one.bin").apply { writeBytes(byteArrayOf(1, 2)) }
+        val second = File(tempDir, "two.bin").apply { writeBytes(byteArrayOf(3)) }
+        val one = mapCompletedFile(
+            completed("one", first.absolutePath, "one.bin", downloadedBytes = 2L),
+            now,
+            zone,
+            FilesystemCompletedFileProbe,
+        )!!
+        val two = mapCompletedFile(
+            completed("two", second.absolutePath, "two.bin", downloadedBytes = 1L),
+            now,
+            zone,
+            FilesystemCompletedFileProbe,
+        )!!
+        val before = filesStorageReloadKey(listOf(one))
+        val afterComplete = filesStorageReloadKey(listOf(one, two))
+        val afterDelete = filesStorageReloadKey(emptyList())
+        val renamed = one.copy(
+            name = "renamed.bin",
+            identity = one.identity.copy(destinationPath = File(tempDir, "renamed.bin").absolutePath),
+        )
+        assertEquals(listOf(Triple("one", 2L, first.absolutePath)), before)
+        assertEquals(2, afterComplete.size)
+        assertTrue(afterComplete != before)
+        assertTrue(afterDelete != before)
+        assertTrue(filesStorageReloadKey(listOf(renamed)) != before)
+        assertEquals(before, filesStorageReloadKey(listOf(one.copy(meta = "changed label"))))
     }
 
     private fun completed(

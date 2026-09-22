@@ -4,10 +4,12 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.storage.CompletedFileIdentity
 import com.espitman.sdm.storage.CompletedFileProbe
+import com.espitman.sdm.storage.StorageCapacity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 internal enum class FileTypeFilter(val label: String) {
     All("All"),
@@ -21,6 +23,39 @@ internal enum class FileTypeFilter(val label: String) {
 internal enum class FileSortOption(val toast: String) {
     NewestFirst("Sorted newest first"),
     OldestFirst("Sorted oldest first"),
+}
+
+internal data class StorageCardFigures(
+    val usedLabel: String,
+    val ofTotalLabel: String,
+    val availableLabel: String,
+    val usedPercentLabel: String,
+    val usedFraction: Float,
+)
+
+internal fun filesStorageReloadKey(completed: List<FileRowModel>): List<Triple<String, Long, String>> =
+    completed.map { Triple(it.id, it.sizeBytes, it.identity.destinationPath) }
+
+internal fun storageCardFigures(capacity: StorageCapacity): StorageCardFigures {
+    val used = capacity.usedBytes
+    val total = capacity.totalBytes
+    val available = capacity.availableBytes
+    val usedFraction = if (used != null && total != null && total > 0L) {
+        (used.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    return StorageCardFigures(
+        usedLabel = used?.let(::formatBytes) ?: "—",
+        ofTotalLabel = total?.let { "OF ${formatBytes(it)}" } ?: "—",
+        availableLabel = available?.let { "${formatBytes(it)} available" } ?: "—",
+        usedPercentLabel = if (used != null && total != null && total > 0L) {
+            "${(usedFraction * 100).roundToInt()}% used"
+        } else {
+            "—"
+        },
+        usedFraction = usedFraction,
+    )
 }
 
 internal data class FileRowModel(
