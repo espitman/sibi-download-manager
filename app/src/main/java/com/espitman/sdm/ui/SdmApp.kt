@@ -293,7 +293,7 @@ private fun HeaderAction(icon: ImageVector, description: String, onClick: () -> 
 @Composable
 private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> Unit, modifier: Modifier = Modifier) {
     val inactive = sdmColor(0xFF898C8F, 0xFF77736A)
-    val background = sdmColor(0xFF1B1F24, 0xFFF7F4ED)
+    val background = SdmSurface
     val edge = sdmColor(0x35D4AF37, 0x304B4431)
     val bottomInset = with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
     Box(modifier.fillMaxWidth().height(108.dp + bottomInset)) {
@@ -301,15 +301,15 @@ private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> U
             val top = 26.dp.toPx()
             val corner = 27.dp.toPx()
             val center = size.width / 2f
-            val halfNotch = 62.dp.toPx()
-            val depth = 28.dp.toPx()
+            val halfNotch = 68.dp.toPx()
+            val depth = 34.dp.toPx()
             val path = Path().apply {
                 moveTo(0f, size.height)
                 lineTo(0f, top + corner)
                 quadraticTo(0f, top, corner, top)
                 lineTo(center - halfNotch, top)
-                cubicTo(center - 42.dp.toPx(), top, center - 38.dp.toPx(), top + depth, center, top + depth)
-                cubicTo(center + 38.dp.toPx(), top + depth, center + 42.dp.toPx(), top, center + halfNotch, top)
+                cubicTo(center - 46.dp.toPx(), top, center - 40.dp.toPx(), top + depth, center, top + depth)
+                cubicTo(center + 40.dp.toPx(), top + depth, center + 46.dp.toPx(), top, center + halfNotch, top)
                 lineTo(size.width - corner, top)
                 quadraticTo(size.width, top, size.width, top + corner)
                 lineTo(size.width, size.height)
@@ -342,11 +342,11 @@ private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> U
             }
         }
         Column(
-            Modifier.align(Alignment.TopCenter).width(78.dp).clickable { onSelect(Destination.Add) },
+            Modifier.align(Alignment.TopCenter).offset(y = 4.dp).width(84.dp).clickable { onSelect(Destination.Add) },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(Modifier.size(58.dp).background(SdmGold, CircleShape).border(4.dp, SdmBackground, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(SdmIcons.Add, contentDescription = "Add download", tint = Color(0xFF080808), modifier = Modifier.size(25.dp))
+            Box(Modifier.size(64.dp).background(SdmGold, CircleShape).border(4.dp, SdmBackground, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(SdmIcons.Add, contentDescription = "Add download", tint = Color(0xFF080808), modifier = Modifier.size(27.dp))
             }
             Text("Add", color = SdmGoldHigh, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 5.dp))
         }
