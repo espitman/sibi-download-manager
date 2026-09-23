@@ -8,7 +8,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-// The Open Design viewport reserves 52 dp above headers and 38 dp below the dock.
+// The Open Design viewport reserves 52 dp above headers and 18 dp below the dock.
 @Composable
 internal fun designHeaderInset(): Dp {
     val density = LocalDensity.current
@@ -20,7 +20,7 @@ internal fun designHeaderInset(): Dp {
 internal fun designDockInset(): Dp {
     val density = LocalDensity.current
     val systemInset = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
-    return (38.dp - systemInset).coerceAtLeast(0.dp)
+    return (18.dp - systemInset).coerceAtLeast(0.dp)
 }
 
 @Composable

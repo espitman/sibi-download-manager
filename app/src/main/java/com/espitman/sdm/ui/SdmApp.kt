@@ -56,8 +56,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -293,6 +295,25 @@ private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> U
             .navigationBarsPadding()
             .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = designDockInset())
             .height(68.dp)
+            .drawWithCache {
+                val glow = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.argb(94, 212, 175, 55)
+                    maskFilter = android.graphics.BlurMaskFilter(22.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
+                }
+                val inset = 9.dp.toPx()
+                val radius = 30.dp.toPx()
+                onDrawBehind {
+                    drawContext.canvas.nativeCanvas.drawRoundRect(
+                        inset,
+                        12.dp.toPx(),
+                        size.width - inset,
+                        size.height + 7.dp.toPx(),
+                        radius,
+                        radius,
+                        glow,
+                    )
+                }
+            }
             .shadow(16.dp, RoundedCornerShape(30.dp))
             .background(sdmColor(0xE61B1F24, 0xE6FFFDF7), RoundedCornerShape(30.dp))
             .border(1.dp, sdmColor(0x14FFFFFF, 0x17181713), RoundedCornerShape(30.dp))
