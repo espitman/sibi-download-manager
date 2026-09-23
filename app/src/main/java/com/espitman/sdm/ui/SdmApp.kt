@@ -236,6 +236,7 @@ fun SdmApp(
             initialUrl = browserDownloadRequest?.url.orEmpty(),
             suggestedFileName = browserDownloadRequest?.suggestedFileName,
             requestContext = browserDownloadRequest?.requestContext,
+            onToast = { toastMessage = it; toastSequence++ },
         )
     }
 }

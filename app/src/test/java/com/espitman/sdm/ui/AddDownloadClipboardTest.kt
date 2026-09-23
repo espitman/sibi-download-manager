@@ -20,4 +20,16 @@ class AddDownloadClipboardTest {
         )
         assertEquals("", initialDownloadUrl("", "ordinary clipboard text"))
     }
+
+    @Test
+    fun multilineClipboardPrefillsOneUrlPerLine() {
+        assertEquals(
+            "https://example.com/E01.mkv\nhttps://example.com/E02.mkv?u=1&expires=2",
+            initialDownloadUrl(
+                "",
+                " [Episode 1](https://example.com/E01.mkv) \n" +
+                    "[Episode 2](https://example.com/E02.mkv?u=1\\&expires=2) ",
+            ),
+        )
+    }
 }

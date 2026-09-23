@@ -33,11 +33,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.espitman.sdm.domain.DownloadUrl
-import com.espitman.sdm.domain.DownloadUrlResult
 import androidx.compose.ui.platform.LocalContext
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
-import com.espitman.sdm.download.SubmissionResult
 import com.espitman.sdm.notification.NotificationPermissionHandoff
 import com.espitman.sdm.notification.rememberTransferNotificationPermissionPreparer
 import androidx.compose.ui.window.Dialog
@@ -53,6 +51,7 @@ internal fun AddDownloadSheet(
     initialUrl: String = "",
     suggestedFileName: String? = null,
     requestContext: ScopedRequestContext? = null,
+    onToast: (String) -> Unit = {},
     coordinator: DownloadSubmissionCoordinator = AppRepositories.submissionCoordinator(LocalContext.current),
 ) {
     val clipboard = LocalClipboardManager.current
@@ -70,9 +69,15 @@ internal fun AddDownloadSheet(
         savedHandoffPhase = handoff.savedPhase
         savedHandoffUrl = handoff.savedPendingUrl
     }
-    val fileName = suggestedFileName?.takeIf { it.isNotBlank() }
-        ?: url.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
-    val fileType = fileName.substringAfterLast('.', "FILE").uppercase().take(5)
+    val parsedLinks = remember(url) { parseDownloadLinks(url) }
+    val singleUrl = parsedLinks.urls.singleOrNull()
+    val fileName = if (singleUrl == null) {
+        "${parsedLinks.urls.size} download links"
+    } else {
+        suggestedFileName?.takeIf { it.isNotBlank() }
+            ?: singleUrl.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
+    }
+    val fileType = if (singleUrl == null) "LINKS" else fileName.substringAfterLast('.', "FILE").uppercase().take(5)
     val motion = remember { Animatable(0f) }
     var closing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -86,25 +91,33 @@ internal fun AddDownloadSheet(
     fun applyUrl(value: String) {
         if (isSubmitting) return
         url = value
-        urlError = if (urlError == null) {
-            null
+        urlError = null
+    }
+    suspend fun processBatch(input: String, startNow: Boolean) {
+        val links = parseDownloadLinks(input)
+        val outcome = submitDownloadLinks(links.urls) { link ->
+            coordinator.submit(link, startNow, if (links.urls.size == 1) requestContext else null)
+        }
+        val remaining = links.invalidLines + outcome.failedUrls
+        isSubmitting = false
+        if (outcome.added > 0) {
+            onToast(if (outcome.added == 1) "Download added" else "${outcome.added} downloads added")
+        }
+        if (remaining.isEmpty()) {
+            dismissAnimated()
         } else {
-            (DownloadUrl.validate(value) as? DownloadUrlResult.Invalid)?.let { DownloadUrl.errorMessage(it.error) }
+            url = remaining.joinToString("\n")
+            urlError = if (outcome.added > 0) {
+                "${outcome.added} added · ${remaining.size} links need attention"
+            } else {
+                outcome.firstFailure ?: "${remaining.size} links are not valid download URLs"
+            }
         }
     }
-    fun launchSubmit(validatedUrl: String, startNow: Boolean) {
+    fun launchSubmit(input: String, startNow: Boolean) {
         scope.launch {
             try {
-                when (val submissionResult = coordinator.submit(validatedUrl, startNow, requestContext)) {
-                    is SubmissionResult.Success -> {
-                        isSubmitting = false
-                        dismissAnimated()
-                    }
-                    is SubmissionResult.Failure -> {
-                        urlError = submissionResult.message
-                        isSubmitting = false
-                    }
-                }
+                processBatch(input, startNow)
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (_: Throwable) {
@@ -119,22 +132,22 @@ internal fun AddDownloadSheet(
     }
     fun submit(startNow: Boolean) {
         if (isSubmitting) return
-        when (val result = DownloadUrl.validate(url)) {
-            is DownloadUrlResult.Valid -> {
-                url = result.url
-                urlError = null
-                isSubmitting = true
-                if (startNow) {
-                    val waiting = NotificationPermissionHandoff.awaitingPermission(result.url)
-                    publish(waiting)
-                    prepareForegroundNotifications.prepareForForegroundTransfer {
-                        publish(waiting.onSystemResult())
-                    }
-                } else {
-                    launchSubmit(result.url, startNow = false)
-                }
+        val links = parseDownloadLinks(url)
+        if (links.urls.isEmpty()) {
+            urlError = if (url.isBlank()) DownloadUrl.errorMessage(com.espitman.sdm.domain.DownloadUrlError.EMPTY)
+                else "Enter one direct HTTP or HTTPS URL per line."
+            return
+        }
+        urlError = null
+        isSubmitting = true
+        if (startNow) {
+            val waiting = NotificationPermissionHandoff.awaitingPermission(url)
+            publish(waiting)
+            prepareForegroundNotifications.prepareForForegroundTransfer {
+                publish(waiting.onSystemResult())
             }
-            is DownloadUrlResult.Invalid -> urlError = DownloadUrl.errorMessage(result.error)
+        } else {
+            launchSubmit(url, startNow = false)
         }
     }
     LaunchedEffect(permissionHandoff.phase) {
@@ -144,20 +157,10 @@ internal fun AddDownloadSheet(
     }
     LaunchedEffect(permissionHandoff.phase, permissionHandoff.pendingUrl) {
         if (permissionHandoff.phase != NotificationPermissionHandoff.Phase.Submitting) return@LaunchedEffect
-        val pendingUrl = permissionHandoff.pendingUrl ?: return@LaunchedEffect
+        val pendingInput = permissionHandoff.pendingUrl ?: return@LaunchedEffect
         try {
-            when (val submissionResult = coordinator.submit(pendingUrl, true, requestContext)) {
-                is SubmissionResult.Success -> {
-                    publish(permissionHandoff.consume())
-                    isSubmitting = false
-                    dismissAnimated()
-                }
-                is SubmissionResult.Failure -> {
-                    urlError = submissionResult.message
-                    publish(permissionHandoff.consume())
-                    isSubmitting = false
-                }
-            }
+            processBatch(pendingInput, true)
+            publish(permissionHandoff.consume())
         } catch (cancellation: kotlinx.coroutines.CancellationException) {
             throw cancellation
         } catch (_: Throwable) {
@@ -207,13 +210,13 @@ internal fun AddDownloadSheet(
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 12.sp, lineHeight = 17.4.sp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             cursorBrush = SolidColor(SdmGold),
-                            minLines = 3, maxLines = 4,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp, max = 104.dp)
+                            minLines = 3, maxLines = 6,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp, max = 148.dp)
                                 .background(SdmSurface, RoundedCornerShape(14.dp))
                                 .border(1.dp, if (urlError == null) SdmLine else SdmDanger, RoundedCornerShape(14.dp))
                                 .semantics { urlError?.let { error(it) } }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
-                            decorationBox = { inner -> Box { if (url.isEmpty()) Text("Paste a direct download URL", color = SdmMuted, fontSize = 12.sp); inner() } },
+                            decorationBox = { inner -> Box { if (url.isEmpty()) Text("Paste one download URL per line", color = SdmMuted, fontSize = 12.sp); inner() } },
                         )
                         Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             FieldTool("Paste", SdmIcons.Paste, enabled = !isSubmitting) { clipboard.getText()?.text?.let(::applyUrl) }
@@ -229,7 +232,7 @@ internal fun AddDownloadSheet(
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp).padding(top = 8.dp),
                             )
                         }
-                        if (url.isNotBlank()) {
+                        if (parsedLinks.urls.isNotEmpty()) {
                             Row(Modifier.fillMaxWidth().padding(top = 15.dp, bottom = 9.dp, start = 2.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(38.dp).background(sdmColor(0xFF242218, 0xFFF3EDDD), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
                                     Text(fileType, color = SdmGoldHigh, fontSize = 9.sp, fontWeight = FontWeight.Black)
@@ -244,12 +247,12 @@ internal fun AddDownloadSheet(
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { submit(startNow = false) }, enabled = !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
-                            Text("Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(if (parsedLinks.urls.size > 1) "Queue ${parsedLinks.urls.size}" else "Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                         }
                         Button(onClick = { submit(startNow = true) }, enabled = url.isNotBlank() && !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
                             Icon(SdmIcons.Download, null, modifier = Modifier.size(21.dp))
                             Spacer(Modifier.width(9.dp))
-                            Text("Download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(if (parsedLinks.urls.size > 1) "Download ${parsedLinks.urls.size}" else "Download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
@@ -260,7 +263,8 @@ internal fun AddDownloadSheet(
 
 internal fun initialDownloadUrl(explicitUrl: String, clipboardText: String?): String {
     if (explicitUrl.isNotBlank()) return explicitUrl
-    return (DownloadUrl.validate(clipboardText.orEmpty()) as? DownloadUrlResult.Valid)?.url.orEmpty()
+    val links = parseDownloadLinks(clipboardText.orEmpty())
+    return if (links.invalidLines.isEmpty()) links.urls.joinToString("\n") else ""
 }
 
 @Composable
