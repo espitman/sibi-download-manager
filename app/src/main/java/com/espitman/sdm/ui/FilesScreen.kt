@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.compose.foundation.BorderStroke
@@ -238,6 +239,12 @@ private fun openSaveLocation(context: Context, treeUriString: String?): String? 
             clipData = ClipData.newUri(context.contentResolver, "Save location", folderUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        val filesActivity = context.packageManager.queryIntentActivities(
+            intent,
+            PackageManager.MATCH_DEFAULT_ONLY,
+        ).firstOrNull { it.activityInfo.packageName.contains("documentsui") }
+            ?: return "The system Files app is unavailable."
+        intent.setClassName(filesActivity.activityInfo.packageName, filesActivity.activityInfo.name)
         context.startActivity(intent)
         null
     } catch (_: Exception) {
