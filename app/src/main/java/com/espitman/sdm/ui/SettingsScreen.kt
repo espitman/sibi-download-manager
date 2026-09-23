@@ -36,7 +36,7 @@ import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
 import com.espitman.sdm.ui.theme.*
 
-private enum class SettingsOverlay { Connections, Simultaneous, Theme, Reset }
+private enum class SettingsOverlay { Connections, Simultaneous, SpeedLimit, Theme, Reset }
 
 @Composable
 internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Unit) {
@@ -78,7 +78,13 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
                     ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { repository.update { current -> current.copy(autoResume = it) }; toast(if (it) "Auto-resume enabled" else "Auto-resume disabled") }
                 }
             }
-            item { SettingsGroup("NETWORK") { ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") } } }
+            item {
+                SettingsGroup("NETWORK") {
+                    ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") }
+                    SettingDivider()
+                    ValueRow(SdmIcons.Gauge, "Speed limit", "Combined download speed", if (settings.unlimitedSpeed) "Unlimited" else "${settings.speedLimitMbps.toInt()} MB/s", chevron = true) { overlay = SettingsOverlay.SpeedLimit }
+                }
+            }
             item { SettingsGroup("STORAGE") { ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() } } }
             item {
                 SettingsGroup("NOTIFICATIONS") {
@@ -114,6 +120,7 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
                 repository.update { current -> current.copy(simultaneous = it) }; overlay = null; toast("$it simultaneous downloads")
             }
         }
+        SettingsOverlay.SpeedLimit -> Unit
         SettingsOverlay.Theme -> SettingsSheet(SdmIcons.Theme, "APPEARANCE", "Choose theme", "Select the visual style for every SDM screen.", { overlay = null }, overlay != null) {
             Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 ThemeChoice("Black & Gold", "Deep black surfaces with premium gold accents", false, pendingTheme == "dark") { pendingTheme = "dark" }
@@ -134,6 +141,16 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
         )
         null -> Unit
     }
+    if (overlay == SettingsOverlay.SpeedLimit) {
+        var unlimited by remember { mutableStateOf(settings.unlimitedSpeed) }
+        var limit by remember { mutableFloatStateOf(settings.speedLimitMbps) }
+        var wifi by remember { mutableStateOf(settings.speedLimitWifiOnly) }
+        SpeedLimitSheet(unlimited, { unlimited = it }, limit, { limit = it }, wifi, { wifi = it }, { overlay = null }) { message ->
+            repository.update { it.copy(unlimitedSpeed = unlimited, speedLimitMbps = limit, speedLimitWifiOnly = wifi) }
+            onToast(message)
+        }
+    }
+
 }
 
 @Composable

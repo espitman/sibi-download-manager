@@ -577,17 +577,10 @@ internal fun DownloadsTopBar(uiState: DownloadsUiState) {
         searchOpen = uiState.searchOpen,
         query = uiState.query,
         onQueryChange = { uiState.query = it },
-        menuOpen = uiState.menuOpen,
         onSearch = {
             uiState.searchOpen = !uiState.searchOpen
-            uiState.menuOpen = false
             if (!uiState.searchOpen) uiState.query = ""
         },
-        onMenu = { uiState.menuOpen = !uiState.menuOpen },
-        onDismissMenu = { uiState.menuOpen = false },
-        onKeepActive = { uiState.menuOpen = false; uiState.overlay = HomeOverlay.KeepActive },
-        onSpeedLimit = { uiState.menuOpen = false; uiState.overlay = HomeOverlay.SpeedLimit },
-        onPreferences = { uiState.menuOpen = false; uiState.overlay = HomeOverlay.Preferences },
     )
 }
 
@@ -596,16 +589,8 @@ private fun DownloadsHeader(
     searchOpen: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
-    menuOpen: Boolean,
     onSearch: () -> Unit,
-    onMenu: () -> Unit,
-    onDismissMenu: () -> Unit,
-    onKeepActive: () -> Unit,
-    onSpeedLimit: () -> Unit,
-    onPreferences: () -> Unit,
 ) {
-    val density = LocalDensity.current
-    val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + designHeaderInset().roundToPx() + 58.dp.roundToPx() }
     val searchFocusRequester = remember { FocusRequester() }
     LaunchedEffect(searchOpen) {
         if (searchOpen) {
@@ -620,8 +605,6 @@ private fun DownloadsHeader(
                 Spacer(Modifier.width(10.dp))
                 Text("Downloads", color = SdmText, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.36).sp, modifier = Modifier.weight(1f))
                 IconButton(onClick = onSearch, modifier = Modifier.size(42.dp)) { Icon(SdmIcons.Search, "Search downloads", tint = SdmText, modifier = Modifier.size(21.dp)) }
-                Spacer(Modifier.width(6.dp))
-                IconButton(onClick = onMenu, modifier = Modifier.size(42.dp)) { Icon(SdmIcons.More, "More options", tint = SdmText, modifier = Modifier.size(21.dp)) }
             }
             HorizontalDivider(thickness = 1.dp, color = SdmGold.copy(alpha = .14f))
             AnimatedVisibility(searchOpen, enter = fadeIn(tween(140)), exit = fadeOut(tween(120))) {
@@ -637,22 +620,7 @@ private fun DownloadsHeader(
                 }
             }
         }
-        if (menuOpen) {
-            Popup(
-                alignment = Alignment.TopEnd,
-                offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY),
-                onDismissRequest = onDismissMenu,
-                properties = PopupProperties(focusable = true),
-            ) {
-                Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
-                    Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        HomeMenuItem(SdmIcons.KeepActive, "Keep active", "Prevent interrupted transfers", onKeepActive)
-                        HomeMenuItem(SdmIcons.Gauge, "Speed limit", "Control global bandwidth", onSpeedLimit)
-                        HomeMenuItem(SdmIcons.Settings, "Preferences", "Quick download settings", onPreferences)
-                    }
-                }
-            }
-        }
+
     }
 }
 
@@ -824,7 +792,7 @@ private fun KeepActiveSheet(enabled: Boolean, onEnabled: (Boolean) -> Unit, dura
 }
 
 @Composable
-private fun SpeedLimitSheet(unlimited: Boolean, onUnlimited: (Boolean) -> Unit, speed: Float, onSpeed: (Float) -> Unit, wifi: Boolean, onWifi: (Boolean) -> Unit, onDismiss: () -> Unit, onToast: (String) -> Unit) {
+internal fun SpeedLimitSheet(unlimited: Boolean, onUnlimited: (Boolean) -> Unit, speed: Float, onSpeed: (Float) -> Unit, wifi: Boolean, onWifi: (Boolean) -> Unit, onDismiss: () -> Unit, onToast: (String) -> Unit) {
     HomeSheet(SdmIcons.Gauge, "BANDWIDTH CONTROL", "Global speed limit", "Cap total SDM traffic without changing individual downloads.", onDismiss) {
         Column(Modifier.padding(top = 16.dp)) {
             SheetSetting("Unlimited speed", "Use all available bandwidth", unlimited, onUnlimited)
