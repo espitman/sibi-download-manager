@@ -15,7 +15,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,6 +70,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -76,8 +79,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -120,11 +128,15 @@ internal fun BrowserScreen(
     var privateReady by remember { mutableStateOf(false) }
     var desktopSite by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(TextFieldValue(tabs.active.url.orEmpty())) }
+    var addressFocused by remember { mutableStateOf(false) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     val webViews = remember { mutableMapOf<String, WebView>() }
     var loadFailure by remember { mutableStateOf<BrowserLoadFailure?>(null) }
     val focusManager = LocalFocusManager.current
+    val addressFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val addressScope = rememberCoroutineScope()
 
     fun navigate(input: String) {
         normalizeBrowserInput(input)?.let { url ->
@@ -211,11 +223,34 @@ internal fun BrowserScreen(
                             inner()
                         }
                     },
-                    modifier = Modifier.weight(1f).pointerInput(address.text) {
-                        detectTapGestures(onDoubleTap = {
-                            address = address.copy(selection = TextRange(0, address.text.length))
-                        })
-                    },
+                    modifier = Modifier.weight(1f)
+                        .focusRequester(addressFocusRequester)
+                        .onFocusChanged { addressFocused = it.isFocused }
+                        .pointerInput(Unit) {
+                            var lastTapUp = 0L
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                val secondTap = lastTapUp > 0L &&
+                                    down.uptimeMillis - lastTapUp <= viewConfiguration.doubleTapTimeoutMillis
+                                if (secondTap) down.consume()
+                                val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                                if (secondTap) {
+                                    up?.consume()
+                                    lastTapUp = 0L
+                                    if (up != null) {
+                                        addressFocusRequester.requestFocus()
+                                        keyboardController?.show()
+                                        // TextField's own tap handler may update selection in this frame.
+                                        addressScope.launch {
+                                            withFrameNanos { }
+                                            address = address.copy(selection = TextRange(0, address.text.length))
+                                        }
+                                    }
+                                } else {
+                                    lastTapUp = up?.uptimeMillis ?: 0L
+                                }
+                            }
+                        },
                 )
                 IconButton(onClick = {
                     loadFailure = null
@@ -333,13 +368,13 @@ internal fun BrowserScreen(
                                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                                     loadFailure = null
                                     currentUrl = url
-                                    address = TextFieldValue(url)
+                                    if (!addressFocused) address = TextFieldValue(url)
                                     tabs = tabs.update(tabs.activeId, url, view.title ?: tabs.active.title)
                                 }
 
                                 override fun onPageFinished(view: WebView, url: String) {
                                     currentUrl = url
-                                    address = TextFieldValue(url)
+                                    if (!addressFocused) address = TextFieldValue(url)
                                     tabs = tabs.update(tabs.activeId, url, view.title ?: url)
                                 }
 
