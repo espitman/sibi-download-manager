@@ -342,7 +342,7 @@ private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> U
             }
         }
         Column(
-            Modifier.align(Alignment.TopCenter).offset(y = 4.dp).width(84.dp).clickable { onSelect(Destination.Add) },
+            Modifier.align(Alignment.TopCenter).offset(y = 10.dp).width(84.dp).clickable { onSelect(Destination.Add) },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(Modifier.size(64.dp).background(SdmGold, CircleShape).border(4.dp, SdmBackground, CircleShape), contentAlignment = Alignment.Center) {
