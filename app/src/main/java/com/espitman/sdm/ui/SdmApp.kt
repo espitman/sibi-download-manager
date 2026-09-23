@@ -2,6 +2,7 @@ package com.espitman.sdm.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -55,12 +58,13 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -211,7 +215,7 @@ fun SdmApp(
             }
             AnimatedVisibility(
                 visible = toastVisible,
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 88.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 118.dp),
                 enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { 18 },
                 exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { 18 },
             ) {
@@ -289,65 +293,62 @@ private fun HeaderAction(icon: ImageVector, description: String, onClick: () -> 
 @Composable
 private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> Unit, modifier: Modifier = Modifier) {
     val inactive = sdmColor(0xFF898C8F, 0xFF77736A)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = designDockInset())
-            .height(68.dp)
-            .drawWithCache {
-                val glow = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    color = android.graphics.Color.argb(94, 212, 175, 55)
-                    maskFilter = android.graphics.BlurMaskFilter(22.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
-                }
-                val inset = 9.dp.toPx()
-                val radius = 30.dp.toPx()
-                onDrawBehind {
-                    drawContext.canvas.nativeCanvas.drawRoundRect(
-                        inset,
-                        12.dp.toPx(),
-                        size.width - inset,
-                        size.height + 7.dp.toPx(),
-                        radius,
-                        radius,
-                        glow,
-                    )
-                }
+    val background = sdmColor(0xFF1B1F24, 0xFFF7F4ED)
+    val edge = sdmColor(0x35D4AF37, 0x304B4431)
+    val bottomInset = with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
+    Box(modifier.fillMaxWidth().height(108.dp + bottomInset)) {
+        Canvas(Modifier.fillMaxSize()) {
+            val top = 26.dp.toPx()
+            val corner = 27.dp.toPx()
+            val center = size.width / 2f
+            val halfNotch = 62.dp.toPx()
+            val depth = 28.dp.toPx()
+            val path = Path().apply {
+                moveTo(0f, size.height)
+                lineTo(0f, top + corner)
+                quadraticTo(0f, top, corner, top)
+                lineTo(center - halfNotch, top)
+                cubicTo(center - 42.dp.toPx(), top, center - 38.dp.toPx(), top + depth, center, top + depth)
+                cubicTo(center + 38.dp.toPx(), top + depth, center + 42.dp.toPx(), top, center + halfNotch, top)
+                lineTo(size.width - corner, top)
+                quadraticTo(size.width, top, size.width, top + corner)
+                lineTo(size.width, size.height)
+                close()
             }
-            .shadow(16.dp, RoundedCornerShape(30.dp))
-            .background(sdmColor(0xE61B1F24, 0xE6FFFDF7), RoundedCornerShape(30.dp))
-            .border(1.dp, sdmColor(0x14FFFFFF, 0x17181713), RoundedCornerShape(30.dp))
-            .padding(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Destination.entries.forEach { item ->
-            val active = selected == item || (item == Destination.Downloads && selected == Destination.Add)
-            if (item == Destination.Add) {
-                Column(
-                    modifier = Modifier.weight(1f).requiredHeight(62.dp).offset(y = (-6).dp).clickable { onSelect(item) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(Modifier.size(52.dp).background(SdmGold, CircleShape).border(4.dp, SdmBackground, CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(SdmIcons.Add, contentDescription = "Add download", tint = Color(0xFF080808), modifier = Modifier.size(23.dp))
+            drawPath(path, background)
+            drawPath(path, edge, style = Stroke(width = 1.dp.toPx()))
+        }
+        Row(
+            Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(bottom = bottomInset).height(68.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Destination.entries.forEach { item ->
+                if (item == Destination.Add) {
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    val active = selected == item
+                    Column(
+                        Modifier.weight(1f).height(60.dp).clip(RoundedCornerShape(20.dp))
+                            .background(if (active) SdmGold.copy(alpha = .12f) else Color.Transparent)
+                            .clickable { onSelect(item) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(item.icon, contentDescription = item.label, tint = if (active) SdmGoldHigh else inactive, modifier = Modifier.size(23.dp))
+                        Spacer(Modifier.height(4.dp))
+                        Text(item.label, color = if (active) SdmGoldHigh else inactive, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium)
                     }
-                    Text("Add", color = SdmGoldHigh, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold)
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(58.dp)
-                        .clip(RoundedCornerShape(25.dp))
-                        .background(if (active) SdmGold.copy(alpha = .13f) else Color.Transparent)
-                        .clickable { onSelect(item) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(item.icon, contentDescription = item.label, tint = if (active) SdmGoldHigh else inactive, modifier = Modifier.size(23.dp))
-                    Spacer(Modifier.height(3.dp))
-                    Text(item.label, color = if (active) SdmGoldHigh else inactive, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium)
                 }
             }
+        }
+        Column(
+            Modifier.align(Alignment.TopCenter).width(78.dp).clickable { onSelect(Destination.Add) },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(Modifier.size(58.dp).background(SdmGold, CircleShape).border(4.dp, SdmBackground, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(SdmIcons.Add, contentDescription = "Add download", tint = Color(0xFF080808), modifier = Modifier.size(25.dp))
+            }
+            Text("Add", color = SdmGoldHigh, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 5.dp))
         }
     }
 }
