@@ -21,7 +21,6 @@ internal data class DownloadCardModel(
     val trailing: String,
     val category: DownloadCategory,
     val showPlayAction: Boolean,
-    val canCancel: Boolean,
 )
 
 internal fun mapDownloadToCard(
@@ -91,7 +90,6 @@ internal fun mapDownloadToCard(
             DownloadState.FAILED,
             DownloadState.CANCELLED,
         ),
-        canCancel = download.state == DownloadState.CONNECTING || download.state == DownloadState.DOWNLOADING,
     )
 }
 

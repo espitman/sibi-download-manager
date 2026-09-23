@@ -56,6 +56,27 @@ class IncompleteDownloadDeleteCoordinatorTest {
         }
     }
 
+    @Test
+    fun recordRemainsWhenPartialFileCannotBeDeleted() = runBlocking {
+        val directory = Files.createTempDirectory("sdm-delete-failure").toFile()
+        try {
+            val destination = directory.resolve("sample.bin")
+            val blockedPart = DownloadPartFile.forDestination(destination).apply {
+                mkdir()
+                resolve("content").writeText("partial")
+            }
+            val repository = CompletedFileDeleteCoordinatorTest.FakeRepository(
+                record(destination.absolutePath, DownloadState.CANCELLED),
+            )
+
+            assertFalse(IncompleteDownloadDeleteCoordinator.delete("sample", repository) { error("already cancelled") })
+            assertTrue(blockedPart.exists())
+            assertTrue(repository.get("sample") != null)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun record(path: String, state: DownloadState) = Download(
         id = "sample",
         url = "https://example.com/sample.bin",

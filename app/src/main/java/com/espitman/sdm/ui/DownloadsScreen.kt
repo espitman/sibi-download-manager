@@ -78,6 +78,7 @@ import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.download.Clock
 import com.espitman.sdm.download.DownloadChecksumVerifier
+import com.espitman.sdm.download.CompletedFileDeleteCoordinator
 import com.espitman.sdm.download.DownloadRenameCoordinator
 import com.espitman.sdm.download.DownloadRenameResult
 import com.espitman.sdm.download.DownloadTransferService
@@ -269,7 +270,6 @@ internal fun InteractiveDownloadsScreen(
     )
     var completedDeleteId by remember { mutableStateOf<String?>(null) }
     var incompleteDeleteId by remember { mutableStateOf<String?>(null) }
-    var cancelId by remember { mutableStateOf<String?>(null) }
     var deletingIncomplete by remember { mutableStateOf(false) }
     var clearCompletedRequested by remember { mutableStateOf(false) }
     var deletingCompleted by remember { mutableStateOf(false) }
@@ -411,10 +411,10 @@ internal fun InteractiveDownloadsScreen(
                         },
                         onManage = {
                             val record = records.firstOrNull { it.id == item.id } ?: return@DownloadCard
-                            when (record.state) {
-                                DownloadState.COMPLETED -> completedDeleteId = item.id
-                                DownloadState.CONNECTING, DownloadState.DOWNLOADING -> cancelId = item.id
-                                else -> incompleteDeleteId = item.id
+                            if (record.state == DownloadState.COMPLETED) {
+                                completedDeleteId = item.id
+                            } else {
+                                incompleteDeleteId = item.id
                             }
                         },
                     )
@@ -425,20 +425,6 @@ internal fun InteractiveDownloadsScreen(
     }
 
     val deleteTarget = completedDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state == DownloadState.COMPLETED } }
-    val cancelTarget = cancelId?.let { id -> records.firstOrNull { it.id == id } }
-    if (cancelTarget != null) {
-        SdmConfirmDialog(
-            title = "Cancel download?",
-            message = "The partial file stays available if you resume this download later.",
-            dismissLabel = "Keep downloading",
-            confirmLabel = "Cancel",
-            onDismiss = { cancelId = null },
-            onConfirm = {
-                DownloadTransferService.cancelTransfer(context, cancelTarget.id)
-                cancelId = null
-            },
-        )
-    }
     val incompleteDeleteTarget = incompleteDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state != DownloadState.COMPLETED } }
     if (incompleteDeleteTarget != null) {
         SdmConfirmDialog(
@@ -474,9 +460,10 @@ internal fun InteractiveDownloadsScreen(
     if (deleteTarget != null) {
         SdmConfirmDialog(
             title = "Remove from Completed?",
-            message = "This removes the download from the Completed list. The file stays in Files.",
+            message = "Choose whether to keep the downloaded file in Files.",
             dismissLabel = "Keep in list",
-            confirmLabel = "Remove",
+            confirmLabel = "Remove only",
+            deleteFileLabel = "Remove and delete file",
             submitting = deletingCompleted,
             onDismiss = { if (!deletingCompleted) completedDeleteId = null },
             onConfirm = {
@@ -492,15 +479,33 @@ internal fun InteractiveDownloadsScreen(
                     }
                 }
             },
+            onDeleteFile = {
+                if (deletingCompleted) return@SdmConfirmDialog
+                deletingCompleted = true
+                overlayScope.launch {
+                    try {
+                        val result = CompletedFileDeleteCoordinator.delete(
+                            deleteTarget.id,
+                            repository,
+                            DocumentsContractContentDocuments(context),
+                        )
+                        onToast(completedFileDeleteActionMessage(result))
+                        if (shouldCloseDeleteDialog(result)) completedDeleteId = null
+                    } finally {
+                        deletingCompleted = false
+                    }
+                }
+            },
         )
     }
     if (clearCompletedRequested) {
         val visibleCompletedIds = downloads.filter { it.category == DownloadCategory.Completed }.map { it.id }
         SdmConfirmDialog(
             title = "Clear Completed list?",
-            message = "This removes ${visibleCompletedIds.size} downloads from the list. Their files stay in Files.",
+            message = "Choose whether to keep the ${visibleCompletedIds.size} downloaded files in Files.",
             dismissLabel = "Keep in list",
-            confirmLabel = "Clear All",
+            confirmLabel = "Clear list only",
+            deleteFileLabel = "Clear list and delete files",
             submitting = deletingCompleted,
             onDismiss = { if (!deletingCompleted) clearCompletedRequested = false },
             onConfirm = {
@@ -511,6 +516,30 @@ internal fun InteractiveDownloadsScreen(
                         hiddenCompletedIds = completedVisibility.hide(visibleCompletedIds)
                         onToast("Completed list cleared. Files remain in Files.")
                         clearCompletedRequested = false
+                    } finally {
+                        deletingCompleted = false
+                    }
+                }
+            },
+            onDeleteFile = {
+                if (deletingCompleted) return@SdmConfirmDialog
+                deletingCompleted = true
+                overlayScope.launch {
+                    try {
+                        val results = visibleCompletedIds.map { id ->
+                            CompletedFileDeleteCoordinator.delete(
+                                id,
+                                repository,
+                                DocumentsContractContentDocuments(context),
+                            )
+                        }
+                        val failures = results.filterNot(::shouldCloseDeleteDialog)
+                        if (failures.isEmpty()) {
+                            clearCompletedRequested = false
+                            onToast("Completed downloads and files deleted")
+                        } else {
+                            onToast("${failures.size} files could not be deleted. Please try again.")
+                        }
                     } finally {
                         deletingCompleted = false
                     }
@@ -729,12 +758,8 @@ private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onActio
                 Surface(onClick = onManage, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmMuted, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            if (item.canCancel) SdmIcons.Close else SdmIcons.Delete,
-                            when {
-                                item.canCancel -> "Cancel download"
-                                item.category == DownloadCategory.Completed -> "Remove from Completed"
-                                else -> "Delete download"
-                            },
+                            SdmIcons.Delete,
+                            if (item.category == DownloadCategory.Completed) "Remove from Completed" else "Delete download",
                             modifier = Modifier.size(18.dp),
                         )
                     }

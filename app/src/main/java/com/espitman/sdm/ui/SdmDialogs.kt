@@ -92,9 +92,11 @@ internal fun SdmConfirmDialog(
     message: String,
     dismissLabel: String,
     confirmLabel: String,
+    deleteFileLabel: String? = null,
     submitting: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
+    onDeleteFile: (() -> Unit)? = null,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
@@ -117,6 +119,20 @@ internal fun SdmConfirmDialog(
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(confirmLabel, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                                }
+                            }
+                        }
+                        if (deleteFileLabel != null && onDeleteFile != null) {
+                            Surface(
+                                onClick = { if (!submitting) onDeleteFile() },
+                                color = sdmColor(0xFF191A1C, 0xFFECE8DF),
+                                contentColor = SdmDanger,
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, SdmLine),
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(50.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(deleteFileLabel, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                                 }
                             }
                         }
