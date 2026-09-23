@@ -24,6 +24,7 @@ internal object SdmIcons {
     val Check = outline("Check", "M5 12l4 4L19 6", 2f)
     val DownloadAll = outline("DownloadAll", "M7 4v10m0 0-3-3m3 3 3-3M17 4v10m0 0-3-3m3 3 3-3M4 20h16")
     val Sort = outline("Sort", "M7 5v14m0 0-3-3m3 3 3-3M13 7h7M13 12h5M13 17h3")
+    val SortAscending = outline("SortAscending", "M7 19V5m0 0-3 3m3-3 3 3M13 7h7M13 12h5M13 17h3")
     val Back = outline("Back", "M15 18l-6-6 6-6")
     val Chevron = outline("Chevron", "M9 6l6 6-6 6")
     val Lock = outline("Lock", "M7 11h10v8H7zM9 11V8a3 3 0 0 1 6 0v3")

@@ -1,6 +1,11 @@
 package com.espitman.sdm.ui
 
 import androidx.activity.compose.BackHandler
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -100,6 +105,7 @@ internal class FilesUiState {
     var searchOpen by mutableStateOf(false)
     var query by mutableStateOf("")
     var sort by mutableStateOf(FileSortOption.NewestFirst)
+    var refreshEpoch by mutableIntStateOf(0)
 }
 
 internal fun saveFilesUiState(state: FilesUiState): List<Any> = listOf(
@@ -136,6 +142,9 @@ internal fun FilesTopBar(
     uiState: FilesUiState,
     onToast: (String) -> Unit,
 ) {
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val saveLocationStore = remember(context) { SaveLocationStore.get(context) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -165,7 +174,10 @@ internal fun FilesTopBar(
                 uiState.searchOpen = !uiState.searchOpen
             }
             Spacer(Modifier.width(6.dp))
-            FilesHeaderAction(SdmIcons.Sort, "Sort files") {
+            FilesHeaderAction(
+                if (uiState.sort == FileSortOption.NewestFirst) SdmIcons.Sort else SdmIcons.SortAscending,
+                "Sort files, ${if (uiState.sort == FileSortOption.NewestFirst) "newest" else "oldest"} first",
+            ) {
                 uiState.sort = if (uiState.sort == FileSortOption.NewestFirst) {
                     FileSortOption.OldestFirst
                 } else {
@@ -174,9 +186,74 @@ internal fun FilesTopBar(
                 onToast(uiState.sort.toast)
             }
             Spacer(Modifier.width(6.dp))
-            FilesHeaderAction(SdmIcons.More, "More file options") { onToast("File options opened") }
+            Box {
+                FilesHeaderAction(SdmIcons.More, "More file options") { menuOpen = !menuOpen }
+                if (menuOpen) {
+                    Popup(
+                        alignment = Alignment.TopEnd,
+                        offset = IntOffset(0, with(LocalDensity.current) { 44.dp.roundToPx() }),
+                        onDismissRequest = { menuOpen = false },
+                        properties = PopupProperties(focusable = true),
+                    ) {
+                        Surface(
+                            color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF),
+                            contentColor = SdmText,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, SdmLine),
+                            shadowElevation = 18.dp,
+                            modifier = Modifier.width(212.dp),
+                        ) {
+                            Column(Modifier.padding(8.dp)) {
+                                FilesHeaderMenuItem(SdmIcons.Refresh, "Refresh files") {
+                                    menuOpen = false
+                                    uiState.refreshEpoch++
+                                    onToast("Refreshing files")
+                                }
+                                FilesHeaderMenuItem(SdmIcons.FolderPlain, "Open save location") {
+                                    menuOpen = false
+                                    openSaveLocation(context, saveLocationStore.read().treeUri)?.let(onToast)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         HorizontalDivider(thickness = 1.dp, color = SdmGold.copy(alpha = .14f))
+    }
+}
+
+private fun openSaveLocation(context: Context, treeUriString: String?): String? {
+    if (treeUriString.isNullOrBlank()) {
+        return "This folder is private to SDM. Completed files are listed below."
+    }
+    return try {
+        val treeUri = Uri.parse(treeUriString)
+        val folderUri = DocumentsContract.buildDocumentUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri),
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(folderUri, DocumentsContract.Document.MIME_TYPE_DIR)
+            clipData = ClipData.newUri(context.contentResolver, "Save location", folderUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(intent)
+        null
+    } catch (_: Exception) {
+        "No file manager can open this folder."
+    }
+}
+
+@Composable
+private fun FilesHeaderMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = SdmGoldHigh, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = SdmText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -201,7 +278,7 @@ internal fun FilesScreen(
     val actionScope = rememberCoroutineScope()
     var completedRows by remember { mutableStateOf<List<FileRowModel>>(emptyList()) }
     var refreshEpoch by remember { mutableIntStateOf(0) }
-    LaunchedEffect(records, probe, contentDocuments, refreshEpoch) {
+    LaunchedEffect(records, probe, contentDocuments, refreshEpoch, uiState.refreshEpoch) {
         val snapshot = records
         completedRows = withContext(Dispatchers.IO) {
             CompletedFileReconciliation.reconcile(
@@ -242,6 +319,7 @@ internal fun FilesScreen(
         StorageCapacity.Unknown,
         saveLocation,
         filesStorageReloadKey(completedRows),
+        uiState.refreshEpoch,
     ) {
         value = withContext(Dispatchers.IO) {
             AppRepositories.storageCapacity(context).queryActive()
