@@ -468,6 +468,35 @@ internal fun InteractiveDownloadsScreen(
         selectionDeleteOpen = false
     }
 
+    val onReorderAction: () -> Unit = {
+        if (downloads.count { it.category == DownloadCategory.Queued } < 2) {
+            actionNotice = "Nothing to reorder" to "Add at least two unfinished downloads to change their order."
+        } else {
+            reorderMode = true
+        }
+    }
+    val onDownloadAllAction: () -> Unit = {
+        if (records.none { it.state != DownloadState.COMPLETED }) {
+            actionNotice = "Nothing to download" to "There are no unfinished downloads to start."
+        } else if (allowedNetworkOrNotice()) overlayScope.launch {
+            AppRepositories.queueScheduler(context).downloadAll()
+        }
+    }
+    val onPauseAllAction: () -> Unit = {
+        val pauseable = records.filter {
+            it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED)
+        }
+        if (pauseable.isEmpty()) {
+            actionNotice = "Nothing to pause" to "There are no active or queued downloads."
+        } else {
+            pauseable.forEach { showPending(it.id, "Pausing…") }
+            DownloadTransferService.pauseAll(context)
+        }
+    }
+    val onClearCompletedAction: () -> Unit = {
+        if (downloads.any { it.category == DownloadCategory.Completed }) clearCompletedRequested = true
+    }
+
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) DownloadsTopBar(uiState)
         LazyColumn(
@@ -476,42 +505,7 @@ internal fun InteractiveDownloadsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
             item { DownloadStatusCard(records, downloadedTodayBytes, displayedBytesPerSecond, settings.connections) }
-            item {
-                Spacer(Modifier.height(18.dp))
-                DownloadToolbar(
-                    uiState.category,
-                    selectionMode = selectionMode,
-                    reorderMode = reorderMode,
-                    onReorder = {
-                        if (downloads.count { it.category == DownloadCategory.Queued } < 2) {
-                            actionNotice = "Nothing to reorder" to "Add at least two unfinished downloads to change their order."
-                        } else {
-                            reorderMode = true
-                        }
-                    },
-                    onDownloadAll = {
-                        if (records.none { it.state != DownloadState.COMPLETED }) {
-                            actionNotice = "Nothing to download" to "There are no unfinished downloads to start."
-                        } else if (allowedNetworkOrNotice()) overlayScope.launch {
-                            AppRepositories.queueScheduler(context).downloadAll()
-                        }
-                    },
-                    onPauseAll = {
-                        val pauseable = records.filter {
-                            it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED)
-                        }
-                        if (pauseable.isEmpty()) {
-                            actionNotice = "Nothing to pause" to "There are no active or queued downloads."
-                        } else {
-                            pauseable.forEach { showPending(it.id, "Pausing…") }
-                            DownloadTransferService.pauseAll(context)
-                        }
-                    },
-                    onClearCompleted = {
-                        if (downloads.any { it.category == DownloadCategory.Completed }) clearCompletedRequested = true
-                    },
-                )
-            }
+            item { Spacer(Modifier.height(18.dp)) }
             stickyHeader(key = "download-tabs") {
                 Column(Modifier.fillMaxWidth().background(SdmBackground)) {
                     Spacer(Modifier.height(8.dp))
@@ -586,10 +580,18 @@ internal fun InteractiveDownloadsScreen(
                         },
                         )
                     } else {
-                        DownloadTabs(uiState.category, downloadTabCounts(downloads)) {
-                            uiState.category = it
-                            uiState.query = ""
-                        }
+                        DownloadTabs(
+                            selected = uiState.category,
+                            counts = downloadTabCounts(downloads),
+                            onSelect = {
+                                uiState.category = it
+                                uiState.query = ""
+                            },
+                            onReorder = onReorderAction,
+                            onDownloadAll = onDownloadAllAction,
+                            onPauseAll = onPauseAllAction,
+                            onClearCompleted = onClearCompletedAction,
+                        )
                     }
                     Spacer(Modifier.height(12.dp))
                 }
@@ -960,22 +962,6 @@ private fun DownloadStatusCard(
 @Composable private fun DownloadStat(value: String, label: String, modifier: Modifier) { Column(modifier.padding(end = 7.dp)) { Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(label, color = SdmMuted, fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp)) } }
 
 @Composable
-private fun DownloadToolbar(category: DownloadCategory, selectionMode: Boolean, reorderMode: Boolean, onReorder: () -> Unit, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
-    val bulkEnabled = !selectionMode && !reorderMode
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-        if (category == DownloadCategory.Completed) {
-            BulkButton("Clear All", SdmIcons.Delete, false, bulkEnabled, if (bulkEnabled) onClearCompleted else ({}))
-        } else {
-            BulkButton("Reorder", SdmIcons.Sort, false, bulkEnabled, if (bulkEnabled) onReorder else ({}), Modifier.weight(1f))
-            Spacer(Modifier.width(6.dp))
-            BulkButton("Download All", SdmIcons.DownloadAll, true, bulkEnabled, if (bulkEnabled) onDownloadAll else ({}), Modifier.weight(1f))
-            Spacer(Modifier.width(6.dp))
-            BulkButton("Pause All", SdmIcons.Pause, false, bulkEnabled, if (bulkEnabled) onPauseAll else ({}), Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
 private fun DownloadReorderToolbar(onDone: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().height(48.dp).background(SdmGold, RoundedCornerShape(14.dp))
@@ -1053,18 +1039,17 @@ private fun SelectionActionButton(
 }
 
 @Composable
-private fun BulkButton(label: String, icon: ImageVector, highlighted: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(onClick = onClick, enabled = enabled, color = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .48f) else SdmLine), modifier = modifier.height(38.dp).alpha(if (enabled) 1f else .38f)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 9.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(8.dp)); Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
-    }
-}
-
-@Composable
 private fun DownloadTabs(
     selected: DownloadCategory,
     counts: Map<DownloadCategory, Int>,
     onSelect: (DownloadCategory) -> Unit,
+    onReorder: () -> Unit,
+    onDownloadAll: () -> Unit,
+    onPauseAll: () -> Unit,
+    onClearCompleted: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
     Box(Modifier.fillMaxWidth().background(SdmSurface, RoundedCornerShape(14.dp))) {
         Row(
             Modifier.fillMaxWidth().padding(4.dp),
@@ -1086,6 +1071,52 @@ private fun DownloadTabs(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(category.label, color = if (active) SdmGoldHigh else SdmMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         Text((counts[category] ?: 0).toString(), color = (if (active) SdmGoldHigh else SdmMuted).copy(alpha = .55f), fontSize = 9.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                    }
+                }
+            }
+            Box(Modifier.width(1.dp).height(28.dp).background(SdmLine))
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(40.dp)) {
+                    Icon(SdmIcons.More, "Download actions", tint = SdmMuted, modifier = Modifier.size(20.dp))
+                }
+                if (menuOpen) Popup(
+                    alignment = Alignment.TopEnd,
+                    offset = IntOffset(0, with(density) { 44.dp.roundToPx() }),
+                    onDismissRequest = { menuOpen = false },
+                    properties = PopupProperties(focusable = true),
+                ) {
+                    Surface(
+                        color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, SdmLine),
+                        shadowElevation = 18.dp,
+                        modifier = Modifier.width(216.dp),
+                    ) {
+                        Column(Modifier.padding(8.dp)) {
+                            val actions = if (selected == DownloadCategory.Completed) {
+                                listOf(Triple("Clear All", SdmIcons.Delete, onClearCompleted))
+                            } else {
+                                listOf(
+                                    Triple("Reorder", SdmIcons.Sort, onReorder),
+                                    Triple("Download All", SdmIcons.DownloadAll, onDownloadAll),
+                                    Triple("Pause All", SdmIcons.Pause, onPauseAll),
+                                )
+                            }
+                            actions.forEach { (label, icon, action) ->
+                                Row(
+                                    Modifier.fillMaxWidth().height(48.dp).clickable {
+                                        menuOpen = false
+                                        action()
+                                    }.padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(icon, null, tint = if (label == "Download All") SdmGoldHigh else SdmMuted,
+                                        modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(label, color = SdmText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -6,7 +6,7 @@ SDM is a native Android download manager built with Kotlin, Jetpack Compose, OkH
 
 - Add a direct link with **Download** or **Queue**. SDM validates the URL, follows bounded redirects, retrieves metadata when available, chooses a safe filename, and reserves a destination without overwriting existing files.
 - Transfers stream to temporary files, show live progress and speed, then publish the final file only after successful completion. Unknown sizes are supported.
-- A foreground service continues active transfers after leaving the app. One notification summarizes all unfinished downloads and their combined progress. Pause, Resume, Cancel, Download All, and Pause All use the same persistent repository and scheduler. All shows every download; Queue shows every unfinished download, including paused and failed records. The Reorder button enables card dragging in All and Queue and persists the execution order. Resume validates server range and version evidence; unsupported resume restarts safely.
+- A foreground service continues active transfers after leaving the app. One notification summarizes all unfinished downloads and their combined progress. Pause, Resume, Cancel, Download All, and Pause All use the same persistent repository and scheduler. All shows every download; Queue shows every unfinished download, including paused and failed records. The download-tabs menu offers Reorder, Download All, and Pause All; Reorder enables card dragging in All and Queue and persists execution order. Resume validates server range and version evidence; unsupported resume restarts safely.
 - Priority, simultaneous-download count, per-download connections, Wi-Fi only, aggregate speed limits, Auto-resume, completion notifications, and stalled-transfer alerts are applied according to [the settings behavior matrix](docs/download-settings-behavior.md).
 - The Downloads cards, filters, search, statistics, and details show real records. Details include available HTTP/resume evidence, progress history, file actions, and failure information. Missing measurements are shown as unavailable.
 
@@ -28,7 +28,7 @@ Use JDK 17 and an Android SDK with API 35 installed. From the repository root:
 
 For connected-device tests, build the test APK and run the required instrumentation classes with `adb shell am instrument`; avoid a blanket run because several suites deliberately manipulate storage and app state. The [release validation report](docs/release-validation.md) lists the devices and suites used. The Open Design prototype is the source for visual and interaction checks.
 
-The release variant is `0.2.40` (`versionCode=42`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
+The release variant is `0.2.41` (`versionCode=43`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
 
 ## Current limits
 
