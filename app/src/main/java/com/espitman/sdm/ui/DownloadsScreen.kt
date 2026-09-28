@@ -353,6 +353,8 @@ internal fun InteractiveDownloadsScreen(
         }
     }
     val pendingActions = remember { mutableStateMapOf<String, Pair<DownloadState, String>>() }
+    val pendingResumeChecks = remember { mutableStateMapOf<String, Long>() }
+    var resumeCheckSequence by remember { mutableLongStateOf(0L) }
     fun showPending(id: String, label: String) {
         val state = records.firstOrNull { it.id == id }?.state ?: return
         pendingActions[id] = state to label
@@ -366,13 +368,22 @@ internal fun InteractiveDownloadsScreen(
         networkNoticeOpen = true
         return false
     }
+    fun pauseWithFeedback(id: String) {
+        pendingResumeChecks.remove(id)
+        showPending(id, "Pausing…")
+        DownloadTransferService.pauseTransfer(context, id)
+    }
     fun resumeOrShowNetworkNotice(id: String) {
         if (allowedNetworkOrNotice()) {
             val before = records.firstOrNull { it.id == id }
+            val checkId = ++resumeCheckSequence
+            pendingResumeChecks[id] = checkId
             showPending(id, "Resuming…")
             DownloadTransferService.resumeTransfer(context, id)
             overlayScope.launch {
                 delay(2_000L)
+                if (pendingResumeChecks[id] != checkId) return@launch
+                pendingResumeChecks.remove(id)
                 val after = repository.get(id)
                 if (after != null && before != null &&
                     (after.state == DownloadState.FAILED || after.state == DownloadState.PAUSED) &&
@@ -455,8 +466,7 @@ internal fun InteractiveDownloadsScreen(
                             }
                         },
                         pause = {
-                            showPending(selectedRecord.id, "Pausing…")
-                            DownloadTransferService.pauseTransfer(context, selectedRecord.id)
+                            pauseWithFeedback(selectedRecord.id)
                         },
                         resumeOrRetry = { resumeOrShowNetworkNotice(selectedRecord.id) },
                     )
@@ -514,6 +524,7 @@ internal fun InteractiveDownloadsScreen(
         if (pauseable.isEmpty()) {
             actionNotice = "Nothing to pause" to "There are no active or queued downloads."
         } else {
+            pauseable.forEach { pendingResumeChecks.remove(it.id) }
             pauseable.forEach { showPending(it.id, "Pausing…") }
             DownloadTransferService.pauseAll(context)
         }
@@ -558,8 +569,7 @@ internal fun InteractiveDownloadsScreen(
                                     val succeeded = mutableSetOf<String>()
                                     pauseIds.forEach { id ->
                                         try {
-                                            showPending(id, "Pausing…")
-                                            DownloadTransferService.pauseTransfer(context, id)
+                                            pauseWithFeedback(id)
                                             succeeded += id
                                         } catch (_: Throwable) {
                                         }
@@ -724,8 +734,7 @@ internal fun InteractiveDownloadsScreen(
                                         }
                                     },
                                     pause = {
-                                        showPending(item.id, "Pausing…")
-                                        DownloadTransferService.pauseTransfer(context, item.id)
+                                        pauseWithFeedback(item.id)
                                     },
                                     resumeOrRetry = { resumeOrShowNetworkNotice(item.id) },
                                 )
