@@ -292,6 +292,8 @@ internal fun InteractiveDownloadsScreen(
     var dropQueuedTargetId by remember { mutableStateOf<String?>(null) }
     var dropQueuedAfter by remember { mutableStateOf(false) }
     var dragEdgeDirection by remember { mutableIntStateOf(0) }
+    val reorderPreviewIds = remember { mutableStateListOf<String>() }
+    var dragStartQueuedIndex by remember { mutableIntStateOf(-1) }
     val edgeScrollPx = with(LocalDensity.current) { 80.dp.toPx() }
     val edgeScrollStepPx = with(LocalDensity.current) { 14.dp.toPx() }
     fun updateReorderTarget(sourceId: String) {
@@ -304,17 +306,30 @@ internal fun InteractiveDownloadsScreen(
         }
         val sourceCenter = source.offset + source.size / 2f
         val movedCenter = sourceCenter + dragQueuedOffset
-        val target = visible.asSequence()
-            .filter { it.key != sourceId && it.key is String }
-            .filter { info -> records.any { record ->
-                record.id == info.key && record.state != DownloadState.COMPLETED
-            } }
-            .minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - movedCenter) }
-        val targetCenter = target?.let { it.offset + it.size / 2f }
-        dropQueuedTargetId = if (targetCenter != null &&
-            kotlin.math.abs(movedCenter - targetCenter) < kotlin.math.abs(movedCenter - sourceCenter)
-        ) target.key as String else null
-        dropQueuedAfter = targetCenter != null && targetCenter > sourceCenter
+        val sourceIndex = reorderPreviewIds.indexOf(sourceId)
+        val neighborIndex = when {
+            dragQueuedOffset > 0f -> sourceIndex + 1
+            dragQueuedOffset < 0f -> sourceIndex - 1
+            else -> -1
+        }
+        val neighborId = reorderPreviewIds.getOrNull(neighborIndex)
+            ?.takeIf { id -> records.any { it.id == id && it.state != DownloadState.COMPLETED } }
+        val neighbor = visible.firstOrNull { it.key == neighborId }
+        val neighborCenter = neighbor?.let { it.offset + it.size / 2f }
+        val movingDown = neighborIndex > sourceIndex
+        if (sourceIndex >= 0 && neighborCenter != null &&
+            (movingDown && movedCenter > neighborCenter || !movingDown && movedCenter < neighborCenter)
+        ) {
+            reorderPreviewIds.removeAt(sourceIndex)
+            reorderPreviewIds.add(neighborIndex, sourceId)
+            dragQueuedOffset += if (movingDown) -neighbor.size.toFloat() else neighbor.size.toFloat()
+            dropQueuedTargetId = null
+        } else {
+            dropQueuedTargetId = if (neighborCenter != null &&
+                kotlin.math.abs(movedCenter - neighborCenter) < kotlin.math.abs(movedCenter - sourceCenter)
+            ) neighborId else null
+            dropQueuedAfter = movingDown
+        }
         dragEdgeDirection = when {
             movedCenter > layout.viewportEndOffset - edgeScrollPx -> 1
             movedCenter < layout.viewportStartOffset + edgeScrollPx -> -1
@@ -386,7 +401,10 @@ internal fun InteractiveDownloadsScreen(
     }
     val selectionMode = selectedIds.isNotEmpty()
     var reorderMode by remember { mutableStateOf(false) }
-    BackHandler(reorderMode) { reorderMode = false }
+    BackHandler(reorderMode) {
+        reorderMode = false
+        reorderPreviewIds.clear()
+    }
     var selectionDeleteOpen by remember { mutableStateOf(false) }
     var deletingSelection by remember { mutableStateOf(false) }
     var selectionActing by remember { mutableStateOf(false) }
@@ -516,7 +534,10 @@ internal fun InteractiveDownloadsScreen(
                 Column(Modifier.fillMaxWidth().background(SdmBackground)) {
                     Spacer(Modifier.height(8.dp))
                     if (reorderMode) {
-                        DownloadReorderToolbar { reorderMode = false }
+                        DownloadReorderToolbar {
+                            reorderMode = false
+                            reorderPreviewIds.clear()
+                        }
                     } else if (selectionMode) {
                         DownloadSelectionToolbar(
                         count = selectedIds.size,
@@ -603,14 +624,22 @@ internal fun InteractiveDownloadsScreen(
                 }
             }
             val visibleDownloads = filterDownloadCards(downloads, uiState.category, uiState.query)
-            if (visibleDownloads.isEmpty()) {
+            val previewRanks = reorderPreviewIds.withIndex().associate { it.value to it.index }
+            val renderedDownloads = if (reorderPreviewIds.isEmpty()) visibleDownloads else
+                visibleDownloads.sortedBy { previewRanks[it.id] ?: Int.MAX_VALUE }
+            if (renderedDownloads.isEmpty()) {
                 item { EmptyDownloads(uiState.category) }
             } else {
-                items(visibleDownloads, key = { it.id }) { item ->
+                items(renderedDownloads, key = { it.id }) { item ->
                     val canReorder = canReorderDownloadCard(item, uiState.category, uiState.query,
                         selectionMode, reorderMode)
                     Box(
                         Modifier.fillMaxWidth()
+                            .then(if (draggingQueuedId == item.id) Modifier else Modifier.animateItem(
+                                fadeInSpec = null,
+                                fadeOutSpec = null,
+                                placementSpec = tween(170),
+                            ))
                             .zIndex(if (draggingQueuedId == item.id) 3f else 0f),
                     ) {
                     DownloadCard(
@@ -623,6 +652,9 @@ internal fun InteractiveDownloadsScreen(
                         dropAfter = dropQueuedAfter,
                         dragOffset = if (draggingQueuedId == item.id) dragQueuedOffset else 0f,
                         onDragStart = {
+                            reorderPreviewIds.clear()
+                            reorderPreviewIds.addAll(visibleDownloads.map { it.id })
+                            dragStartQueuedIndex = reorderPreviewIds.indexOf(item.id)
                             draggingQueuedId = item.id
                             dragQueuedOffset = 0f
                             dropQueuedTargetId = null
@@ -633,23 +665,36 @@ internal fun InteractiveDownloadsScreen(
                             updateReorderTarget(item.id)
                         },
                         onDragEnd = {
-                            val targetId = dropQueuedTargetId
-                            val after = dropQueuedAfter
+                            val nextOrder = reorderPreviewIds.filter { id ->
+                                records.any { it.id == id && it.state != DownloadState.COMPLETED }
+                            }
+                            val sourceIndex = nextOrder.indexOf(item.id)
+                            val changed = sourceIndex >= 0 && sourceIndex != dragStartQueuedIndex
+                            val targetId = if (sourceIndex > 0) nextOrder[sourceIndex - 1]
+                                else nextOrder.getOrNull(1)
+                            val after = sourceIndex > 0
                             draggingQueuedId = null
                             dragQueuedOffset = 0f
                             dropQueuedTargetId = null
                             dragEdgeDirection = 0
-                            if (targetId != null) overlayScope.launch {
-                                if (repository.reorderQueued(item.id, targetId, after, System.currentTimeMillis())) {
-                                    AppRepositories.queueScheduler(context).schedule()
+                            dragStartQueuedIndex = -1
+                            if (changed && targetId != null) overlayScope.launch {
+                                try {
+                                    if (repository.reorderQueued(item.id, targetId, after, System.currentTimeMillis())) {
+                                        AppRepositories.queueScheduler(context).schedule()
+                                    }
+                                } finally {
+                                    reorderPreviewIds.clear()
                                 }
-                            }
+                            } else reorderPreviewIds.clear()
                         },
                         onDragCancel = {
                             draggingQueuedId = null
                             dragQueuedOffset = 0f
                             dropQueuedTargetId = null
                             dragEdgeDirection = 0
+                            dragStartQueuedIndex = -1
+                            reorderPreviewIds.clear()
                         },
                         onOpen = { if (!reorderMode) onSelectedDownloadIdChange(item.id) },
                         onToggleSelection = {
