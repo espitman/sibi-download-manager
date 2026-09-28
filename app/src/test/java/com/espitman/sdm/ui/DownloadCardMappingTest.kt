@@ -59,7 +59,7 @@ class DownloadCardMappingTest {
             recentBytesPerSecond = 64_000L,
         )
 
-        assertEquals(DownloadCategory.Downloading, card.category)
+        assertEquals(DownloadCategory.Queued, card.category)
         assertEquals("64 KB/s", card.metadataValue)
         assertEquals("50% · 62.50 KB", card.progressLabel)
         assertEquals("00:01 left", card.trailing)
@@ -111,7 +111,7 @@ class DownloadCardMappingTest {
             nowEpochMillis = 2_000L,
         )
 
-        assertEquals(DownloadCategory.Downloading, card.category)
+        assertEquals(DownloadCategory.Queued, card.category)
         assertEquals("Connecting…", card.metadataValue)
         assertEquals("Calculating…", card.trailing)
     }
@@ -136,7 +136,7 @@ class DownloadCardMappingTest {
     }
 
     @Test
-    fun pausedJoinsQueueWithTrueStateAndFailedIsAllOnly() {
+    fun pausedAndFailedBothAppearInQueueWithTheirOwnStates() {
         val paused = mapDownloadToCard(
             record(state = DownloadState.PAUSED, downloadedBytes = 250L),
             nowEpochMillis = 2_000L,
@@ -155,16 +155,14 @@ class DownloadCardMappingTest {
         assertEquals("Paused", paused.trailing)
         assertTrue(paused.showPlayAction)
         assertEquals(listOf(paused.id), filterDownloadCards(listOf(paused), DownloadCategory.Queued, "").map { it.id })
-        assertTrue(filterDownloadCards(listOf(paused), DownloadCategory.Downloading, "").isEmpty())
-        assertEquals(DownloadCategory.All, failed.category)
+        assertEquals(DownloadCategory.Queued, failed.category)
         assertFalse(failed.isQueued)
         assertEquals("Error · Download failed", failed.metadataValue)
         assertEquals("Retry", failed.trailing)
         assertTrue(failed.showPlayAction)
         assertEquals(listOf(failed.id), filterDownloadCards(listOf(failed), DownloadCategory.All, "").map { it.id })
-        downloadStatusCategories.forEach { category ->
-            assertTrue(filterDownloadCards(listOf(failed), category, "").isEmpty())
-        }
+        assertEquals(listOf(failed.id), filterDownloadCards(listOf(failed), DownloadCategory.Queued, "").map { it.id })
+        assertTrue(filterDownloadCards(listOf(failed), DownloadCategory.Completed, "").isEmpty())
     }
 
     @Test
@@ -172,16 +170,16 @@ class DownloadCardMappingTest {
         val expected = mapOf(
             DownloadState.QUEUED to DownloadCategory.Queued,
             DownloadState.COMPLETED to DownloadCategory.Completed,
-            DownloadState.CONNECTING to DownloadCategory.Downloading,
-            DownloadState.DOWNLOADING to DownloadCategory.Downloading,
+            DownloadState.CONNECTING to DownloadCategory.Queued,
+            DownloadState.DOWNLOADING to DownloadCategory.Queued,
             DownloadState.PAUSED to DownloadCategory.Queued,
-            DownloadState.FAILED to DownloadCategory.All,
-            DownloadState.CANCELLED to DownloadCategory.All,
+            DownloadState.FAILED to DownloadCategory.Queued,
+            DownloadState.CANCELLED to DownloadCategory.Queued,
         )
         assertEquals(DownloadState.entries.toSet(), expected.keys)
 
         assertEquals(
-            listOf(DownloadCategory.All, DownloadCategory.Downloading, DownloadCategory.Queued, DownloadCategory.Completed),
+            listOf(DownloadCategory.All, DownloadCategory.Queued, DownloadCategory.Completed),
             DownloadCategory.entries.toList(),
         )
 
@@ -217,9 +215,8 @@ class DownloadCardMappingTest {
         val cards = listOf(queuedDune, queuedOther, downloadingDune)
 
         assertEquals(listOf("queued-dune", "active-dune"), filterDownloadCards(cards, DownloadCategory.All, "dune").map { it.id })
-        assertEquals(listOf("queued-dune"), filterDownloadCards(cards, DownloadCategory.Queued, "dune").map { it.id })
-        assertEquals(listOf("queued-dune"), filterDownloadCards(cards, DownloadCategory.Queued, "DUNE").map { it.id })
-        assertEquals(listOf("active-dune"), filterDownloadCards(cards, DownloadCategory.Downloading, "DuNe").map { it.id })
+        assertEquals(listOf("queued-dune", "active-dune"), filterDownloadCards(cards, DownloadCategory.Queued, "dune").map { it.id })
+        assertEquals(listOf("queued-dune", "active-dune"), filterDownloadCards(cards, DownloadCategory.Queued, "DUNE").map { it.id })
         assertTrue(filterDownloadCards(cards, DownloadCategory.Completed, "dune").isEmpty())
         assertTrue(filterDownloadCards(cards, DownloadCategory.Queued, "no-such-file").isEmpty())
         assertTrue(filterDownloadCards(cards, DownloadCategory.All, "no-such-file").isEmpty())
@@ -233,13 +230,11 @@ class DownloadCardMappingTest {
 
         assertEquals(listOf("moving"), visible(DownloadCategory.All))
         assertEquals(listOf("moving"), visible(DownloadCategory.Queued))
-        assertTrue(visible(DownloadCategory.Downloading).isEmpty())
         assertTrue(visible(DownloadCategory.Completed).isEmpty())
 
         live = live.copy(state = DownloadState.DOWNLOADING, downloadedBytes = 500L, startedAtEpochMillis = 1_000L)
         assertEquals(listOf("moving"), visible(DownloadCategory.All, "MOV"))
-        assertEquals(listOf("moving"), visible(DownloadCategory.Downloading, "MOV"))
-        assertTrue(visible(DownloadCategory.Queued).isEmpty())
+        assertEquals(listOf("moving"), visible(DownloadCategory.Queued, "MOV"))
         assertTrue(visible(DownloadCategory.Completed).isEmpty())
 
         live = live.copy(
@@ -251,7 +246,6 @@ class DownloadCardMappingTest {
         assertEquals(listOf("moving"), filterDownloadCards(current, DownloadCategory.All, "mov").map { it.id })
         assertEquals(listOf("moving"), filterDownloadCards(current, DownloadCategory.Completed, "mov").map { it.id })
         assertTrue(filterDownloadCards(current, DownloadCategory.Queued, "").isEmpty())
-        assertTrue(filterDownloadCards(current, DownloadCategory.Downloading, "").isEmpty())
         assertEquals(
             listOf("moving"),
             downloadStatusCategories.flatMap { filterDownloadCards(current, it, "") }.map { it.id },
@@ -284,9 +278,8 @@ class DownloadCardMappingTest {
             assertEquals("Error · ${failure.label}", card.metadataValue)
             assertEquals("Retry", card.trailing)
             assertTrue(card.showPlayAction)
-            assertEquals(DownloadCategory.All, card.category)
-            assertTrue(filterDownloadCards(listOf(card), DownloadCategory.Downloading, "").isEmpty())
-            assertTrue(filterDownloadCards(listOf(card), DownloadCategory.Queued, "").isEmpty())
+            assertEquals(DownloadCategory.Queued, card.category)
+            assertEquals(listOf(card.id), filterDownloadCards(listOf(card), DownloadCategory.Queued, "").map { it.id })
             assertTrue(filterDownloadCards(listOf(card), DownloadCategory.Completed, "").isEmpty())
         }
     }
@@ -344,19 +337,47 @@ class DownloadCardMappingTest {
         assertEquals(
             mapOf(
                 DownloadCategory.All to 2,
-                DownloadCategory.Downloading to 0,
                 DownloadCategory.Queued to 2,
                 DownloadCategory.Completed to 0,
             ),
             downloadTabCounts(visible),
         )
         assertEquals("All 2", downloadTabTitle(DownloadCategory.All, 2))
-        assertEquals("Active 1", downloadTabTitle(DownloadCategory.Downloading, 1))
         assertEquals("Queue 1", downloadTabTitle(DownloadCategory.Queued, 1))
         assertEquals("Completed 0", downloadTabTitle(DownloadCategory.Completed, 0))
         assertEquals("No downloads", emptyDownloadsTitle(DownloadCategory.All))
         assertEquals("Downloads you add will appear here.", emptyDownloadsDescription(DownloadCategory.All))
         assertEquals("No completed downloads", emptyDownloadsTitle(DownloadCategory.Completed))
         assertEquals("Finished files will appear here.", emptyDownloadsDescription(DownloadCategory.Completed))
+    }
+
+    @Test fun allAndQueueIncludePausedFailedAndActiveWhileCompletedStaysSeparate() {
+        val cards = listOf(
+            mapDownloadToCard(recordFor(DownloadState.COMPLETED), 3_000L),
+            mapDownloadToCard(recordFor(DownloadState.PAUSED), 3_000L),
+            mapDownloadToCard(recordFor(DownloadState.FAILED), 3_000L),
+            mapDownloadToCard(recordFor(DownloadState.DOWNLOADING), 3_000L),
+        )
+        val ordered = orderDownloadCards(cards)
+        assertEquals(listOf("paused", "failed", "downloading", "completed"), ordered.map { it.id })
+        assertEquals(listOf("paused", "failed", "downloading"),
+            filterDownloadCards(ordered, DownloadCategory.Queued, "").map { it.id })
+        assertEquals(listOf("paused", "failed", "downloading", "completed"),
+            filterDownloadCards(ordered, DownloadCategory.All, "").map { it.id })
+        assertEquals(3, downloadTabCounts(ordered).getValue(DownloadCategory.Queued))
+    }
+
+    @Test fun dragRequiresExplicitReorderModeInAllOrQueue() {
+        val paused = mapDownloadToCard(recordFor(DownloadState.PAUSED), 3_000L)
+        val failed = mapDownloadToCard(recordFor(DownloadState.FAILED), 3_000L)
+        val completed = mapDownloadToCard(recordFor(DownloadState.COMPLETED), 3_000L)
+        listOf(paused, failed).forEach { card ->
+            assertFalse(canReorderDownloadCard(card, DownloadCategory.All, "", false, false))
+            assertTrue(canReorderDownloadCard(card, DownloadCategory.All, "", false, true))
+            assertTrue(canReorderDownloadCard(card, DownloadCategory.Queued, "", false, true))
+            assertFalse(canReorderDownloadCard(card, DownloadCategory.All, "", true, true))
+            assertFalse(canReorderDownloadCard(card, DownloadCategory.All, "name", false, true))
+        }
+        assertFalse(canReorderDownloadCard(completed, DownloadCategory.All, "", false, true))
     }
 }

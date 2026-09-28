@@ -21,11 +21,22 @@ class DownloadQueueReorderMutationTest {
         assertTrue(next.all { it.state == DownloadState.QUEUED })
     }
 
-    @Test fun ignoresNonQueuedAndNoOp() {
+    @Test fun pausedAndFailedKeepTheirOrderForLaterResume() {
+        val queue = listOf(
+            row("queued", 0),
+            row("paused", 1).copy(state = DownloadState.PAUSED),
+            row("failed", 2).copy(state = DownloadState.FAILED, error = "Network lost"),
+        )
+        val next = DownloadQueueReorderMutation.apply(queue, "failed", "queued", false, 100)
+        assertEquals(listOf("failed", "queued", "paused"), next.sortedWith(DownloadQueueOrder.comparator).map { it.id })
+        assertEquals(DownloadState.FAILED, next.first { it.id == "failed" }.state)
+    }
+
+    @Test fun ignoresCompletedAndNoOp() {
         val queue = listOf(row("a", 0), row("b", 1))
         assertTrue(DownloadQueueReorderMutation.apply(queue, "a", "a", true, 100).isEmpty())
         assertTrue(DownloadQueueReorderMutation.apply(queue, "missing", "b", true, 100).isEmpty())
-        assertTrue(DownloadQueueReorderMutation.apply(queue + row("paused", 2).copy(state = DownloadState.PAUSED), "paused", "b", true, 100).isEmpty())
+        assertTrue(DownloadQueueReorderMutation.apply(queue + row("done", 2).copy(state = DownloadState.COMPLETED, completedAtEpochMillis = 2), "done", "b", true, 100).isEmpty())
     }
 
     private fun row(id: String, order: Long, priority: Int = 0) = Download(

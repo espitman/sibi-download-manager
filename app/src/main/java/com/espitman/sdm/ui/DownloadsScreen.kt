@@ -115,7 +115,8 @@ internal fun saveDownloadsUiState(state: DownloadsUiState): List<Any> = listOf(
 internal fun restoreDownloadsUiState(saved: List<*>): DownloadsUiState {
     val restored = DownloadsUiState()
     restored.category = (saved.getOrNull(0) as? String)
-        ?.let { name -> DownloadCategory.entries.firstOrNull { it.name == name } }
+        ?.let { name -> DownloadCategory.entries.firstOrNull { it.name == name }
+            ?: if (name == "Downloading") DownloadCategory.Queued else null }
         ?: DownloadCategory.All
     restored.searchOpen = saved.getOrNull(1) as? Boolean ?: false
     restored.query = saved.getOrNull(2) as? String ?: ""
@@ -263,7 +264,7 @@ internal fun InteractiveDownloadsScreen(
     val displayedBytesPerSecond = displayedRates
         .filterKeys { it in downloadingIds }
         .values.fold(0L, ::saturatingAdd)
-    val downloads = visibleDownloadCards(
+    val downloads = orderDownloadCards(visibleDownloadCards(
         records.map { record ->
             mapDownloadToCard(
                 record,
@@ -272,7 +273,7 @@ internal fun InteractiveDownloadsScreen(
             )
         },
         hiddenCompletedIds,
-    )
+    ))
     var clearCompletedRequested by remember { mutableStateOf(false) }
     var deletingCompleted by remember { mutableStateOf(false) }
     var overlayClosing by remember { mutableStateOf(false) }
@@ -284,6 +285,51 @@ internal fun InteractiveDownloadsScreen(
     var dragQueuedOffset by remember { mutableFloatStateOf(0f) }
     var dropQueuedTargetId by remember { mutableStateOf<String?>(null) }
     var dropQueuedAfter by remember { mutableStateOf(false) }
+    var dragEdgeDirection by remember { mutableIntStateOf(0) }
+    val edgeScrollPx = with(LocalDensity.current) { 80.dp.toPx() }
+    val edgeScrollStepPx = with(LocalDensity.current) { 14.dp.toPx() }
+    fun updateReorderTarget(sourceId: String) {
+        val layout = downloadsListState.layoutInfo
+        val visible = layout.visibleItemsInfo
+        val source = visible.firstOrNull { it.key == sourceId }
+        if (source == null) {
+            dragEdgeDirection = 0
+            return
+        }
+        val sourceCenter = source.offset + source.size / 2f
+        val movedCenter = sourceCenter + dragQueuedOffset
+        val target = visible.asSequence()
+            .filter { it.key != sourceId && it.key is String }
+            .filter { info -> records.any { record ->
+                record.id == info.key && record.state != DownloadState.COMPLETED
+            } }
+            .minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - movedCenter) }
+        val targetCenter = target?.let { it.offset + it.size / 2f }
+        dropQueuedTargetId = if (targetCenter != null &&
+            kotlin.math.abs(movedCenter - targetCenter) < kotlin.math.abs(movedCenter - sourceCenter)
+        ) target.key as String else null
+        dropQueuedAfter = targetCenter != null && targetCenter > sourceCenter
+        dragEdgeDirection = when {
+            movedCenter > layout.viewportEndOffset - edgeScrollPx -> 1
+            movedCenter < layout.viewportStartOffset + edgeScrollPx -> -1
+            else -> 0
+        }
+    }
+    LaunchedEffect(draggingQueuedId, dragEdgeDirection) {
+        val id = draggingQueuedId ?: return@LaunchedEffect
+        val direction = dragEdgeDirection
+        if (direction == 0) return@LaunchedEffect
+        while (draggingQueuedId == id && dragEdgeDirection == direction) {
+            val consumed = downloadsListState.scrollBy(direction * edgeScrollStepPx)
+            if (consumed == 0f) {
+                dragEdgeDirection = 0
+                break
+            }
+            dragQueuedOffset += consumed
+            updateReorderTarget(id)
+            delay(16L)
+        }
+    }
     val pendingActions = remember { mutableStateMapOf<String, Pair<DownloadState, String>>() }
     fun showPending(id: String, label: String) {
         val state = records.firstOrNull { it.id == id }?.state ?: return
@@ -333,6 +379,8 @@ internal fun InteractiveDownloadsScreen(
         selectedIds = pruneDownloadsSelection(selectedIds, availableSelectionIds)
     }
     val selectionMode = selectedIds.isNotEmpty()
+    var reorderMode by remember { mutableStateOf(false) }
+    BackHandler(reorderMode) { reorderMode = false }
     var selectionDeleteOpen by remember { mutableStateOf(false) }
     var deletingSelection by remember { mutableStateOf(false) }
     var selectionActing by remember { mutableStateOf(false) }
@@ -434,6 +482,14 @@ internal fun InteractiveDownloadsScreen(
                     downloads.size,
                     uiState.category,
                     selectionMode = selectionMode,
+                    reorderMode = reorderMode,
+                    onReorder = {
+                        if (downloads.count { it.category == DownloadCategory.Queued } < 2) {
+                            actionNotice = "Nothing to reorder" to "Add at least two unfinished downloads to change their order."
+                        } else {
+                            reorderMode = true
+                        }
+                    },
                     onDownloadAll = {
                         if (records.none { it.state != DownloadState.COMPLETED }) {
                             actionNotice = "Nothing to download" to "There are no unfinished downloads to start."
@@ -460,7 +516,9 @@ internal fun InteractiveDownloadsScreen(
             stickyHeader(key = "download-tabs") {
                 Column(Modifier.fillMaxWidth().background(SdmBackground)) {
                     Spacer(Modifier.height(8.dp))
-                    if (selectionMode) {
+                    if (reorderMode) {
+                        DownloadReorderToolbar { reorderMode = false }
+                    } else if (selectionMode) {
                         DownloadSelectionToolbar(
                         count = selectedIds.size,
                         canPause = downloadsSelectionPauseIds(records, selectedIds).isNotEmpty(),
@@ -542,8 +600,8 @@ internal fun InteractiveDownloadsScreen(
                 item { EmptyDownloads(uiState.category) }
             } else {
                 items(visibleDownloads, key = { it.id }) { item ->
-                    val canReorder = uiState.category == DownloadCategory.Queued &&
-                        uiState.query.isBlank() && !selectionMode && item.isQueued
+                    val canReorder = canReorderDownloadCard(item, uiState.category, uiState.query,
+                        selectionMode, reorderMode)
                     DownloadCard(
                         item = pendingActions[item.id]?.let { item.copy(metadataValue = it.second, trailing = it.second) } ?: item,
                         selected = item.id in selectedIds,
@@ -556,34 +614,11 @@ internal fun InteractiveDownloadsScreen(
                             draggingQueuedId = item.id
                             dragQueuedOffset = 0f
                             dropQueuedTargetId = null
+                            dragEdgeDirection = 0
                         },
                         onDragBy = { delta ->
                             dragQueuedOffset += delta
-                            val visible = downloadsListState.layoutInfo.visibleItemsInfo
-                            val source = visible.firstOrNull { it.key == item.id }
-                            if (source != null) {
-                                val movedCenter = source.offset + source.size / 2f + dragQueuedOffset
-                                val target = visible.asSequence()
-                                    .filter { it.key != item.id && it.key is String }
-                                    .filter { info -> records.any { record ->
-                                        record.id == info.key && record.state == DownloadState.QUEUED
-                                    } }
-                                    .minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - movedCenter) }
-                                val sourceCenter = source.offset + source.size / 2f
-                                val targetCenter = target?.let { it.offset + it.size / 2f }
-                                dropQueuedTargetId = if (targetCenter != null &&
-                                    kotlin.math.abs(movedCenter - targetCenter) <
-                                    kotlin.math.abs(movedCenter - sourceCenter)
-                                ) target.key as String else null
-                                dropQueuedAfter = targetCenter != null && targetCenter > sourceCenter
-                                if (movedCenter < downloadsListState.layoutInfo.viewportStartOffset + source.size / 2f ||
-                                    movedCenter > downloadsListState.layoutInfo.viewportEndOffset - source.size / 2f
-                                ) {
-                                    overlayScope.launch {
-                                        downloadsListState.scrollBy(if (dragQueuedOffset > 0f) 32f else -32f)
-                                    }
-                                }
-                            }
+                            updateReorderTarget(item.id)
                         },
                         onDragEnd = {
                             val targetId = dropQueuedTargetId
@@ -591,6 +626,7 @@ internal fun InteractiveDownloadsScreen(
                             draggingQueuedId = null
                             dragQueuedOffset = 0f
                             dropQueuedTargetId = null
+                            dragEdgeDirection = 0
                             if (targetId != null) overlayScope.launch {
                                 if (repository.reorderQueued(item.id, targetId, after, System.currentTimeMillis())) {
                                     AppRepositories.queueScheduler(context).schedule()
@@ -601,15 +637,17 @@ internal fun InteractiveDownloadsScreen(
                             draggingQueuedId = null
                             dragQueuedOffset = 0f
                             dropQueuedTargetId = null
+                            dragEdgeDirection = 0
                         },
-                        onOpen = { onSelectedDownloadIdChange(item.id) },
+                        onOpen = { if (!reorderMode) onSelectedDownloadIdChange(item.id) },
                         onToggleSelection = {
                             selectedIds = toggleDownloadsSelection(selectedIds, item.id)
                         },
                         onLongPressSelect = {
-                            selectedIds = selectedIds + item.id
+                            if (!reorderMode) selectedIds = selectedIds + item.id
                         },
                         onAction = {
+                            if (reorderMode) return@DownloadCard
                             val record = records.firstOrNull { it.id == item.id }
                             val action = record?.let { transferCardAction(it.state) }
                             if (action == null || action == TransferCardAction.None) {
@@ -923,14 +961,34 @@ private fun DownloadStatusCard(
 @Composable private fun DownloadStat(value: String, label: String, modifier: Modifier) { Column(modifier.padding(end = 7.dp)) { Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(label, color = SdmMuted, fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp)) } }
 
 @Composable
-private fun DownloadToolbar(count: Int, category: DownloadCategory, selectionMode: Boolean, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
-    val bulkEnabled = !selectionMode
+private fun DownloadToolbar(count: Int, category: DownloadCategory, selectionMode: Boolean, reorderMode: Boolean, onReorder: () -> Unit, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
+    val bulkEnabled = !selectionMode && !reorderMode
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text("Downloads", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold); Text("$count items", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp)) }
         if (category == DownloadCategory.Completed) {
             BulkButton("Clear All", SdmIcons.Delete, false, bulkEnabled, if (bulkEnabled) onClearCompleted else ({}))
         } else {
-            BulkButton("Download All", SdmIcons.DownloadAll, true, bulkEnabled, if (bulkEnabled) onDownloadAll else ({})); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, bulkEnabled, if (bulkEnabled) onPauseAll else ({}))
+            BulkButton("Reorder", SdmIcons.Sort, false, bulkEnabled, if (bulkEnabled) onReorder else ({})); Spacer(Modifier.width(6.dp)); BulkButton("Download All", SdmIcons.DownloadAll, true, bulkEnabled, if (bulkEnabled) onDownloadAll else ({})); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, bulkEnabled, if (bulkEnabled) onPauseAll else ({}))
+        }
+    }
+}
+
+@Composable
+private fun DownloadReorderToolbar(onDone: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).background(SdmGold, RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(SdmIcons.Sort, null, tint = SdmBackground, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(9.dp))
+        Text("Drag cards to reorder", color = SdmBackground, fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+        Surface(onClick = onDone, color = SdmBackground, contentColor = SdmGoldHigh,
+            shape = RoundedCornerShape(9.dp), modifier = Modifier.height(30.dp)) {
+            Box(Modifier.padding(horizontal = 13.dp), contentAlignment = Alignment.Center) {
+                Text("Done", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+            }
         }
     }
 }
@@ -1090,23 +1148,24 @@ private fun DownloadCard(
             .fillMaxWidth()
             .zIndex(if (dragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffset; if (dragging) shadowElevation = 12.dp.toPx() }
-            .then(if (reorderEnabled) Modifier.pointerInput(item.id) {
-                detectDragGestures(
-                    onDragStart = { onDragStart() },
-                    onDragEnd = onDragEnd,
-                    onDragCancel = onDragCancel,
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        onDragBy(dragAmount.y)
-                    },
+            .then(if (reorderEnabled) {
+                Modifier.pointerInput(item.id) {
+                    detectDragGestures(
+                        onDragStart = { onDragStart() },
+                        onDragEnd = onDragEnd,
+                        onDragCancel = onDragCancel,
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            onDragBy(dragAmount.y)
+                        },
+                    )
+                }
+            } else {
+                Modifier.combinedClickable(
+                    onClick = { if (selectionMode) onToggleSelection() else onOpen?.invoke() },
+                    onLongClick = onLongPressSelect,
                 )
-            } else Modifier)
-            .combinedClickable(
-                onClick = {
-                    if (selectionMode) onToggleSelection() else onOpen?.invoke()
-                },
-                onLongClick = onLongPressSelect,
-            )
+            })
             .semantics {
                 if (selectionMode) {
                     stateDescription = if (selected) "Selected" else "Not selected"
@@ -1161,12 +1220,13 @@ private fun DownloadCard(
                     Box(
                         Modifier
                             .size(width = 32.dp, height = 44.dp)
-                            .clickable(role = Role.Button, onClick = if (selectionMode) onToggleSelection else onAction),
+                            .then(if (reorderEnabled) Modifier else Modifier.clickable(
+                                role = Role.Button, onClick = if (selectionMode) onToggleSelection else onAction)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause,
-                            if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
+                            if (reorderEnabled) SdmIcons.Sort else if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause,
+                            if (reorderEnabled) "Drag to reorder" else if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
                             tint = SdmGoldHigh,
                             modifier = Modifier.size(19.dp),
                         )

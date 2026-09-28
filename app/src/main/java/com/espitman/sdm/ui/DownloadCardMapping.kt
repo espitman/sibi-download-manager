@@ -6,7 +6,6 @@ import java.util.Locale
 
 internal enum class DownloadCategory(val label: String) {
     All("All"),
-    Downloading("Active"),
     Queued("Queue"),
     Completed("Completed"),
 }
@@ -35,10 +34,8 @@ internal fun mapDownloadToCard(
 ): DownloadCardModel {
     val metrics = calculateDownloadProgressMetrics(download, nowEpochMillis, recentBytesPerSecond)
     val category = when (download.state) {
-        DownloadState.CONNECTING, DownloadState.DOWNLOADING -> DownloadCategory.Downloading
-        DownloadState.QUEUED, DownloadState.PAUSED -> DownloadCategory.Queued
         DownloadState.COMPLETED -> DownloadCategory.Completed
-        DownloadState.FAILED, DownloadState.CANCELLED -> DownloadCategory.All
+        else -> DownloadCategory.Queued
     }
     val progressLabel = "${metrics.percentLabel} · ${formatBytes(download.downloadedBytes)}"
 
@@ -108,6 +105,19 @@ internal fun filterDownloadCards(
     matchesDownloadCategory(card, category) && card.name.contains(query, ignoreCase = true)
 }
 
+internal fun orderDownloadCards(cards: List<DownloadCardModel>): List<DownloadCardModel> =
+    cards.filter { it.category != DownloadCategory.Completed } +
+        cards.filter { it.category == DownloadCategory.Completed }
+
+internal fun canReorderDownloadCard(
+    card: DownloadCardModel,
+    category: DownloadCategory,
+    query: String,
+    selectionMode: Boolean,
+    reorderMode: Boolean,
+): Boolean = reorderMode && !selectionMode && query.isBlank() &&
+    category != DownloadCategory.Completed && card.category == DownloadCategory.Queued
+
 internal fun matchesDownloadCategory(
     card: DownloadCardModel,
     category: DownloadCategory,
@@ -133,10 +143,10 @@ internal fun emptyDownloadsTitle(category: DownloadCategory): String = when (cat
 }
 
 internal fun emptyDownloadsDescription(category: DownloadCategory): String =
-    if (category == DownloadCategory.All) {
-        "Downloads you add will appear here."
-    } else {
-        "Finished files will appear here."
+    when (category) {
+        DownloadCategory.All -> "Downloads you add will appear here."
+        DownloadCategory.Queued -> "Downloads waiting, paused, or in progress will appear here."
+        DownloadCategory.Completed -> "Finished files will appear here."
     }
 
 internal fun formatClockEta(seconds: Long?): String {

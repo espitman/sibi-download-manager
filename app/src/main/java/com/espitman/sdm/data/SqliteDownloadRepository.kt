@@ -401,7 +401,7 @@ class SqliteDownloadRepository(
         mutex.withLock {
             var changed = false
             database.writableDatabase.inTransaction { db ->
-                val queued = queryQueued(db)
+                val queued = queryUnfinished(db)
                 val next = DownloadQueueReorderMutation.apply(
                     queued, sourceId, targetId, placeAfter, nowEpochMillis,
                 )
@@ -587,8 +587,8 @@ class SqliteDownloadRepository(
         null,
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toDownload()) } }
 
-    private fun queryQueued(db: SQLiteDatabase): List<Download> = db.query(
-        "downloads", COLUMNS, "state = ?", arrayOf(DownloadState.QUEUED.name),
+    private fun queryUnfinished(db: SQLiteDatabase): List<Download> = db.query(
+        "downloads", COLUMNS, "state != ?", arrayOf(DownloadState.COMPLETED.name),
         null, null, "priority DESC, sort_order ASC, created_at ASC, id ASC",
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toDownload()) } }
 

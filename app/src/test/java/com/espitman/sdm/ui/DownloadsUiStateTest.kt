@@ -101,7 +101,7 @@ class DownloadsUiStateTest {
         val completed = restoreDownloadsUiState(listOf("Completed", true, "done"))
         val all = DownloadsUiState()
 
-        assertEquals(DownloadCategory.Downloading, downloading.category)
+        assertEquals(DownloadCategory.Queued, downloading.category)
         assertEquals(DownloadCategory.Queued, queued.category)
         assertEquals(DownloadCategory.Completed, completed.category)
         assertEquals(DownloadCategory.All, restoreDownloadsUiState(saveDownloadsUiState(all)).category)

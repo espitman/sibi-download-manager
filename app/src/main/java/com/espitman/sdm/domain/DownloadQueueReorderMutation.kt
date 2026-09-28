@@ -2,7 +2,7 @@ package com.espitman.sdm.domain
 
 import kotlin.math.max
 
-/** Reorders queued work while keeping the scheduler's priority-tier ordering intact. */
+/** Reorders unfinished work while keeping the scheduler's priority-tier ordering intact. */
 object DownloadQueueReorderMutation {
     fun apply(
         queued: List<Download>,
@@ -11,7 +11,7 @@ object DownloadQueueReorderMutation {
         placeAfter: Boolean,
         nowEpochMillis: Long,
     ): List<Download> {
-        val ordered = queued.filter { it.state == DownloadState.QUEUED }
+        val ordered = queued.filter { it.state != DownloadState.COMPLETED }
             .sortedWith(DownloadQueueOrder.comparator)
         val source = ordered.firstOrNull { it.id == sourceId } ?: return emptyList()
         val target = ordered.firstOrNull { it.id == targetId } ?: return emptyList()
@@ -23,7 +23,7 @@ object DownloadQueueReorderMutation {
         next.add(targetIndex + if (placeAfter) 1 else 0, moved)
         if (next.map { it.id } == ordered.map { it.id } && source.priority == moved.priority) return emptyList()
 
-        // Rebase every queued tier to avoid sort-order collisions or Long overflow.
+        // Rebase every unfinished tier to avoid sort-order collisions or Long overflow.
         return next.groupBy { it.priority }.values.flatMap { tier ->
             tier.mapIndexed { index, download ->
                 download.copy(
