@@ -3,6 +3,7 @@ package com.espitman.sdm.data
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadAllMutation
 import com.espitman.sdm.domain.DownloadPauseCause
+import com.espitman.sdm.domain.DownloadSchedule
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.domain.PauseQueuedMutation
 import com.espitman.sdm.domain.RecoverInterruptedActiveMutation
@@ -22,6 +23,8 @@ interface DownloadRepository {
     }
     suspend fun insert(download: Download)
     suspend fun delete(id: String): Boolean
+    /** Replace or clear the time window without changing transfer state or progress. */
+    suspend fun updateSchedule(id: String, schedule: DownloadSchedule?, nowEpochMillis: Long): Download? = null
     suspend fun transition(
         id: String,
         to: DownloadState,

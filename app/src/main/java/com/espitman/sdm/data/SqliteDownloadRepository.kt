@@ -8,6 +8,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadCancelMutation
 import com.espitman.sdm.domain.DownloadFreshRestartMutation
 import com.espitman.sdm.domain.DownloadPauseCause
+import com.espitman.sdm.domain.DownloadSchedule
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadProgressAlignment
 import com.espitman.sdm.domain.DownloadMoveToTopMutation
@@ -95,6 +96,26 @@ class SqliteDownloadRepository(
             deleted
         }
     }
+
+    override suspend fun updateSchedule(id: String, schedule: DownloadSchedule?, nowEpochMillis: Long): Download? =
+        onIo {
+            awaitInitialized()
+            mutex.withLock {
+                var updated: Download? = null
+                database.writableDatabase.inTransaction { db ->
+                    val current = queryOne(db, id) ?: return@inTransaction
+                    if (current.state in setOf(DownloadState.COMPLETED, DownloadState.CANCELLED)) return@inTransaction
+                    val next = current.copy(
+                        schedule = schedule,
+                        updatedAtEpochMillis = maxOf(nowEpochMillis, current.updatedAtEpochMillis),
+                    )
+                    persistIdentity(db, id, next)
+                    updated = next
+                }
+                if (updated != null) refreshLocked(database.readableDatabase)
+                updated
+            }
+        }
 
     override suspend fun transition(
         id: String,
@@ -613,6 +634,8 @@ class SqliteDownloadRepository(
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
             "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count",
             "destination_tree_uri", "destination_display_label", "pause_cause",
+            "schedule_kind", "schedule_start_epoch", "schedule_end_epoch",
+            "schedule_start_minute", "schedule_end_minute", "schedule_zone_id",
         )
     }
 }
@@ -650,6 +673,12 @@ private fun Download.toValues() = ContentValues().apply {
     putNullable("destination_tree_uri", destinationTreeUri)
     putNullable("destination_display_label", destinationDisplayLabel)
     putNullable("pause_cause", pauseCause?.name)
+    putNullable("schedule_kind", schedule?.kind?.name)
+    putNullable("schedule_start_epoch", schedule?.startEpochMillis)
+    putNullable("schedule_end_epoch", schedule?.endEpochMillis)
+    putNullable("schedule_start_minute", schedule?.startMinuteOfDay)
+    putNullable("schedule_end_minute", schedule?.endMinuteOfDay)
+    putNullable("schedule_zone_id", schedule?.zoneId)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -662,6 +691,10 @@ private fun ContentValues.putNullable(key: String, value: Long?) {
 
 private fun ContentValues.putNullable(key: String, value: Boolean?) {
     if (value == null) putNull(key) else put(key, if (value) 1 else 0)
+}
+
+private fun ContentValues.putNullable(key: String, value: Int?) {
+    if (value == null) putNull(key) else put(key, value)
 }
 
 private fun Cursor.toDownload() = Download(
@@ -691,6 +724,16 @@ private fun Cursor.toDownload() = Download(
         DownloadPauseCause.entries.find { it.name == raw }
             ?: error("Unknown pause cause: $raw")
     },
+    schedule = nullableString("schedule_kind")?.let { kind ->
+        DownloadSchedule(
+            kind = DownloadSchedule.Kind.valueOf(kind),
+            startEpochMillis = nullableLong("schedule_start_epoch"),
+            endEpochMillis = nullableLong("schedule_end_epoch"),
+            startMinuteOfDay = nullableInt("schedule_start_minute"),
+            endMinuteOfDay = nullableInt("schedule_end_minute"),
+            zoneId = nullableString("schedule_zone_id"),
+        )
+    },
 )
 
 private fun Cursor.nullableString(column: String): String? =
@@ -698,6 +741,9 @@ private fun Cursor.nullableString(column: String): String? =
 
 private fun Cursor.nullableLong(column: String): Long? =
     getColumnIndexOrThrow(column).let { if (isNull(it)) null else getLong(it) }
+
+private fun Cursor.nullableInt(column: String): Int? =
+    getColumnIndexOrThrow(column).let { if (isNull(it)) null else getInt(it) }
 
 private fun Cursor.nullableBoolean(column: String): Boolean? =
     getColumnIndexOrThrow(column).let { if (isNull(it)) null else getInt(it) != 0 }

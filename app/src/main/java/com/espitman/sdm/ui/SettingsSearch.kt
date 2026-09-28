@@ -18,6 +18,7 @@ internal enum class SettingsSearchRow {
     Connections,
     Simultaneous,
     AutoResume,
+    DailySchedule,
     WifiOnly,
     SpeedLimit,
     SaveLocation,
@@ -111,6 +112,13 @@ internal fun settingsSearchCatalog(
         title = "Auto-resume",
         subtitle = "Continue interrupted downloads",
         synonyms = listOf("resume", "interrupted", "auto resume"),
+    ),
+    SettingsSearchItem(
+        row = SettingsSearchRow.DailySchedule,
+        groupTitle = "DOWNLOAD BEHAVIOR",
+        title = "Scheduled downloads",
+        subtitle = "Resume all and pause all at set times",
+        synonyms = listOf("schedule", "timer", "daily", "pause all", "resume all"),
     ),
     SettingsSearchItem(
         row = SettingsSearchRow.WifiOnly,

@@ -11,6 +11,7 @@ import com.espitman.sdm.download.DownloadInterruptionRecovery
 import com.espitman.sdm.download.DownloadInterruptionTrigger
 import com.espitman.sdm.download.DownloadPartFile
 import com.espitman.sdm.download.DownloadQueueScheduler
+import com.espitman.sdm.download.DownloadScheduleCoordinator
 import com.espitman.sdm.download.DownloadRecoveryOnceGate
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
 import com.espitman.sdm.download.DownloadTransferEngine
@@ -47,6 +48,8 @@ object AppRepositories {
     @Volatile private var transferEngine: DownloadTransferEngine? = null
     @Volatile private var speedLimiter: AggregateSpeedLimiter? = null
     @Volatile private var queueScheduler: DownloadQueueScheduler? = null
+    @Volatile private var scheduleCoordinator: DownloadScheduleCoordinator? = null
+    @Volatile private var scheduleCollectorStarted = false
     @Volatile private var transferAllowance: MutableTransferAllowance? = null
     @Volatile private var networkRestriction: NetworkRestrictionCoordinator? = null
     @Volatile private var connectivityMonitor: AndroidValidatedConnectivityMonitor? = null
@@ -159,6 +162,11 @@ object AppRepositories {
         return queueScheduler!!
     }
 
+    fun scheduleCoordinator(context: Context): DownloadScheduleCoordinator {
+        ensureNetworkRestriction(context)
+        return scheduleCoordinator!!
+    }
+
     private fun ensureNetworkRestriction(context: Context) {
         if (networkRestriction != null && queueScheduler != null && restrictionCollectorStarted) return
         synchronized(this) {
@@ -185,6 +193,26 @@ object AppRepositories {
                     },
                     transferAllowance = allowance,
                 )
+            }
+            if (scheduleCoordinator == null) {
+                scheduleCoordinator = DownloadScheduleCoordinator(
+                    context = appContext,
+                    repository = downloads(appContext),
+                    scheduler = queueScheduler!!,
+                    pauseActive = { id ->
+                        DownloadTransferService.pauseTransfer(appContext, id, DownloadPauseCause.SCHEDULE)
+                    },
+                )
+            }
+            if (!scheduleCollectorStarted) {
+                scheduleCollectorStarted = true
+                val coordinator = scheduleCoordinator!!
+                restrictionScope.launch {
+                    downloads(appContext).downloads
+                        .map { records -> records.map { it.id to (it.state to it.schedule) } }
+                        .distinctUntilChanged()
+                        .collect { coordinator.apply() }
+                }
             }
             if (connectivityMonitor == null) {
                 connectivityMonitor = AndroidValidatedConnectivityMonitor(appContext)

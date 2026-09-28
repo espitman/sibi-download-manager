@@ -43,8 +43,9 @@ internal fun mapDownloadToCard(
     val trailing: String
     when (download.state) {
         DownloadState.QUEUED -> {
-            metadataValue = "Queued"
-            trailing = "Wi-Fi only"
+            val waitingForTime = download.schedule?.isOpen(nowEpochMillis) == false
+            metadataValue = if (waitingForTime) "Scheduled" else "Queued"
+            trailing = if (waitingForTime) scheduleSummary(download.schedule, nowEpochMillis) else "Wi-Fi only"
         }
         DownloadState.CONNECTING -> {
             metadataValue = "Connecting…"
@@ -57,8 +58,9 @@ internal fun mapDownloadToCard(
             trailing = formatClockEta(metrics.etaSeconds)
         }
         DownloadState.PAUSED -> {
-            metadataValue = "Paused"
-            trailing = "Paused"
+            metadataValue = if (download.pauseCause == com.espitman.sdm.domain.DownloadPauseCause.SCHEDULE) "Scheduled" else "Paused"
+            trailing = if (download.pauseCause == com.espitman.sdm.domain.DownloadPauseCause.SCHEDULE)
+                scheduleSummary(download.schedule, nowEpochMillis) else "Paused"
         }
         DownloadState.COMPLETED -> {
             metadataValue = "Completed"
@@ -82,12 +84,12 @@ internal fun mapDownloadToCard(
         progress = metrics.fraction ?: 0f,
         metadataValue = metadataValue,
         progressLabel = when (download.state) {
-            DownloadState.QUEUED -> "Next in queue"
+            DownloadState.QUEUED -> if (download.schedule?.isOpen(nowEpochMillis) == false) "Waiting for schedule" else "Next in queue"
             else -> progressLabel
         },
         trailing = trailing,
         category = category,
-        showPlayAction = download.state in setOf(
+        showPlayAction = (download.schedule?.isOpen(nowEpochMillis) != false) && download.state in setOf(
             DownloadState.QUEUED,
             DownloadState.PAUSED,
             DownloadState.FAILED,

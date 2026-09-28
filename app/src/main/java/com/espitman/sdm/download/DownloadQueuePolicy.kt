@@ -28,13 +28,17 @@ object DownloadQueuePolicy {
         maxConcurrent: Int,
         extraOccupiedIds: Set<String> = emptySet(),
         excludeIds: Set<String> = emptySet(),
+        nowEpochMillis: Long = System.currentTimeMillis(),
     ): List<Download> {
         val limit = maxConcurrent.coerceAtLeast(0)
         val occupying = occupyingIds(downloads, extraOccupiedIds)
         val freeSlots = (limit - occupying.size).coerceAtLeast(0)
         if (freeSlots == 0) return emptyList()
         return downloads
-            .filter { it.state == DownloadState.QUEUED && it.id !in occupying && it.id !in excludeIds }
+            .filter {
+                it.state == DownloadState.QUEUED && it.id !in occupying && it.id !in excludeIds &&
+                    (it.schedule?.isOpen(nowEpochMillis) != false)
+            }
             .sortedWith(queueOrder)
             .take(freeSlots)
     }

@@ -37,7 +37,9 @@ internal fun mapDownloadToDetailsPresentation(
         fileName = download.fileName,
         percentLabel = metrics.percentLabel,
         ringSweepDegrees = if (fraction == null) 0f else (fraction * 360f).coerceIn(0f, 360f),
-        stateLabel = detailsStateLabel(download.state),
+        stateLabel = if (download.schedule?.isOpen(nowEpochMillis) == false &&
+            download.state in setOf(DownloadState.QUEUED, DownloadState.PAUSED)) "SCHEDULED"
+            else detailsStateLabel(download.state),
         stateTone = detailsStateTone(download.state),
         destinationDisplay = detailsDestinationDisplay(download),
         sourceUrl = download.url,

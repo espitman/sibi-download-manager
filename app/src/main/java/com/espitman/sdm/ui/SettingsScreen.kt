@@ -39,7 +39,7 @@ import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
 import com.espitman.sdm.ui.theme.*
 
-private enum class SettingsOverlay { Connections, Simultaneous, SpeedLimit, Theme, Reset }
+private enum class SettingsOverlay { Connections, Simultaneous, DailySchedule, SpeedLimit, Theme, Reset }
 
 @Composable
 internal fun SettingsScreen(
@@ -112,6 +112,9 @@ internal fun SettingsScreen(
                         add(SettingsSearchRow.AutoResume) {
                             ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { repository.update { current -> current.copy(autoResume = it) }; toast(if (it) "Auto-resume enabled" else "Auto-resume disabled") }
                         }
+                        add(SettingsSearchRow.DailySchedule) {
+                            ValueRow(SdmIcons.Schedule, "Scheduled downloads", "Daily resume all and pause all", if (settings.dailyBulkScheduleEnabled) "On" else "Off", chevron = true) { overlay = SettingsOverlay.DailySchedule }
+                        }
                     }
                 }
                 item {
@@ -180,6 +183,17 @@ internal fun SettingsScreen(
                 repository.update { current -> current.copy(simultaneous = it) }; overlay = null; toast("$it simultaneous downloads")
             }
         }
+        SettingsOverlay.DailySchedule -> DailyBulkScheduleSheet(
+            settings = settings,
+            visible = overlay != null,
+            onDismiss = { overlay = null },
+            onSave = { enabled, resumeMinute, pauseMinute ->
+                repository.update { it.copy(dailyBulkScheduleEnabled = enabled, dailyResumeMinute = resumeMinute, dailyPauseMinute = pauseMinute) }
+                com.espitman.sdm.download.DailyBulkSchedule.arm(context)
+                overlay = null
+                toast(if (enabled) "Daily schedule enabled" else "Daily schedule disabled")
+            },
+        )
         SettingsOverlay.SpeedLimit -> {
             var unlimited by remember { mutableStateOf(settings.unlimitedSpeed) }
             var limit by remember { mutableFloatStateOf(settings.speedLimitMbps) }
@@ -207,7 +221,7 @@ internal fun SettingsScreen(
             visible = overlay != null,
             onDismiss = { overlay = null },
             onReset = {
-                repository.reset(); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
+                repository.reset(); com.espitman.sdm.download.DailyBulkSchedule.arm(context); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
             },
         )
         null -> Unit
@@ -222,7 +236,7 @@ internal fun SettingsSheet(icon: ImageVector, eyebrow: String, title: String, de
     val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         DisableDialogWindowDim()
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
             Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFFD4AF37).copy(alpha = .35f)), shadowElevation = 18.dp) {
                 Column(Modifier.padding(17.dp)) {
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), CircleShape))

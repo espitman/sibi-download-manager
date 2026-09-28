@@ -20,6 +20,9 @@ data class SdmSettings(
     val unlimitedSpeed: Boolean = false,
     val speedLimitMbps: Float = 10f,
     val speedLimitWifiOnly: Boolean = false,
+    val dailyBulkScheduleEnabled: Boolean = false,
+    val dailyResumeMinute: Int = 60,
+    val dailyPauseMinute: Int = 420,
 )
 
 /** Retains the original preference file and keys, so no destructive migration is needed. */
@@ -41,6 +44,8 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
         require(value.theme in listOf("dark", "light"))
         require(value.keepActiveDuration in listOf("downloading", "queue"))
         require(value.speedLimitMbps.isFinite() && value.speedLimitMbps in 1f..30f)
+        require(value.dailyResumeMinute in 0..1439 && value.dailyPauseMinute in 0..1439)
+        require(value.dailyResumeMinute != value.dailyPauseMinute)
         preferences.edit()
             .putInt("connections", value.connections)
             .putInt("simultaneous", value.simultaneous)
@@ -56,6 +61,9 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
             .putBoolean("unlimited_speed", value.unlimitedSpeed)
             .putFloat("speed_limit_mbps", value.speedLimitMbps)
             .putBoolean("speed_limit_wifi_only", value.speedLimitWifiOnly)
+            .putBoolean("daily_bulk_schedule_enabled", value.dailyBulkScheduleEnabled)
+            .putInt("daily_resume_minute", value.dailyResumeMinute)
+            .putInt("daily_pause_minute", value.dailyPauseMinute)
             .apply()
         mutableSettings.value = value
     }
@@ -75,6 +83,9 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
         unlimitedSpeed = preferences.getBoolean("unlimited_speed", false),
         speedLimitMbps = preferences.getFloat("speed_limit_mbps", 10f),
         speedLimitWifiOnly = preferences.getBoolean("speed_limit_wifi_only", false),
+        dailyBulkScheduleEnabled = preferences.getBoolean("daily_bulk_schedule_enabled", false),
+        dailyResumeMinute = preferences.getInt("daily_resume_minute", 60),
+        dailyPauseMinute = preferences.getInt("daily_pause_minute", 420),
     )
 
     companion object {

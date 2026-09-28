@@ -3,7 +3,8 @@ package com.espitman.sdm.download
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.espitman.sdm.data.AppRepositories
+import com.espitman.sdm.data.SqliteDownloadRepository
+import com.espitman.sdm.data.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,12 +15,19 @@ class DownloadRecoveryBootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            var repository: SqliteDownloadRepository? = null
             try {
-                AppRepositories.recoverInterruptedDownloads(
-                    context = context,
-                    trigger = DownloadInterruptionTrigger.DEVICE_BOOT,
+                val opened = SqliteDownloadRepository(context)
+                repository = opened
+                BootScheduleRecovery.restore(
+                    repository = opened,
+                    clock = Clock.SystemClock,
+                    autoResume = SettingsRepository.get(context).settings.value.autoResume,
+                    armTick = { next -> armScheduleTick(context, next) },
                 )
+                DailyBulkSchedule.arm(context)
             } finally {
+                repository?.close()
                 pendingResult.finish()
             }
         }

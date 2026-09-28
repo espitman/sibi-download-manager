@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.espitman.sdm.domain.DownloadUrl
+import com.espitman.sdm.domain.DownloadSchedule
 import androidx.compose.ui.platform.LocalContext
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.download.DownloadSubmissionCoordinator
@@ -57,6 +58,8 @@ internal fun AddDownloadSheet(
         mutableStateOf(initialDownloadUrl(initialUrl, clipboard.getText()?.text))
     }
     var urlError by remember { mutableStateOf<String?>(null) }
+    var schedule by remember { mutableStateOf<DownloadSchedule?>(null) }
+    var scheduleOpen by remember { mutableStateOf(false) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     var savedHandoffPhase by rememberSaveable {
         mutableStateOf(NotificationPermissionHandoff.Phase.Consumed.savedName)
@@ -92,7 +95,7 @@ internal fun AddDownloadSheet(
     suspend fun processBatch(input: String, startNow: Boolean) {
         val links = parseDownloadLinks(input)
         val outcome = submitDownloadLinks(links.urls) { link ->
-            coordinator.submit(link, startNow, if (links.urls.size == 1) requestContext else null)
+            coordinator.submit(link, startNow, if (links.urls.size == 1) requestContext else null, schedule)
         }
         val remaining = links.invalidLines + outcome.failedUrls
         isSubmitting = false
@@ -136,7 +139,7 @@ internal fun AddDownloadSheet(
         }
         urlError = null
         isSubmitting = true
-        if (startNow) {
+        if (startNow && schedule == null) {
             val waiting = NotificationPermissionHandoff.awaitingPermission(url)
             publish(waiting)
             prepareForegroundNotifications.prepareForForegroundTransfer {
@@ -235,6 +238,21 @@ internal fun AddDownloadSheet(
                                 }
                             }
                         }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 8.dp)
+                                .background(SdmSurface, RoundedCornerShape(12.dp))
+                                .border(1.dp, SdmLine, RoundedCornerShape(12.dp))
+                                .clickable(enabled = !isSubmitting) { scheduleOpen = true }
+                                .padding(horizontal = 13.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Schedule", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text(
+                                scheduleSummary(schedule), color = SdmGoldHigh, fontSize = 11.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 176.dp),
+                            )
+                        }
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { submit(startNow = false) }, enabled = !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
@@ -243,12 +261,16 @@ internal fun AddDownloadSheet(
                         Button(onClick = { submit(startNow = true) }, enabled = url.isNotBlank() && !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
                             Icon(SdmIcons.Download, null, modifier = Modifier.size(21.dp))
                             Spacer(Modifier.width(9.dp))
-                            Text(if (parsedLinks.urls.size > 1) "Download ${parsedLinks.urls.size}" else "Download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(if (schedule != null) "Add scheduled" else if (parsedLinks.urls.size > 1) "Download ${parsedLinks.urls.size}" else "Download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
             }
         }
+    }
+    if (scheduleOpen) DownloadScheduleSheet(schedule, true, { scheduleOpen = false }) {
+        schedule = it
+        scheduleOpen = false
     }
 }
 

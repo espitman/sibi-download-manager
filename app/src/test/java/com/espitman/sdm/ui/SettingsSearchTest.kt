@@ -27,6 +27,7 @@ class SettingsSearchTest {
         assertRows("CONNECTIONS", SettingsSearchRow.Connections)
         assertRows("  simultaneous  ", SettingsSearchRow.Simultaneous)
         assertRows("auto-resume", SettingsSearchRow.AutoResume)
+        assertRows("scheduled downloads", SettingsSearchRow.DailySchedule)
         assertRows("Auto resume", SettingsSearchRow.AutoResume)
         assertRows("Wi-Fi", SettingsSearchRow.WifiOnly)
         assertRows("wifi", SettingsSearchRow.WifiOnly)
@@ -43,7 +44,7 @@ class SettingsSearchTest {
     @Test
     fun groupTitlesAndUsefulSynonymsMatchWithoutDuplicatingRows() {
         assertEquals(
-            listOf(SettingsSearchRow.Connections, SettingsSearchRow.Simultaneous, SettingsSearchRow.AutoResume),
+            listOf(SettingsSearchRow.Connections, SettingsSearchRow.Simultaneous, SettingsSearchRow.AutoResume, SettingsSearchRow.DailySchedule),
             filterSettingsRows(catalog, "DOWNLOAD BEHAVIOR"),
         )
         assertEquals(

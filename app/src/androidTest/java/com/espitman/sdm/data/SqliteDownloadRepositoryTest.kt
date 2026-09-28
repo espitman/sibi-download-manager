@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseCause
+import com.espitman.sdm.domain.DownloadSchedule
 import com.espitman.sdm.domain.DownloadState
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -66,6 +67,33 @@ class SqliteDownloadRepositoryTest {
 
         assertEquals(4, repository!!.downloads.value.single().downloadedBytes)
         assertEquals(DownloadState.DOWNLOADING, repository!!.get("one")!!.state)
+    }
+
+    @Test
+    fun scheduleSurvivesRecreationAndCanBeRemovedWithoutChangingProgress() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        val daily = DownloadSchedule(
+            DownloadSchedule.Kind.DAILY,
+            startMinuteOfDay = 60,
+            endMinuteOfDay = 420,
+            zoneId = "Asia/Tehran",
+        )
+        repository!!.insert(Download(
+            id = "scheduled",
+            url = "https://example.com/file.bin",
+            fileName = "file.bin",
+            createdAtEpochMillis = 100,
+            schedule = daily,
+        ))
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        assertEquals(daily, repository!!.get("scheduled")!!.schedule)
+        repository!!.updateSchedule("scheduled", null, 200)
+        assertNull(repository!!.get("scheduled")!!.schedule)
+        assertEquals(DownloadState.QUEUED, repository!!.get("scheduled")!!.state)
+        assertEquals(0L, repository!!.get("scheduled")!!.downloadedBytes)
     }
 
     @Test

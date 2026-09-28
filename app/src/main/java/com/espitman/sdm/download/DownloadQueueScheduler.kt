@@ -155,6 +155,7 @@ class DownloadQueueScheduler(
             maxConcurrent = concurrentLimit.maxConcurrent().coerceIn(1, 10),
             extraOccupiedIds = launchingIds,
             excludeIds = excludeIds,
+            nowEpochMillis = clock.currentTimeMillis(),
         )
         launchingIds.addAll(selected.map { it.id })
         return selected

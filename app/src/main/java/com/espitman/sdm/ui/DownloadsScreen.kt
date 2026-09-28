@@ -374,6 +374,10 @@ internal fun InteractiveDownloadsScreen(
         DownloadTransferService.pauseTransfer(context, id)
     }
     fun resumeOrShowNetworkNotice(id: String) {
+        if (records.firstOrNull { it.id == id }?.schedule?.isOpen(System.currentTimeMillis()) == false) {
+            onToast("Waiting for scheduled time")
+            return
+        }
         if (allowedNetworkOrNotice()) {
             val before = records.firstOrNull { it.id == id }
             val checkId = ++resumeCheckSequence
@@ -446,6 +450,13 @@ internal fun InteractiveDownloadsScreen(
                         contentDocuments = DocumentsContractContentDocuments(context),
                     )
                 },
+                onSchedule = { schedule ->
+                    val updated = repository.updateSchedule(
+                        selectedRecord.id, schedule, System.currentTimeMillis(),
+                    )
+                    if (updated != null) AppRepositories.scheduleCoordinator(context).apply()
+                    updated != null
+                },
                 onMoveToTop = {
                     overlayScope.launch {
                         val after = repository.moveToTop(
@@ -460,6 +471,10 @@ internal fun InteractiveDownloadsScreen(
                     dispatchTransferCardAction(
                         action = transferCardAction(selectedRecord.state),
                         start = {
+                            if (selectedRecord.schedule?.isOpen(System.currentTimeMillis()) == false) {
+                                onToast("Waiting for scheduled time")
+                                return@dispatchTransferCardAction
+                            }
                             if (!allowedNetworkOrNotice()) return@dispatchTransferCardAction
                             overlayScope.launch {
                                 AppRepositories.queueScheduler(context).startQueued(selectedRecord.id)
@@ -1521,6 +1536,7 @@ private fun DownloadDetailsScreen(
     onBack: () -> Unit,
     onToast: (String) -> Unit,
     onRename: suspend (String) -> DownloadRenameResult,
+    onSchedule: suspend (com.espitman.sdm.domain.DownloadSchedule?) -> Boolean,
     onMoveToTop: () -> Unit,
     onPause: () -> Unit,
     onCancel: () -> Unit,
@@ -1532,6 +1548,7 @@ private fun DownloadDetailsScreen(
     var segmentsOpen by remember(download.id) { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
+    var scheduleOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var verifying by remember { mutableStateOf(false) }
     val speedTracker = remember(download.id) { DownloadDetailsSpeedTracker() }
@@ -1551,7 +1568,8 @@ private fun DownloadDetailsScreen(
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        listOf("Rename", "Verify checksum", "Move to top").forEach { label ->
+                        (listOf("Rename", "Verify checksum", "Move to top") +
+                            if (download.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELLED)) listOf("Schedule") else emptyList()).forEach { label ->
                             Box(
                                 Modifier.fillMaxWidth().height(54.dp).clickable {
                                     menuOpen = false
@@ -1578,6 +1596,7 @@ private fun DownloadDetailsScreen(
                                             }
                                         }
                                         "Move to top" -> onMoveToTop()
+                                        "Schedule" -> scheduleOpen = true
                                     }
                                 }.padding(horizontal = 10.dp),
                                 contentAlignment = Alignment.CenterStart,
@@ -1591,6 +1610,26 @@ private fun DownloadDetailsScreen(
         Box(Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize().padding(bottom = 67.dp)) {
                 item { DetailsHero(hero) }
+                item {
+                    Surface(
+                        onClick = { scheduleOpen = true },
+                        enabled = download.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELLED),
+                        color = SdmSurface,
+                        contentColor = SdmText,
+                        shape = RoundedCornerShape(13.dp),
+                        border = BorderStroke(1.dp, SdmLine),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Schedule", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text(
+                                scheduleSummary(download.schedule, nowEpochMillis), fontSize = 11.sp,
+                                color = SdmGoldHigh, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 176.dp),
+                            )
+                        }
+                    }
+                }
                 item { MetricsGrid(telemetry.metrics) }
                 item { SpeedChart(telemetry) }
                 item { DetailsActions(detailsPrimaryAction(download.state), priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString(hero.sourceUrl)); onToast("Source URL copied") }) }
@@ -1642,6 +1681,16 @@ private fun DownloadDetailsScreen(
             }
         },
     )
+    if (scheduleOpen) DownloadScheduleSheet(download.schedule, true, { scheduleOpen = false }) { next ->
+        actionScope.launch {
+            if (onSchedule(next)) {
+                onToast(if (next == null) "Schedule removed" else "Schedule saved")
+                scheduleOpen = false
+            } else {
+                onToast("Could not update schedule")
+            }
+        }
+    }
     FileManagerPickerHost(folderPicker, onToast)
 }
 

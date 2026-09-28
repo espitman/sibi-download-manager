@@ -394,6 +394,17 @@ class DownloadTransferService : Service() {
         val repository = AppRepositories.downloads(applicationContext)
         val download = repository.get(command.downloadId) ?: return
         val downloadId = download.id
+        if (download.schedule?.isOpen(System.currentTimeMillis()) == false) {
+            if (download.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) {
+                repository.pauseAtExactOffset(
+                    id = downloadId,
+                    fileLengthBytes = onDiskPartLength(download, command.tempFilePath),
+                    nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
+                    pauseCause = DownloadPauseCause.SCHEDULE,
+                )
+            }
+            return
+        }
         val url = download.url
         val tempFile = File(command.tempFilePath)
         val blocked = NetworkRestrictionStartGuard.blockStartIfDisallowed(
@@ -424,6 +435,15 @@ class DownloadTransferService : Service() {
                 while (!AppRepositories.transferAllowance(applicationContext).isAllowed()) delay(1_000L)
                 val current = repository.get(downloadId) ?: return
                 if (current.state !in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) return
+                if (current.schedule?.isOpen(System.currentTimeMillis()) == false) {
+                    repository.pauseAtExactOffset(
+                        id = downloadId,
+                        fileLengthBytes = onDiskPartLength(current, command.tempFilePath),
+                        nowEpochMillis = max(System.currentTimeMillis(), current.updatedAtEpochMillis),
+                        pauseCause = DownloadPauseCause.SCHEDULE,
+                    )
+                    return
+                }
                 repository.transition(downloadId, DownloadState.QUEUED,
                     max(System.currentTimeMillis(), current.updatedAtEpochMillis))
             }

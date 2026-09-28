@@ -1,6 +1,6 @@
 # Release preparation
 
-The current release candidate uses application ID `com.espitman.sdm`, `versionName=0.2.49`, and `versionCode=51`. The declared minimum is Android 8.0 (API 26), with target SDK 35. The release build is non-debuggable and currently keeps code shrinking off; it has no configured distribution signing identity.
+The current release candidate uses application ID `com.espitman.sdm`, `versionName=0.2.53`, and `versionCode=55`. The declared minimum is Android 8.0 (API 26), with target SDK 35. The release build is non-debuggable and currently keeps code shrinking off; it has no configured distribution signing identity.
 
 ## Build
 

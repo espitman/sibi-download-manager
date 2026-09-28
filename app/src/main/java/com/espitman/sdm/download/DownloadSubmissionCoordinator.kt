@@ -3,6 +3,7 @@ package com.espitman.sdm.download
 import com.espitman.sdm.data.DownloadRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.domain.DownloadSchedule
 import com.espitman.sdm.domain.DownloadUrl
 import com.espitman.sdm.domain.DownloadUrlResult
 import com.espitman.sdm.domain.ErrorReportSanitizer
@@ -63,6 +64,7 @@ class DownloadSubmissionCoordinator(
         url: String,
         startNow: Boolean,
         requestContext: ScopedRequestContext? = null,
+        schedule: DownloadSchedule? = null,
     ): SubmissionResult {
         val trimmedUrl = url.trim()
         val validatedUrl = when (val validation = DownloadUrl.validate(trimmedUrl)) {
@@ -72,7 +74,7 @@ class DownloadSubmissionCoordinator(
             }
         }
 
-        val dedupeKey = "$validatedUrl|$startNow|${requestContext?.let { "${it.scopeKey}:${System.identityHashCode(it)}" } ?: "public"}"
+        val dedupeKey = "$validatedUrl|$startNow|$schedule|${requestContext?.let { "${it.scopeKey}:${System.identityHashCode(it)}" } ?: "public"}"
         return coroutineScope {
             var myDeferred: Deferred<SubmissionResult>? = null
             var isLeader = false
@@ -84,7 +86,7 @@ class DownloadSubmissionCoordinator(
                     isLeader = false
                 } else {
                     val newDeferred = async {
-                        performSubmission(validatedUrl, requestContext)
+                        performSubmission(validatedUrl, requestContext, schedule)
                     }
                     inFlightSubmissions[dedupeKey] = newDeferred
                     myDeferred = newDeferred
@@ -107,6 +109,7 @@ class DownloadSubmissionCoordinator(
     private suspend fun performSubmission(
         validatedUrl: String,
         requestContext: ScopedRequestContext?,
+        schedule: DownloadSchedule?,
     ): SubmissionResult {
         // 1. Retrieve metadata
         val metadataResult = try {
@@ -163,6 +166,7 @@ class DownloadSubmissionCoordinator(
                 referenceSha256 = metadata.referenceSha256,
                 destinationTreeUri = allocated.destinationTreeUri,
                 destinationDisplayLabel = allocated.destinationDisplayLabel,
+                schedule = schedule,
             )
 
             // 3. Persist exactly one QUEUED download

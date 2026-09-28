@@ -11,6 +11,7 @@ object NetworkPermissionPolicy {
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
         "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SCHEDULE_EXACT_ALARM",
     )
 
     val DISALLOWED_BROAD_PERMISSIONS = setOf(

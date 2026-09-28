@@ -56,6 +56,8 @@ data class Download(
      * become allowed again.
      */
     val pauseCause: DownloadPauseCause? = null,
+    /** Optional user-selected time window; null means the download can run at any time. */
+    val schedule: DownloadSchedule? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Download ID cannot be blank" }

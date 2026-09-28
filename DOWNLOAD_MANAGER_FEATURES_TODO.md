@@ -1,0 +1,73 @@
+# Download Manager Feature Backlog
+
+This checklist covers the requested gaps compared with other Android download managers. Implement and verify each item separately.
+
+## 1. Scheduled downloads
+
+- [x] 01. DMF-001 — Define one-time and recurring download schedules, including start time, end time, and time zone behavior.
+- [x] 02. DMF-002 — Persist schedules and restore them after app restart or device reboot.
+- [x] 03. DMF-003 — Enforce schedules in the queue without interrupting manual pause, Wi-Fi-only rules, or the simultaneous-download limit.
+- [x] 04. DMF-004 — Add schedule controls and visible scheduled states using SDM's existing design language.
+- [x] 05. DMF-005 — Test exact-time start, out-of-window pause, reboot recovery, clock/time-zone changes, and user overrides.
+
+## 2. Refresh expired download links
+
+- [ ] 06. DMF-006 — Allow a new HTTP/HTTPS URL to replace an expired URL on an unfinished download.
+- [ ] 07. DMF-007 — Verify that the new URL identifies the same file before reusing downloaded bytes; otherwise offer a safe restart.
+- [ ] 08. DMF-008 — Preserve the download's queue position, destination, and visible progress when safe, and show clear failure feedback.
+- [ ] 09. DMF-009 — Test signed-URL expiry, changed content, redirects, partial files, and pause/resume after replacement.
+
+## 3. Per-download speed limits
+
+- [ ] 10. DMF-010 — Persist an optional speed limit for each download alongside the existing global limit.
+- [ ] 11. DMF-011 — Apply global and individual limits together without exceeding either one or distorting displayed speed.
+- [ ] 12. DMF-012 — Add individual limit controls to download details, matching the existing SDM sheet style.
+- [ ] 13. DMF-013 — Test concurrent downloads, runtime limit changes, pause/resume, and unlimited mode.
+
+## 4. Link import/export and backup
+
+- [ ] 14. DMF-014 — Import newline-separated HTTP/HTTPS links from a user-selected text file, with duplicate and invalid-line feedback.
+- [ ] 15. DMF-015 — Export selected or all download links to a user-selected file without leaking private request headers or cookies.
+- [ ] 16. DMF-016 — Export and restore the download list and settings with a versioned backup format and conflict handling.
+- [ ] 17. DMF-017 — Test malformed files, large lists, partial failures, duplicate entries, and backup compatibility.
+
+## 5. Automatic folders by file type
+
+- [ ] 18. DMF-018 — Let the user map file categories to save folders through Android's document-tree picker.
+- [ ] 19. DMF-019 — Classify files using trusted metadata and filename fallback, then reserve the correct destination before download.
+- [ ] 20. DMF-020 — Handle revoked folder permissions and unknown types without losing or misplacing downloads.
+- [ ] 21. DMF-021 — Test category rules, filename collisions, SD-card folders, and changes to rules while a download is active.
+
+## 6. Configurable automatic retry
+
+- [ ] 22. DMF-022 — Add settings for retry count and delay while retaining safe defaults.
+- [ ] 23. DMF-023 — Apply the retry policy only to transient failures; never auto-retry manual pauses or permanent errors.
+- [ ] 24. DMF-024 — Show the next retry clearly and let the user pause or cancel during the delay.
+- [ ] 25. DMF-025 — Test exhausted retries, connectivity loss, process restart, and settings changes during a retry cycle.
+
+## 7. Authenticated downloads
+
+- [ ] 26. DMF-026 — Support HTTP Basic authentication for direct downloads without putting credentials in the URL or logs.
+- [ ] 27. DMF-027 — Preserve necessary authenticated browser request context for eligible downloads across pause/resume and app restart, with explicit privacy controls.
+- [ ] 28. DMF-028 — Handle authentication failure and expired sessions with a clear reauthentication path.
+- [ ] 29. DMF-029 — Test redirects, credential scope, private browsing, restart, and accidental credential disclosure.
+
+## 8. Torrent and Magnet downloads
+
+- [ ] 30. DMF-030 — Choose and integrate a maintained Android-compatible BitTorrent engine; document its license and storage implications.
+- [ ] 31. DMF-031 — Accept magnet links and `.torrent` files, show metadata, and allow selection of contained files before starting.
+- [ ] 32. DMF-032 — Implement torrent progress, pause/resume, queue integration, persistence, and safe cleanup.
+- [ ] 33. DMF-033 — Add torrent controls and states in SDM's visual style, with clear distinction from HTTP downloads.
+- [ ] 34. DMF-034 — Test magnet metadata resolution, multi-file torrents, connectivity changes, restart recovery, and storage exhaustion.
+
+## Release verification
+
+- [ ] 35. DMF-035 — Run unit/integration tests and regression checks for existing HTTP downloads, browser handoff, queue actions, and storage.
+- [ ] 36. DMF-036 — Compare every new visible control and state against the Open Design reference and verify on a connected device.
+- [ ] 37. DMF-037 — Produce a release build and document remaining limitations only after the requested features are complete.
+
+## Product boundaries
+
+- Proxy support is excluded by request.
+- Do not restore Always keep active, automatic media detection/downloading, or YouTube-specific access.
+- Keep the existing private-browser behavior unless a later request explicitly changes it.

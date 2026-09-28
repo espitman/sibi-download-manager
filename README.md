@@ -8,6 +8,7 @@ SDM is a native Android download manager built with Kotlin, Jetpack Compose, OkH
 - Transfers stream to temporary files, show live progress and speed, then publish the final file only after successful completion. Unknown sizes are supported.
 - A foreground service continues active transfers after leaving the app. One notification summarizes all unfinished downloads and their combined progress. Pause, Resume, Cancel, Download All, and Pause All use the same persistent repository and scheduler. All shows every download; Queue shows every unfinished download, including paused and failed records. The download-tabs menu offers Reorder, Download All, and Pause All; Reorder enables card dragging in All and Queue and persists execution order. Resume validates server range and version evidence; unsupported resume restarts safely.
 - Priority, simultaneous-download count, per-download connections, Wi-Fi only, aggregate speed limits, Auto-resume, completion notifications, and stalled-transfer alerts are applied according to [the settings behavior matrix](docs/download-settings-behavior.md).
+- One-time start/end windows and recurring daily windows can be assigned in Add or Download details. Settings also offers daily Resume all and Pause all times. Scheduled cards stay in Queue, active downloads pause when a window closes, and only schedule-paused downloads resume when it reopens. See [scheduled-download behavior](docs/scheduled-downloads.md).
 - The Downloads cards, filters, search, statistics, and details show real records. Details include available HTTP/resume evidence, progress history, file actions, and failure information. Missing measurements are shown as unavailable.
 
 HTTP links without TLS are intentionally supported. SDM does not automatically discover or download media, and has no YouTube-specific handling.
@@ -28,7 +29,7 @@ Use JDK 17 and an Android SDK with API 35 installed. From the repository root:
 
 For connected-device tests, build the test APK and run the required instrumentation classes with `adb shell am instrument`; avoid a blanket run because several suites deliberately manipulate storage and app state. The [release validation report](docs/release-validation.md) lists the devices and suites used. The Open Design prototype is the source for visual and interaction checks.
 
-The release variant is `0.2.49` (`versionCode=51`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
+The release variant is `0.2.53` (`versionCode=55`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
 
 ## Current limits
 
