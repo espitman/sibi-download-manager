@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -38,6 +39,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.SolidColor
@@ -46,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
@@ -611,6 +616,8 @@ internal fun InteractiveDownloadsScreen(
                         selectionMode = selectionMode,
                         reorderEnabled = canReorder,
                         dragging = draggingQueuedId == item.id,
+                        dropTarget = dropQueuedTargetId == item.id,
+                        dropAfter = dropQueuedAfter,
                         dragOffset = if (draggingQueuedId == item.id) dragQueuedOffset else 0f,
                         onDragStart = {
                             draggingQueuedId = item.id
@@ -1172,6 +1179,8 @@ private fun DownloadCard(
     selectionMode: Boolean = false,
     reorderEnabled: Boolean = false,
     dragging: Boolean = false,
+    dropTarget: Boolean = false,
+    dropAfter: Boolean = false,
     dragOffset: Float = 0f,
     onDragStart: () -> Unit = {},
     onDragBy: (Float) -> Unit = {},
@@ -1183,6 +1192,11 @@ private fun DownloadCard(
     onAction: () -> Unit,
 ) {
     val queued = item.isQueued
+    val targetFade by animateFloatAsState(
+        targetValue = if (dropTarget) .58f else 0f,
+        animationSpec = tween(160),
+        label = "Reorder target fade",
+    )
     Surface(
         color = if (selected) sdmColor(0xFF211F17, 0xFFF5EDD4) else SdmSurface,
         contentColor = SdmText,
@@ -1192,6 +1206,27 @@ private fun DownloadCard(
             .fillMaxWidth()
             .zIndex(if (dragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffset; if (dragging) shadowElevation = 12.dp.toPx() }
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                if (targetFade > 0f) {
+                    val fadeColor = Color.Black.copy(alpha = targetFade)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colorStops = if (dropAfter) arrayOf(
+                                0f to Color.Transparent,
+                                .68f to Color.Transparent,
+                                1f to fadeColor,
+                            ) else arrayOf(
+                                0f to fadeColor,
+                                .32f to Color.Transparent,
+                                1f to Color.Transparent,
+                            ),
+                        ),
+                        blendMode = BlendMode.DstOut,
+                    )
+                }
+            }
             .then(if (reorderEnabled) {
                 Modifier.pointerInput(item.id) {
                     detectDragGesturesAfterLongPress(
