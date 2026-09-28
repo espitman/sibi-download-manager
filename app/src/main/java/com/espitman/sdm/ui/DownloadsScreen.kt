@@ -294,6 +294,7 @@ internal fun InteractiveDownloadsScreen(
     var dragEdgeDirection by remember { mutableIntStateOf(0) }
     val reorderPreviewIds = remember { mutableStateListOf<String>() }
     var dragStartQueuedIndex by remember { mutableIntStateOf(-1) }
+    var reorderDragGeneration by remember { mutableIntStateOf(0) }
     val edgeScrollPx = with(LocalDensity.current) { 80.dp.toPx() }
     val edgeScrollStepPx = with(LocalDensity.current) { 14.dp.toPx() }
     fun updateReorderTarget(sourceId: String) {
@@ -652,8 +653,9 @@ internal fun InteractiveDownloadsScreen(
                         dropAfter = dropQueuedAfter,
                         dragOffset = if (draggingQueuedId == item.id) dragQueuedOffset else 0f,
                         onDragStart = {
+                            reorderDragGeneration++
                             reorderPreviewIds.clear()
-                            reorderPreviewIds.addAll(visibleDownloads.map { it.id })
+                            reorderPreviewIds.addAll(renderedDownloads.map { it.id })
                             dragStartQueuedIndex = reorderPreviewIds.indexOf(item.id)
                             draggingQueuedId = item.id
                             dragQueuedOffset = 0f
@@ -665,6 +667,7 @@ internal fun InteractiveDownloadsScreen(
                             updateReorderTarget(item.id)
                         },
                         onDragEnd = {
+                            val finishedGeneration = reorderDragGeneration
                             val nextOrder = reorderPreviewIds.filter { id ->
                                 records.any { it.id == id && it.state != DownloadState.COMPLETED }
                             }
@@ -684,7 +687,9 @@ internal fun InteractiveDownloadsScreen(
                                         AppRepositories.queueScheduler(context).schedule()
                                     }
                                 } finally {
-                                    reorderPreviewIds.clear()
+                                    if (reorderDragGeneration == finishedGeneration && draggingQueuedId == null) {
+                                        reorderPreviewIds.clear()
+                                    }
                                 }
                             } else reorderPreviewIds.clear()
                         },
@@ -1240,6 +1245,10 @@ private fun DownloadCard(
     onAction: () -> Unit,
 ) {
     val queued = item.isQueued
+    val currentDragStart by rememberUpdatedState(onDragStart)
+    val currentDragBy by rememberUpdatedState(onDragBy)
+    val currentDragEnd by rememberUpdatedState(onDragEnd)
+    val currentDragCancel by rememberUpdatedState(onDragCancel)
     val targetFade by animateFloatAsState(
         targetValue = if (dropTarget) 1f else 0f,
         animationSpec = tween(180),
@@ -1280,12 +1289,12 @@ private fun DownloadCard(
             .then(if (reorderEnabled) {
                 Modifier.pointerInput(item.id) {
                     detectDragGesturesAfterLongPress(
-                        onDragStart = { onDragStart() },
-                        onDragEnd = onDragEnd,
-                        onDragCancel = onDragCancel,
+                        onDragStart = { currentDragStart() },
+                        onDragEnd = { currentDragEnd() },
+                        onDragCancel = { currentDragCancel() },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            onDragBy(dragAmount.y)
+                            currentDragBy(dragAmount.y)
                         },
                     )
                 }
