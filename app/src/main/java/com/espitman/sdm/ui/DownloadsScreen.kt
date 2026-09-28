@@ -609,7 +609,10 @@ internal fun InteractiveDownloadsScreen(
                 items(visibleDownloads, key = { it.id }) { item ->
                     val canReorder = canReorderDownloadCard(item, uiState.category, uiState.query,
                         selectionMode, reorderMode)
-                    Box(Modifier.fillMaxWidth()) {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .zIndex(if (draggingQueuedId == item.id) 3f else 0f),
+                    ) {
                     DownloadCard(
                         item = pendingActions[item.id]?.let { item.copy(metadataValue = it.second, trailing = it.second) } ?: item,
                         selected = item.id in selectedIds,
@@ -1193,8 +1196,8 @@ private fun DownloadCard(
 ) {
     val queued = item.isQueued
     val targetFade by animateFloatAsState(
-        targetValue = if (dropTarget) .58f else 0f,
-        animationSpec = tween(160),
+        targetValue = if (dropTarget) 1f else 0f,
+        animationSpec = tween(180),
         label = "Reorder target fade",
     )
     Surface(
@@ -1210,17 +1213,19 @@ private fun DownloadCard(
             .drawWithContent {
                 drawContent()
                 if (targetFade > 0f) {
-                    val fadeColor = Color.Black.copy(alpha = targetFade)
+                    val farFade = Color.Black.copy(alpha = .12f * targetFade)
+                    val middleFade = Color.Black.copy(alpha = .45f * targetFade)
+                    val nearFade = Color.Black.copy(alpha = .88f * targetFade)
                     drawRect(
                         brush = Brush.verticalGradient(
                             colorStops = if (dropAfter) arrayOf(
-                                0f to Color.Transparent,
-                                .68f to Color.Transparent,
-                                1f to fadeColor,
+                                0f to farFade,
+                                .55f to middleFade,
+                                1f to nearFade,
                             ) else arrayOf(
-                                0f to fadeColor,
-                                .32f to Color.Transparent,
-                                1f to Color.Transparent,
+                                0f to nearFade,
+                                .45f to middleFade,
+                                1f to farFade,
                             ),
                         ),
                         blendMode = BlendMode.DstOut,
