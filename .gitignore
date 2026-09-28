@@ -19,3 +19,5 @@ keystore.properties
 # Local QA captures
 artifacts/
 
+# Project-local Graphify index
+graphify-out/

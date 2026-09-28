@@ -110,6 +110,7 @@ fun SdmApp(
     val downloadsStateHolder = rememberSaveableStateHolder()
     val downloadsUiState = rememberDownloadsUiState()
     val filesUiState = rememberFilesUiState()
+    val settingsUiState = rememberSettingsUiState()
     var destination by rememberSaveable { mutableStateOf(Destination.Downloads) }
     var showAddDownload by rememberSaveable { mutableStateOf(false) }
     var browserDownloadRequest by remember { mutableStateOf<BrowserDownloadRequest?>(null) }
@@ -117,6 +118,7 @@ fun SdmApp(
     var toastMessage by remember { mutableStateOf("") }
     var toastVisible by remember { mutableStateOf(false) }
     var toastSequence by remember { mutableIntStateOf(0) }
+    var browserPrivateMode by remember { mutableStateOf(true) }
     LaunchedEffect(toastSequence) {
         if (toastSequence > 0) {
             toastVisible = true
@@ -132,6 +134,7 @@ fun SdmApp(
         downloadsUiState.menuOpen = false
         downloadsUiState.overlay = null
         filesUiState.searchOpen = false
+        closeSettingsSearch(settingsUiState)
         selectedDownloadId = openDownloadId
         onConsumed()
     }
@@ -151,12 +154,17 @@ fun SdmApp(
                     ) { targetDestination ->
                         when (targetDestination) {
                             Destination.Downloads, Destination.Add -> DownloadsTopBar(downloadsUiState)
-                            Destination.Browser -> AppHeader("Browser", privateMode = true)
+                            Destination.Browser -> AppHeader(
+                                "Browser",
+                                privateMode = browserPrivateMode,
+                                showSearch = false,
+                                showMore = false,
+                            )
                             Destination.Files -> FilesTopBar(
                                 uiState = filesUiState,
                                 onToast = { toastMessage = it; toastSequence++ },
                             )
-                            Destination.Settings -> AppHeader("Settings", showMore = false, onSearch = { toastMessage = "Settings search ready"; toastSequence++ })
+                            Destination.Settings -> AppHeader("Settings", showMore = false, onSearch = { toggleSettingsSearch(settingsUiState) })
                         }
                     }
                 }
@@ -177,6 +185,13 @@ fun SdmApp(
                                 onSelectedDownloadIdChange = { selectedDownloadId = it },
                                 onToast = { toastMessage = it; toastSequence++ },
                                 onOpenSettings = { selectedDownloadId = null; destination = Destination.Settings },
+                                onRevealFileInFiles = { downloadId ->
+                                    selectedDownloadId = null
+                                    downloadsUiState.searchOpen = false
+                                    downloadsUiState.menuOpen = false
+                                    prepareFilesReveal(filesUiState, downloadId)
+                                    destination = Destination.Files
+                                },
                             ) }
                             Destination.Browser -> BrowserScreen(
                                 showHeader = false,
@@ -185,6 +200,7 @@ fun SdmApp(
                                     showAddDownload = true
                                 },
                                 onOpenDownloads = { destination = Destination.Downloads },
+                                onActivePrivacyChange = { browserPrivateMode = it },
                                 onToast = { toastMessage = it; toastSequence++ },
                             )
                             Destination.Files -> FilesScreen(
@@ -192,7 +208,10 @@ fun SdmApp(
                                 showHeader = false,
                                 onToast = { toastMessage = it; toastSequence++ },
                             )
-                            Destination.Settings -> SettingsScreen(showHeader = false) { toastMessage = it; toastSequence++ }
+                            Destination.Settings -> SettingsScreen(
+                                showHeader = false,
+                                uiState = settingsUiState,
+                            ) { toastMessage = it; toastSequence++ }
                         }
                     }
                 }
@@ -241,8 +260,39 @@ fun SdmApp(
     }
 }
 
+internal data class AppHeaderActions(
+    val search: Boolean,
+    val more: Boolean,
+    val sort: Boolean,
+    val privateBadge: Boolean,
+)
+
+internal fun appHeaderActions(
+    showSearch: Boolean = true,
+    showMore: Boolean = true,
+    showSort: Boolean = false,
+    privateMode: Boolean = false,
+): AppHeaderActions = if (privateMode) {
+    AppHeaderActions(search = false, more = false, sort = false, privateBadge = true)
+} else {
+    AppHeaderActions(search = showSearch, more = showMore, sort = showSort, privateBadge = false)
+}
+
 @Composable
-internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Boolean = false, showMore: Boolean = true, onSearch: () -> Unit = {}) {
+internal fun AppHeader(
+    title: String,
+    privateMode: Boolean = false,
+    showSort: Boolean = false,
+    showSearch: Boolean = true,
+    showMore: Boolean = true,
+    onSearch: () -> Unit = {},
+) {
+    val actions = appHeaderActions(
+        showSearch = showSearch,
+        showMore = showMore,
+        showSort = showSort,
+        privateMode = privateMode,
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -268,16 +318,22 @@ internal fun AppHeader(title: String, privateMode: Boolean = false, showSort: Bo
             }
             Spacer(Modifier.width(10.dp))
             Text(title, color = SdmText, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.36).sp, modifier = Modifier.weight(1f))
-            if (privateMode) {
+            if (actions.privateBadge) {
                 Row(Modifier.height(30.dp).border(1.dp, SdmGold.copy(alpha = .3f), CircleShape).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(6.dp).background(SdmGold, CircleShape))
                     Spacer(Modifier.width(6.dp))
                     Text("Private", color = SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                 }
             } else {
-                HeaderAction(SdmIcons.Search, "Search", onSearch)
-                if (showSort) { Spacer(Modifier.width(6.dp)); HeaderAction(SdmIcons.Sort, "Sort files") }
-                if (showMore) { Spacer(Modifier.width(6.dp)); HeaderAction(SdmIcons.More, "More options") }
+                if (actions.search) HeaderAction(SdmIcons.Search, "Search", onSearch)
+                if (actions.sort) {
+                    if (actions.search) Spacer(Modifier.width(6.dp))
+                    HeaderAction(SdmIcons.Sort, "Sort files")
+                }
+                if (actions.more) {
+                    if (actions.search || actions.sort) Spacer(Modifier.width(6.dp))
+                    HeaderAction(SdmIcons.More, "More options")
+                }
             }
         }
         HorizontalDivider(thickness = 1.dp, color = SdmGold.copy(alpha = .14f))

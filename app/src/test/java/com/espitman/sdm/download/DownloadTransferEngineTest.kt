@@ -26,6 +26,7 @@ import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -40,8 +41,43 @@ import java.io.File
 import java.security.MessageDigest
 import javax.net.ssl.SSLHandshakeException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class DownloadTransferEngineTest {
+
+    @Test
+    fun manualPauseUnblocksARequestWaitingForNetworkResponse() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val downloadId = "stalled-pause"
+        val destination = File(tempDir, "stalled-pause.bin")
+        val part = File(tempDir, "stalled-pause.part")
+        val repo = FakeDownloadRepository(listOf(Download(
+            id = downloadId,
+            url = server.url("/stalled.bin").toString(),
+            fileName = "stalled-pause.bin",
+            destinationPath = destination.absolutePath,
+            state = DownloadState.QUEUED,
+            createdAtEpochMillis = 1_000L,
+        )))
+        val pauseRequested = AtomicBoolean(false)
+        val engine = DownloadTransferEngine(
+            okHttpClient = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build(),
+            ioDispatcher = Dispatchers.IO,
+        )
+        val transfer = async(Dispatchers.IO) {
+            engine.executeTransfer(downloadId, server.url("/stalled.bin").toString(), part, repo,
+                pauseRequested = pauseRequested::get)
+        }
+        assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+        pauseRequested.set(true)
+        val started = System.nanoTime()
+        transfer.cancel()
+        withTimeout(2_000L) { transfer.join() }
+        val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        assertTrue("Pause took $elapsedMs ms", elapsedMs < 2_000L)
+        assertEquals(DownloadState.PAUSED, repo.get(downloadId)?.state)
+        assertFalse(destination.exists())
+    }
 
     private lateinit var server: MockWebServer
     private lateinit var tempDir: File

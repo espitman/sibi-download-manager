@@ -40,8 +40,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Lock
@@ -63,6 +61,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -78,12 +77,14 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -93,9 +94,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.espitman.sdm.ui.theme.SdmBackground
 import com.espitman.sdm.ui.theme.SdmGold
@@ -106,9 +110,7 @@ import com.espitman.sdm.ui.theme.SdmSurface
 import com.espitman.sdm.ui.theme.SdmText
 import com.espitman.sdm.ui.theme.sdmColor
 import com.espitman.sdm.network.ScopedRequestContext
-
-private const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+import java.util.concurrent.atomic.AtomicBoolean
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -116,52 +118,136 @@ internal fun BrowserScreen(
     showHeader: Boolean = true,
     onDownloadRequested: (BrowserDownloadRequest) -> Unit = {},
     onOpenDownloads: () -> Unit = {},
+    onActivePrivacyChange: (Boolean) -> Unit = {},
     onToast: (String) -> Unit = {},
 ) {
-    var tabs by remember { mutableStateOf(initialBrowserTabs()) }
-    var nextTabOrdinal by remember { mutableIntStateOf(3) }
+    val context = LocalContext.current
+    val preferencesStore = remember(context) { BrowserPreferencesStore.get(context) }
+    var preferences by remember { mutableStateOf(preferencesStore.read()) }
+    val startup = remember {
+        resolveStartupBrowserSession(
+            firstLaunch = !preferencesStore.hasPersistedSession(),
+            persisted = preferencesStore.readSession(),
+            privateByDefault = preferences.privateByDefault,
+        )
+    }
+    var tabs by remember { mutableStateOf(BrowserTabsSnapshot(startup.tabs, startup.activeId)) }
+    var nextTabOrdinal by remember { mutableIntStateOf(startup.nextTabOrdinal) }
     var tabsOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var historyOpen by remember { mutableStateOf(false) }
+    var history by remember { mutableStateOf(preferencesStore.readHistory()) }
     var findOpen by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
-    var privateReady by remember { mutableStateOf(false) }
-    var desktopSite by remember { mutableStateOf(false) }
+    var sessionReady by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(TextFieldValue(tabs.active.url.orEmpty())) }
     var addressFocused by remember { mutableStateOf(false) }
-    var currentUrl by remember { mutableStateOf<String?>(null) }
+    var currentUrl by remember {
+        mutableStateOf(if (preferencesStore.hasPersistedSession()) tabs.active.url else null)
+    }
     var webView by remember { mutableStateOf<WebView?>(null) }
     val webViews = remember { mutableMapOf<String, WebView>() }
     var loadFailure by remember { mutableStateOf<BrowserLoadFailure?>(null) }
+    var pendingNavigation by remember { mutableStateOf<BrowserPendingNavigation?>(null) }
     val focusManager = LocalFocusManager.current
     val addressFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val addressScope = rememberCoroutineScope()
+    val blurHideJob = remember { arrayOf<Job?>(null) }
+    val blockTrackers = remember { AtomicBoolean(preferences.blockTrackers) }
+    val tabsRef = remember { arrayOf(tabs) }
+    val ordinalRef = remember { intArrayOf(nextTabOrdinal) }
+    val historyRef = remember { arrayOf(history) }
+    tabsRef[0] = tabs
+    ordinalRef[0] = nextTabOrdinal
+    historyRef[0] = history
+    blockTrackers.set(preferences.blockTrackers)
+    SideEffect { onActivePrivacyChange(tabs.active.isPrivate) }
 
-    fun navigate(input: String) {
-        normalizeBrowserInput(input)?.let { url ->
+    fun persistPreferences(next: BrowserPreferences) {
+        preferences = next
+        preferencesStore.write(next)
+        blockTrackers.set(next.blockTrackers)
+    }
+
+    fun persistHistory(next: List<BrowserHistoryEntry>) {
+        history = next
+        historyRef[0] = next
+        preferencesStore.writeHistory(next)
+    }
+
+    fun hideAddressChrome() {
+        blurHideJob[0]?.cancel()
+        blurHideJob[0] = null
+        addressFocused = false
+        focusManager.clearFocus()
+        keyboardController?.hide()
+    }
+
+    fun recordVisit(url: String, title: String, isPrivate: Boolean) {
+        if (!BrowserWebViewCallbackPolicy.shouldRecordFinishedVisit(isPrivate)) return
+        val next = recordBrowserHistoryVisit(
+            entries = historyRef[0],
+            url = url,
+            title = title,
+            isPrivate = isPrivate,
+            persistHistory = BrowserPrivacyPolicy.forTab(isPrivate).persistHistory,
+            visitedAt = System.currentTimeMillis(),
+        )
+        if (next != historyRef[0]) persistHistory(next)
+    }
+
+    fun replaceTabs(next: BrowserTabsSnapshot) {
+        tabs = next
+        tabsRef[0] = next
+    }
+
+    fun navigate(input: String, exactUrl: Boolean = false) {
+        val resolved = if (exactUrl && isRecordableBrowserHistoryUrl(input.trim())) {
+            input.trim()
+        } else {
+            normalizeBrowserInput(input, preferences.searchEngine)
+        }
+        resolved?.let { url ->
             loadFailure = null
             currentUrl = url
             address = TextFieldValue(url)
-            tabs = tabs.update(tabs.activeId, url, tabs.active.title)
+            val tabId = tabs.activeId
+            replaceTabs(tabs.update(tabId, url, tabs.active.title))
+            val target = webViews[tabId] ?: webView
+            if (target != null) {
+                target.loadUrl(url)
+                pendingNavigation = null
+            } else {
+                pendingNavigation = BrowserPendingNavigation(tabId, url)
+            }
         }
-        focusManager.clearFocus()
+        hideAddressChrome()
+    }
+
+    fun selectAddressSuggestion(entry: BrowserHistoryEntry) {
+        val url = browserAddressSuggestionDestination(entry)
+        address = TextFieldValue(url, TextRange(url.length))
+        navigate(url, exactUrl = true)
     }
 
     fun goBack() {
+        hideAddressChrome()
         if (webView?.canGoBack() == true) {
             loadFailure = null
             webView?.goBack()
         } else {
             currentUrl = null
             address = TextFieldValue("")
-            tabs = tabs.update(tabs.activeId, null, "New tab")
+            replaceTabs(tabs.update(tabs.activeId, null, if (tabs.active.isPrivate) "Private tab" else "New tab"))
             loadFailure = null
         }
     }
 
     fun selectTab(id: String) {
-        tabs = tabs.select(id)
+        hideAddressChrome()
+        replaceTabs(tabs.select(id))
         val active = tabs.active
         currentUrl = active.url
         address = TextFieldValue(active.url.orEmpty())
@@ -170,11 +256,10 @@ internal fun BrowserScreen(
         tabsOpen = false
     }
 
-    fun addTab(isPrivate: Boolean) {
+    fun addTab(explicitPrivate: Boolean) {
+        hideAddressChrome()
         val id = "tab-${nextTabOrdinal++}"
-        // The browser is a private session by design; the ordinary New tab action
-        // follows the private-by-default policy shown in the reference.
-        tabs = tabs.add(BrowserTab(id, if (isPrivate) "Private tab" else "New tab", null, isPrivate = true))
+        replaceTabs(tabs.add(createBrowserTab(id, explicitPrivate)))
         currentUrl = null
         address = TextFieldValue("")
         webView = null
@@ -184,8 +269,9 @@ internal fun BrowserScreen(
 
     fun closeTab(id: String) {
         if (tabs.tabs.size == 1) return
+        hideAddressChrome()
         webViews.remove(id)?.destroy()
-        tabs = tabs.close(id)
+        replaceTabs(tabs.close(id))
         val active = tabs.active
         currentUrl = active.url
         address = TextFieldValue(active.url.orEmpty())
@@ -193,10 +279,25 @@ internal fun BrowserScreen(
         loadFailure = null
     }
 
-    BackHandler(enabled = currentUrl != null) { goBack() }
+    val addressSuggestions = remember(history, address.text, tabs.active.isPrivate, addressFocused) {
+        suggestBrowserHistory(
+            entries = history,
+            query = address.text,
+            isPrivate = tabs.active.isPrivate,
+            focused = addressFocused,
+        )
+    }
+
+    BackHandler(enabled = shouldDismissBrowserAddressSuggestionsOnBack(addressSuggestions.isNotEmpty()) || currentUrl != null) {
+        if (shouldDismissBrowserAddressSuggestionsOnBack(addressSuggestions.isNotEmpty())) {
+            hideAddressChrome()
+        } else {
+            goBack()
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
-        if (showHeader) AppHeader("Browser", privateMode = true)
+        if (showHeader) AppHeader("Browser", privateMode = tabs.active.isPrivate, showSearch = false, showMore = false)
         Row(
             Modifier.fillMaxWidth().background(SdmBackground).padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -225,7 +326,19 @@ internal fun BrowserScreen(
                     },
                     modifier = Modifier.weight(1f)
                         .focusRequester(addressFocusRequester)
-                        .onFocusChanged { addressFocused = it.isFocused }
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                blurHideJob[0]?.cancel()
+                                blurHideJob[0] = null
+                                addressFocused = true
+                            } else {
+                                blurHideJob[0]?.cancel()
+                                blurHideJob[0] = addressScope.launch {
+                                    delay(160)
+                                    addressFocused = false
+                                }
+                            }
+                        }
                         .pointerInput(Unit) {
                             var lastTapUp = 0L
                             awaitEachGesture {
@@ -270,16 +383,29 @@ internal fun BrowserScreen(
                 BrowserOptionsMenu(
                     expanded = menuOpen,
                     onDismiss = { menuOpen = false },
-                    desktopSite = desktopSite,
+                    desktopSite = tabs.active.desktopSite,
+                    privateSession = tabs.active.isPrivate,
                     onNewTab = { menuOpen = false; addTab(false) },
                     onPrivateTab = { menuOpen = false; addTab(true) },
                     onDownloads = { menuOpen = false; onOpenDownloads() },
-                    onHistory = { menuOpen = false; onToast("Private browsing does not save history") },
+                    onHistory = {
+                        menuOpen = false
+                        if (browserHistoryMenuOpensSheet(tabs.active.isPrivate)) {
+                            historyOpen = true
+                        } else {
+                            onToast("Private browsing does not save history")
+                        }
+                    },
                     onFind = { menuOpen = false; findOpen = true },
                     onDesktopSite = {
-                        desktopSite = !desktopSite
-                        webView?.settings?.userAgentString = if (desktopSite) DESKTOP_USER_AGENT else null
-                        webView?.reload()
+                        val id = tabs.activeId
+                        val next = !tabs.active.desktopSite
+                        replaceTabs(tabs.setDesktopSite(id, next))
+                        val target = webViews[id] ?: webView
+                        if (target != null) {
+                            applyBrowserWebViewDisplayMode(target, next)
+                            target.reload()
+                        }
                     },
                     onSettings = { menuOpen = false; settingsOpen = true },
                 )
@@ -327,14 +453,22 @@ internal fun BrowserScreen(
             }
         }
 
-        if (currentUrl == null || !privateReady) {
-            BrowserLanding(onOpen = ::navigate)
-        } else {
-            Box(Modifier.fillMaxSize().padding(bottom = 98.dp)) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (currentUrl == null || !sessionReady) {
+                BrowserLanding(isPrivate = tabs.active.isPrivate, onOpen = ::navigate)
+            } else {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(bottom = BrowserWebViewLayoutPolicy.DOCK_CLEARANCE_DP.dp),
+            ) {
                 key(tabs.activeId) { AndroidView(
                     factory = { context ->
-                        webViews[tabs.activeId] ?: WebView(context).apply {
-                            configurePrivateBrowserWebView(this)
+                        val tabId = tabs.activeId
+                        val tabIsPrivate = tabs.active.isPrivate
+                        val hosted = webViews[tabId] ?: WebView(context).apply {
+                            val tabDesktop = tabs.tabs.firstOrNull { it.id == tabId }?.desktopSite == true
+                            configureBrowserWebView(this, tabIsPrivate, tabDesktop)
                             setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
                                 val sourceUrl = this.url ?: url
                                 onDownloadRequested(
@@ -359,23 +493,45 @@ internal fun BrowserScreen(
                                     view: WebView,
                                     request: WebResourceRequest,
                                 ): WebResourceResponse? {
-                                    if (!BrowserTrackingProtection.shouldBlock(request.url.toString())) return null
+                                    if (!shouldBlockBrowserTracker(request.url.toString(), blockTrackers.get())) return null
                                     return WebResourceResponse(
                                         "text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)),
                                     )
                                 }
 
                                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                                    loadFailure = null
-                                    currentUrl = url
-                                    if (!addressFocused) address = TextFieldValue(url)
-                                    tabs = tabs.update(tabs.activeId, url, view.title ?: tabs.active.title)
+                                    val snapshot = tabsRef[0]
+                                    if (BrowserWebViewCallbackPolicy.appliesToActiveChrome(tabId, snapshot.activeId)) {
+                                        loadFailure = null
+                                        currentUrl = url
+                                        if (!addressFocused) address = TextFieldValue(url)
+                                    }
+                                    val existingTitle = snapshot.tabs.firstOrNull { it.id == tabId }?.title
+                                    replaceTabs(
+                                        snapshot.update(
+                                            tabId,
+                                            url,
+                                            BrowserWebViewCallbackPolicy.resolvedTabTitle(view.title, existingTitle, url),
+                                        ),
+                                    )
                                 }
 
                                 override fun onPageFinished(view: WebView, url: String) {
-                                    currentUrl = url
-                                    if (!addressFocused) address = TextFieldValue(url)
-                                    tabs = tabs.update(tabs.activeId, url, view.title ?: url)
+                                    val snapshot = tabsRef[0]
+                                    if (BrowserWebViewCallbackPolicy.appliesToActiveChrome(tabId, snapshot.activeId)) {
+                                        currentUrl = url
+                                        if (!addressFocused) address = TextFieldValue(url)
+                                    }
+                                    val existingTitle = snapshot.tabs.firstOrNull { it.id == tabId }?.title
+                                    val title = BrowserWebViewCallbackPolicy.resolvedTabTitle(
+                                        view.title,
+                                        existingTitle,
+                                        url,
+                                    )
+                                    replaceTabs(snapshot.update(tabId, url, title))
+                                    if (snapshot.tabs.any { it.id == tabId }) {
+                                        recordVisit(url, title, tabIsPrivate)
+                                    }
                                 }
 
                                 override fun onReceivedError(
@@ -383,7 +539,12 @@ internal fun BrowserScreen(
                                     request: WebResourceRequest,
                                     error: WebResourceError,
                                 ) {
-                                    if (!request.isForMainFrame) return
+                                    if (!BrowserWebViewCallbackPolicy.appliesToActiveLoadFailure(
+                                            tabId,
+                                            tabsRef[0].activeId,
+                                            request.isForMainFrame,
+                                        )
+                                    ) return
                                     loadFailure = BrowserLoadFailure(
                                         request.url.toString(),
                                         browserFailureMessage(error.errorCode, error.description?.toString()),
@@ -395,7 +556,13 @@ internal fun BrowserScreen(
                                     request: WebResourceRequest,
                                     errorResponse: WebResourceResponse,
                                 ) {
-                                    if (!request.isForMainFrame || errorResponse.statusCode < 400) return
+                                    if (errorResponse.statusCode < 400) return
+                                    if (!BrowserWebViewCallbackPolicy.appliesToActiveLoadFailure(
+                                            tabId,
+                                            tabsRef[0].activeId,
+                                            request.isForMainFrame,
+                                        )
+                                    ) return
                                     loadFailure = BrowserLoadFailure(
                                         request.url.toString(),
                                         "The page returned error ${errorResponse.statusCode}.",
@@ -403,14 +570,25 @@ internal fun BrowserScreen(
                                 }
                             }
                             webView = this
-                            webViews[tabs.activeId] = this
+                            webViews[tabId] = this
                             loadUrl(currentUrl!!)
+                            if (BrowserWebViewCallbackPolicy.shouldConsumePendingNavigation(pendingNavigation, tabId)) {
+                                pendingNavigation = null
+                            }
                         }
+                        hostPrivateBrowserWebView(context, hosted)
                     },
-                    update = { view ->
+                    update = { host ->
+                        val view = host.getChildAt(0) as WebView
                         webView = view
-                        val requested = currentUrl ?: return@AndroidView
-                        if (view.url != requested) view.loadUrl(requested)
+                        val visibleId = tabs.activeId
+                        applyBrowserWebViewDisplayMode(view, tabs.active.desktopSite)
+                        val pending = pendingNavigation
+                        BrowserWebViewCallbackPolicy.urlToLoadOnComposeUpdate(pending, visibleId, view.url)
+                            ?.let(view::loadUrl)
+                        if (BrowserWebViewCallbackPolicy.shouldConsumePendingNavigation(pending, visibleId)) {
+                            pendingNavigation = null
+                        }
                     },
                     modifier = Modifier.fillMaxSize(),
                 ) }
@@ -421,13 +599,37 @@ internal fun BrowserScreen(
                     }
                 }
             }
+            }
+            if (addressSuggestions.isNotEmpty()) {
+                BrowserAddressSuggestionSurface(
+                    entries = addressSuggestions,
+                    onSelect = ::selectAddressSuggestion,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(start = 10.dp, end = 10.dp, top = 4.dp)
+                        .zIndex(2f),
+                )
+            }
         }
     }
 
     DisposableEffect(Unit) {
-        BrowserPrivacySession.begin { privateReady = true }
+        if (shouldClearBrowserDataOnStart(preferences, tabs.tabs)) {
+            BrowserPrivacySession.begin { sessionReady = true }
+        } else {
+            sessionReady = true
+        }
         onDispose {
-            BrowserPrivacySession.end(webViews.values)
+            val latestTabs = tabsRef[0]
+            val latestPrefs = preferencesStore.read()
+            val clearData = shouldClearBrowserDataOnExit(latestPrefs, latestTabs.tabs)
+            BrowserPrivacySession.end(webViews.values, clearData = clearData)
+            if (shouldClearBrowserHistoryOnExit(latestPrefs)) {
+                preferencesStore.writeHistory(emptyList())
+            }
+            preferencesStore.writeSession(
+                sessionToPersistOnExit(latestPrefs, latestTabs, ordinalRef[0]),
+            )
             webViews.clear()
             webView = null
         }
@@ -445,15 +647,32 @@ internal fun BrowserScreen(
     }
     if (settingsOpen) {
         BrowserSettingsSheet(
+            preferences = preferences,
             onDismiss = { settingsOpen = false },
             onClearData = {
                 webViews.values.forEach { it.clearHistory(); it.clearCache(true); it.clearFormData() }
                 CookieManager.getInstance().removeAllCookies(null)
                 WebStorage.getInstance().deleteAllData()
+                persistHistory(emptyList())
                 onToast("Browsing data cleared")
                 settingsOpen = false
             },
+            onPreferencesChange = ::persistPreferences,
             onToast = onToast,
+        )
+    }
+    if (historyOpen) {
+        BrowserHistorySheet(
+            entries = history,
+            onDismiss = { historyOpen = false },
+            onOpen = { url ->
+                historyOpen = false
+                navigate(url)
+            },
+            onClear = {
+                persistHistory(emptyList())
+                onToast("Browsing history cleared")
+            },
         )
     }
 }
@@ -490,21 +709,20 @@ private fun BrowserTabsSheet(
     onNewPrivateTab: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val progress = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { progress.animateTo(1f, tween(320)) }
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     fun closeThen(action: () -> Unit) {
-        scope.launch {
-            progress.animateTo(0f, tween(200))
-            action()
-        }
+        sheetHost.dismissThen(action)
     }
     Dialog(
         onDismissRequest = { closeThen(onDismiss) },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        DisableDialogWindowDim()
         Box(
-            Modifier.fillMaxSize().statusBarsPadding().background(Color.Black.copy(alpha = .72f * progress.value))
+            Modifier.fillMaxSize().statusBarsPadding().background(sdmSheetScrim(motion.scrim))
                 .clickable { closeThen(onDismiss) },
         ) {
             Surface(
@@ -515,12 +733,8 @@ private fun BrowserTabsSheet(
                 shadowElevation = 18.dp,
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                     .padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()).widthIn(max = 560.dp)
-                    .graphicsLayer {
-                        translationY = (1f - progress.value) * 96.dp.toPx()
-                        scaleX = .985f + .015f * progress.value
-                        scaleY = .985f + .015f * progress.value
-                        alpha = .72f + .28f * progress.value
-                    }
+                    .onSizeChanged { panelHeight = it.height }
+                    .sdmSheetPanel(motion, panelHeight, extraTravel)
                     .clickable {},
             ) {
                 Column(Modifier.padding(17.dp)) {
@@ -642,7 +856,7 @@ private fun BrowserTabCard(
 }
 
 @Composable
-private fun BrowserLanding(onOpen: (String) -> Unit) {
+private fun BrowserLanding(isPrivate: Boolean, onOpen: (String) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 36.dp, bottom = 112.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -652,8 +866,13 @@ private fun BrowserLanding(onOpen: (String) -> Unit) {
             contentAlignment = Alignment.Center,
         ) { Text("SD", color = SdmGoldHigh, fontSize = 22.sp, fontWeight = FontWeight.Black) }
         Spacer(Modifier.height(12.dp))
-        Text("Browse privately.", color = SdmText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text("A focused private browser built into SDM.", color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 7.dp))
+        Text(if (isPrivate) "Browse privately." else "Start browsing.", color = SdmText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(
+            if (isPrivate) "A focused private browser built into SDM." else "A focused browser built into SDM.",
+            color = SdmMuted,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 7.dp),
+        )
         Spacer(Modifier.height(24.dp))
         Text("QUICK ACCESS", color = SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.43.sp, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))

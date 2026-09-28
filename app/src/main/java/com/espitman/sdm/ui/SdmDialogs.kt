@@ -21,8 +21,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,13 +30,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import com.espitman.sdm.ui.theme.SdmDanger
 import com.espitman.sdm.ui.theme.SdmGold
 import com.espitman.sdm.ui.theme.SdmLine
@@ -53,12 +53,16 @@ internal fun SdmRenameDialog(
     onConfirm: (String) -> Unit,
 ) {
     var value by remember { mutableStateOf(fileName) }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
+    val dismiss = { if (!submitting) sheetHost.dismissThen(onDismiss) }
+    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = dismiss)) {
             Box(Modifier.fillMaxSize().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
-                Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
+                Surface(Modifier.fillMaxWidth().onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                     Column(Modifier.padding(21.dp)) {
                         Text("Rename", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         BasicTextField(
@@ -74,7 +78,7 @@ internal fun SdmRenameDialog(
                                 .padding(horizontal = 14.dp, vertical = 14.dp),
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SdmDialogActionButton("Cancel", false, Modifier.weight(1f), onDismiss)
+                            SdmDialogActionButton("Cancel", false, Modifier.weight(1f), dismiss)
                             SdmDialogActionButton("Rename", true, Modifier.weight(1f)) {
                                 if (!submitting) onConfirm(value)
                             }
@@ -98,17 +102,21 @@ internal fun SdmConfirmDialog(
     onConfirm: () -> Unit,
     onDeleteFile: (() -> Unit)? = null,
 ) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
+    val dismiss = { if (!submitting) sheetHost.dismissThen(onDismiss) }
+    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = dismiss)) {
             Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
-                Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
+                Surface(Modifier.fillMaxWidth().onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                     Column(Modifier.padding(21.dp)) {
                         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         Text(message, color = SdmMuted, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SdmDialogActionButton(dismissLabel, false, Modifier.weight(1f), onDismiss)
+                            SdmDialogActionButton(dismissLabel, false, Modifier.weight(1f), dismiss)
                             Surface(
                                 onClick = { if (!submitting) onConfirm() },
                                 color = sdmColor(0xFF191A1C, 0xFFECE8DF),
@@ -136,6 +144,33 @@ internal fun SdmConfirmDialog(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SdmNoticeDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+) {
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
+    val dismiss = { sheetHost.dismissThen(onDismiss) }
+    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = dismiss)) {
+            Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
+                Surface(Modifier.fillMaxWidth().onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
+                    Column(Modifier.padding(21.dp)) {
+                        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(message, color = SdmMuted, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
+                        SdmDialogActionButton("OK", true, Modifier.fillMaxWidth(), dismiss)
                     }
                 }
             }

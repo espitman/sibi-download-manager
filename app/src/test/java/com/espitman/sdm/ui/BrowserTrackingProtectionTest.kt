@@ -10,5 +10,9 @@ class BrowserTrackingProtectionTest {
         assertTrue(BrowserTrackingProtection.shouldBlock("https://connect.facebook.net/en_US/fbevents.js"))
         assertFalse(BrowserTrackingProtection.shouldBlock("https://mygoogle-analytics.com/file.bin"))
         assertFalse(BrowserTrackingProtection.shouldBlock("http://127.0.0.1:8001/sample.bin"))
+        assertTrue(shouldBlockBrowserTracker("https://stats.google-analytics.com/collect", true))
+        assertFalse(shouldBlockBrowserTracker("https://stats.google-analytics.com/collect", false))
+        assertFalse(BrowserTrackingProtection.shouldBlock("https://www.varzesh3.com/"))
+        assertFalse(shouldBlockBrowserTracker("https://www.varzesh3.com/cdn/app.css", true))
     }
 }

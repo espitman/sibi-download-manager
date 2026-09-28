@@ -37,6 +37,7 @@ internal fun BrowserOptionsMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     desktopSite: Boolean,
+    privateSession: Boolean,
     onNewTab: () -> Unit,
     onPrivateTab: () -> Unit,
     onDownloads: () -> Unit,
@@ -59,9 +60,9 @@ internal fun BrowserOptionsMenu(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("Browser", color = SdmText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("Private session", color = SdmMuted, fontSize = 9.sp)
+                    Text(if (privateSession) "Private session" else "Standard session", color = SdmMuted, fontSize = 9.sp)
                 }
-                BrowserMenuIcon(SdmIcons.Lock, green = true)
+                BrowserMenuIcon(SdmIcons.Lock, green = privateSession)
             }
             HorizontalDivider(color = SdmLine)
             BrowserMenuRow("New tab", null, SdmIcons.Add, onNewTab, compact = true)

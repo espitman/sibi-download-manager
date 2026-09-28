@@ -126,11 +126,11 @@ internal fun detailsResumeSupportLabel(download: Download): String {
 }
 
 internal fun splitSpeedValue(bytesPerSecond: Long): String {
-    return displayMegabytesPerSecond(bytesPerSecond).toString()
+    return decimalSpeedDisplay(bytesPerSecond).value
 }
 
-internal fun splitSpeedUnit(@Suppress("UNUSED_PARAMETER") bytesPerSecond: Long): String {
-    return "MB/s"
+internal fun splitSpeedUnit(bytesPerSecond: Long): String {
+    return decimalSpeedDisplay(bytesPerSecond).unit
 }
 
 internal fun sharedSizeValue(downloadedBytes: Long, totalBytes: Long?): String {

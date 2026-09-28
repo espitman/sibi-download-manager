@@ -3,7 +3,9 @@ package com.espitman.sdm.notification
 import com.espitman.sdm.download.CancelTransferCommand
 import com.espitman.sdm.download.DownloadTransferCommand
 import com.espitman.sdm.download.DownloadTransferSession
+import com.espitman.sdm.download.PauseAllCommand
 import com.espitman.sdm.download.PauseTransferCommand
+import com.espitman.sdm.download.ResumeAllCommand
 import com.espitman.sdm.download.ResumeTransferCommand
 import com.espitman.sdm.download.SessionCommandResult
 import com.espitman.sdm.download.StartTransferCommand
@@ -69,6 +71,14 @@ class TransferNotificationActionRoutingTest {
                 "download-42",
                 tempFilePath = null,
             ),
+        )
+        assertEquals(
+            PauseAllCommand,
+            DownloadTransferCommand.parse(DownloadTransferCommand.ACTION_PAUSE_ALL, null, null),
+        )
+        assertEquals(
+            ResumeAllCommand,
+            DownloadTransferCommand.parse(DownloadTransferCommand.ACTION_RESUME_ALL, "", null),
         )
         val session = DownloadTransferSession()
         assertEquals(SessionCommandResult.None, session.handleCommand(1, command = null))

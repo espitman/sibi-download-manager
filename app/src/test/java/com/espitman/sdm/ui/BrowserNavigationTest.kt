@@ -16,6 +16,24 @@ class BrowserNavigationTest {
             "https://www.google.com/search?q=large%20test%20file",
             normalizeBrowserInput("large test file"),
         )
+        assertEquals(
+            "https://duckduckgo.com/?q=large%20test%20file",
+            normalizeBrowserInput("large test file", BrowserSearchEngine.DuckDuckGo),
+        )
+        assertEquals(
+            "https://www.bing.com/search?q=sdm",
+            normalizeBrowserInput("sdm", BrowserSearchEngine.Bing),
+        )
+        assertEquals(
+            "https://www.startpage.com/sp/search?query=sdm",
+            normalizeBrowserInput("sdm", BrowserSearchEngine.Startpage),
+        )
+    }
+
+    @Test fun unknownSearchEngineIdsFallBackToGoogle() {
+        assertEquals(BrowserSearchEngine.Google, BrowserSearchEngine.fromId(null))
+        assertEquals(BrowserSearchEngine.Google, BrowserSearchEngine.fromId("yahoo"))
+        assertEquals(BrowserSearchEngine.DuckDuckGo, BrowserSearchEngine.fromId("DUCKDUCKGO"))
     }
 
     @Test fun emptyAndUnsupportedSchemesAreRejected() {

@@ -204,7 +204,7 @@ class NetworkRestrictionCoordinatorTest {
     }
 
     @Test
-    fun networkLossAndMobileFallbackPauseActiveWorkUntilWifiReturns() = runBlocking {
+    fun networkLossKeepsActiveVisibleUntilManualPauseButMobilePolicyStillPauses() = runBlocking {
         val repo = FakeRepo(
             listOf(
                 active("partial", DownloadState.DOWNLOADING, downloadedBytes = 20L),
@@ -232,6 +232,12 @@ class NetworkRestrictionCoordinatorTest {
         transport.set(ValidatedTransport.NONE)
         coordinator.apply()
         assertFalse(allowance.isAllowed())
+        assertTrue(pauseRequests.isEmpty())
+        assertEquals(DownloadState.DOWNLOADING, repo.get("partial")!!.state)
+
+        transport.set(ValidatedTransport.CELLULAR)
+        coordinator.apply()
+        assertFalse(allowance.isAllowed())
         assertEquals(listOf("partial"), pauseRequests)
         val pausedAt = repo.pauseAtExactOffset(
             id = "partial",
@@ -242,12 +248,6 @@ class NetworkRestrictionCoordinatorTest {
         assertEquals(DownloadState.PAUSED, pausedAt.state)
         assertEquals(29L, pausedAt.downloadedBytes)
         assertEquals(DownloadPauseCause.NETWORK_POLICY, pausedAt.pauseCause)
-
-        transport.set(ValidatedTransport.CELLULAR)
-        coordinator.apply()
-        assertFalse(allowance.isAllowed())
-        assertEquals(listOf("partial"), pauseRequests)
-        assertTrue(starter.startedIds().isEmpty())
 
         transport.set(ValidatedTransport.WIFI)
         coordinator.apply()
@@ -336,8 +336,8 @@ class NetworkRestrictionCoordinatorTest {
         repeat(4) { coordinator.apply() }
         scheduler.schedule()
         scheduler.schedule()
-        assertEquals(DownloadState.PAUSED, repo.get("waiting")!!.state)
-        assertEquals(DownloadPauseCause.NETWORK_POLICY, repo.get("waiting")!!.pauseCause)
+        assertEquals(DownloadState.QUEUED, repo.get("waiting")!!.state)
+        assertNull(repo.get("waiting")!!.pauseCause)
         assertTrue(starter.startedIds().isEmpty())
         assertEquals(0, pauseCalls.get())
     }

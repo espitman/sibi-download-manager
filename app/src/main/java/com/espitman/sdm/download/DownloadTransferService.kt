@@ -14,6 +14,7 @@ import com.espitman.sdm.data.settings.SettingsRepository
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
+import com.espitman.sdm.domain.ErrorReportSanitizer
 import com.espitman.sdm.notification.TransferNotificationCoordinator
 import com.espitman.sdm.notification.TransferNotificationPendingIntentSpec
 import com.espitman.sdm.storage.DownloadDestinationRef
@@ -74,6 +75,45 @@ class DownloadTransferService : Service() {
             startSchedulerCollectorOnce()
         }
 
+        if (command is PauseAllCommand || command is ResumeAllCommand) {
+            session.handleCommand(startId, command = null)
+            serviceScope.launch {
+                try {
+                    val snapshot = AppRepositories.downloads(applicationContext).schedulingSnapshot()
+                    when (command) {
+                        is PauseAllCommand -> {
+                            if (snapshot.none { it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED) }) {
+                                notifications.showControlFeedback("Nothing active to pause", snapshot)
+                            } else {
+                                notifications.showControlFeedback("Pausing all downloads…", snapshot)
+                                AppRepositories.queueScheduler(applicationContext).pauseAll { id ->
+                                    pauseActiveInSession(startId, id)
+                                }
+                            }
+                        }
+                        is ResumeAllCommand -> {
+                            when {
+                                snapshot.none { it.state == DownloadState.PAUSED } ->
+                                    notifications.showControlFeedback("Nothing paused to resume", snapshot)
+                                !AppRepositories.networkRestriction(applicationContext).allowsTransfers() ->
+                                    notifications.showControlFeedback("No internet connection · Resume All unavailable", snapshot)
+                                else -> {
+                                    notifications.showControlFeedback("Resuming downloads…", snapshot)
+                                    AppRepositories.queueScheduler(applicationContext).resumeAll()
+                                }
+                            }
+                        }
+                        else -> Unit
+                    }
+                } finally {
+                    startSchedulerCollectorOnce()
+                    session.startIdIfIdle()?.let { finishedStartId ->
+                        if (acceptingWork.get()) stopSelf(finishedStartId)
+                    }
+                }
+            }
+            return START_NOT_STICKY
+        }
         if (command is ResumeTransferCommand) {
             session.handleCommand(startId, command = null)
             serviceScope.launch {
@@ -95,8 +135,23 @@ class DownloadTransferService : Service() {
                         }
                     } catch (cancellation: CancellationException) {
                         throw cancellation
-                    } catch (_: Throwable) {
-                        // Transfer failures are recorded by the engine; missing records are ignored.
+                    } catch (failure: Throwable) {
+                        // The engine records expected failures. Cover unexpected failures too, so
+                        // a card cannot remain in an active state after its worker has exited.
+                        val repository = AppRepositories.downloads(applicationContext)
+                        val current = repository.get(result.command.downloadId)
+                        if (current?.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING) &&
+                            !session.isPauseRequested(result.command.downloadId) &&
+                            !AppRepositories.isNetworkOffline(applicationContext)
+                        ) {
+                            repository.transition(
+                                current!!.id,
+                                DownloadState.FAILED,
+                                max(System.currentTimeMillis(), current.updatedAtEpochMillis),
+                                ErrorReportSanitizer.sanitize(failure.message ?: "Download failed")
+                                    .ifBlank { "Download failed" },
+                            )
+                        }
                     } finally {
                         withContext(NonCancellable) {
                             persistCancelledIfRequested(result.command.downloadId)
@@ -125,7 +180,14 @@ class DownloadTransferService : Service() {
                 startSchedulerCollectorOnce()
             }
             SessionCommandResult.None -> {
-                if (command is CancelTransferCommand && !session.isCancelRequested(command.downloadId)) {
+                if (command is PauseTransferCommand) {
+                    serviceScope.launch {
+                        persistPausedNow(command.downloadId, command.pauseCause)
+                        AppRepositories.queueScheduler(applicationContext).releaseClaim(command.downloadId)
+                        startSchedulerCollectorOnce()
+                        session.startIdIfIdle()?.let { if (acceptingWork.get()) stopSelf(it) }
+                    }
+                } else if (command is CancelTransferCommand && !session.isCancelRequested(command.downloadId)) {
                     serviceScope.launch {
                         withContext(NonCancellable) {
                             persistCancelledNow(command.downloadId)
@@ -278,6 +340,18 @@ class DownloadTransferService : Service() {
         )
     }
 
+    private suspend fun persistPausedNow(downloadId: String, cause: DownloadPauseCause?) = withContext(NonCancellable) {
+        val repository = AppRepositories.downloads(applicationContext)
+        val download = repository.get(downloadId) ?: return@withContext
+        if (download.state !in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) return@withContext
+        repository.pauseAtExactOffset(
+            id = download.id,
+            fileLengthBytes = onDiskPartLength(download, session.tempFilePath(downloadId)),
+            nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
+            pauseCause = cause,
+        )
+    }
+
     private fun onDiskPartLength(download: Download, tempFilePath: String?): Long {
         val tempFile = tempFilePath?.let(::File)
         if (tempFile != null) {
@@ -291,6 +365,17 @@ class DownloadTransferService : Service() {
             return 0L
         }
         return if (partFile.exists()) partFile.length().coerceAtLeast(0L) else 0L
+    }
+
+    private fun pauseActiveInSession(startId: Int, downloadId: String) {
+        when (val result = session.handleCommand(startId, PauseTransferCommand(downloadId))) {
+            is SessionCommandResult.CancelJob -> result.job.cancel()
+            SessionCommandResult.None -> serviceScope.launch {
+                persistPausedNow(downloadId, null)
+                AppRepositories.queueScheduler(applicationContext).releaseClaim(downloadId)
+            }
+            is SessionCommandResult.StartJob -> Unit
+        }
     }
 
     private fun resolveCommand(intent: Intent?): TransferCommand? {
@@ -319,15 +404,29 @@ class DownloadTransferService : Service() {
             nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
         )
         if (blocked) return
-        DownloadAutoRetryRunner(repository).run(downloadId) {
-            AppRepositories.transferEngine(applicationContext).executeTransfer(
-                downloadId = downloadId,
-                url = url,
-                tempFile = tempFile,
-                repository = repository,
-                pauseRequested = { session.isPauseRequested(command.downloadId) },
-                pauseCause = { session.pauseCause(command.downloadId) },
-            )
+        while (true) {
+            try {
+                DownloadAutoRetryRunner(repository).run(downloadId) {
+                    AppRepositories.transferEngine(applicationContext).executeTransfer(
+                        downloadId = downloadId,
+                        url = url,
+                        tempFile = tempFile,
+                        repository = repository,
+                        pauseRequested = { session.isPauseRequested(command.downloadId) },
+                        pauseCause = { session.pauseCause(command.downloadId) },
+                    )
+                }
+                return
+            } catch (_: OfflineTransferRetryException) {
+                // Keep the visible active state while connectivity is absent. The job remains
+                // cancellable, so a manual Pause still interrupts the wait immediately.
+                while (AppRepositories.isNetworkOffline(applicationContext)) delay(1_000L)
+                while (!AppRepositories.transferAllowance(applicationContext).isAllowed()) delay(1_000L)
+                val current = repository.get(downloadId) ?: return
+                if (current.state !in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) return
+                repository.transition(downloadId, DownloadState.QUEUED,
+                    max(System.currentTimeMillis(), current.updatedAtEpochMillis))
+            }
         }
     }
 
@@ -373,6 +472,14 @@ class DownloadTransferService : Service() {
             startControl(context, downloadId, DownloadTransferCommand.ACTION_RESUME_TRANSFER)
         }
 
+        fun pauseAll(context: Context) {
+            startBulkControl(context, DownloadTransferCommand.ACTION_PAUSE_ALL)
+        }
+
+        fun resumeAll(context: Context) {
+            startBulkControl(context, DownloadTransferCommand.ACTION_RESUME_ALL)
+        }
+
         fun controlIntent(context: Context, downloadId: String, action: String): Intent? {
             val appContext = context.applicationContext
             val command = DownloadTransferCommand.parse(
@@ -384,6 +491,8 @@ class DownloadTransferService : Service() {
                 is PauseTransferCommand -> DownloadTransferCommand.ACTION_PAUSE_TRANSFER
                 is CancelTransferCommand -> DownloadTransferCommand.ACTION_CANCEL_TRANSFER
                 is ResumeTransferCommand -> DownloadTransferCommand.ACTION_RESUME_TRANSFER
+                is PauseAllCommand -> DownloadTransferCommand.ACTION_PAUSE_ALL
+                is ResumeAllCommand -> DownloadTransferCommand.ACTION_RESUME_ALL
                 is StartTransferCommand -> return null
             }
             val identity = TransferNotificationPendingIntentSpec.identity(command.downloadId, resolvedAction)
@@ -391,9 +500,14 @@ class DownloadTransferService : Service() {
             return Intent(appContext, DownloadTransferService::class.java).apply {
                 this.action = resolvedAction
                 data = Uri.parse(identity.data)
-                putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
+                if (command !is PauseAllCommand && command !is ResumeAllCommand) {
+                    putExtra(DownloadTransferCommand.EXTRA_DOWNLOAD_ID, command.downloadId)
+                }
             }
         }
+
+        fun bulkControlIntent(context: Context, action: String): Intent? =
+            controlIntent(context, DownloadTransferCommand.BULK_TARGET_ID, action)
 
         private fun startControl(
             context: Context,
@@ -406,6 +520,12 @@ class DownloadTransferService : Service() {
             if (pauseCause != null) {
                 intent.putExtra(DownloadTransferCommand.EXTRA_PAUSE_CAUSE, pauseCause.name)
             }
+            ContextCompat.startForegroundService(appContext, intent)
+        }
+
+        private fun startBulkControl(context: Context, action: String) {
+            val appContext = context.applicationContext
+            val intent = bulkControlIntent(appContext, action) ?: return
             ContextCompat.startForegroundService(appContext, intent)
         }
     }

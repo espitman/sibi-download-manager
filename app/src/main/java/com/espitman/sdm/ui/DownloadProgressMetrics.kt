@@ -68,7 +68,7 @@ internal fun calculateDownloadProgressMetrics(
 
 internal fun formatDownloadSpeed(bytesPerSecond: Long): String {
     if (bytesPerSecond <= 0L) return "—"
-    return "${displayMegabytesPerSecond(bytesPerSecond)} MB/s"
+    return decimalSpeedDisplay(bytesPerSecond).formatted
 }
 
 internal fun formatEta(seconds: Long?): String {

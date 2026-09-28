@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 internal data class DownloadStatusCardValues(
     val activeCount: Int,
     val speedValue: String,
+    val speedUnit: String,
     val downloadedToday: String,
     val remaining: String,
     val connections: String,
@@ -29,14 +30,15 @@ internal fun downloadStatusCardValues(
         activeRecords.any { it.totalBytes == null } -> "—"
         else -> formatBytes(remainingBytesOf(activeRecords))
     }
-    val speedValue = if (activeCount == 0) {
-        "0"
+    val speed = if (activeCount == 0) {
+        decimalSpeedDisplay(0L)
     } else {
-        displayMegabytesPerSecond(recentBytesPerSecond).toString()
+        decimalSpeedDisplay(recentBytesPerSecond)
     }
     return DownloadStatusCardValues(
         activeCount = activeCount,
-        speedValue = speedValue,
+        speedValue = speed.value,
+        speedUnit = speed.unit,
         downloadedToday = formatBytes(downloadedTodayBytes.coerceAtLeast(0L)),
         remaining = remaining,
         connections = connectionsPerDownload.coerceAtLeast(1).toString(),

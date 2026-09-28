@@ -133,4 +133,30 @@ class TransferNotificationPendingIntentSpecTest {
             ),
         )
     }
+
+    @Test
+    fun bulkPauseAndResumeUseExplicitImmutableForegroundServiceIdentities() {
+        val pauseAll = TransferNotificationPendingIntentSpec.identity(
+            null,
+            DownloadTransferCommand.ACTION_PAUSE_ALL,
+        )!!
+        val resumeAll = TransferNotificationPendingIntentSpec.identity(
+            "  ignored  ",
+            DownloadTransferCommand.ACTION_RESUME_ALL,
+        )!!
+        assertEquals(DownloadTransferCommand.BULK_TARGET_ID, pauseAll.downloadId)
+        assertEquals(DownloadTransferCommand.BULK_TARGET_ID, resumeAll.downloadId)
+        assertEquals(DownloadTransferCommand.ACTION_PAUSE_ALL, pauseAll.serviceAction)
+        assertEquals(DownloadTransferCommand.ACTION_RESUME_ALL, resumeAll.serviceAction)
+        assertEquals(
+            TransferNotificationPendingIntentSpec.PENDING_INTENT_KIND_FOREGROUND_SERVICE,
+            pauseAll.pendingIntentKind,
+        )
+        assertEquals(TransferNotificationPendingIntentSpec.flags(), pauseAll.flags)
+        assertTrue(pauseAll.requestCode != TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID)
+        assertTrue(resumeAll.requestCode != TransferNotificationChannelSpec.ONGOING_NOTIFICATION_ID)
+        assertTrue(pauseAll.requestCode != resumeAll.requestCode)
+        assertTrue(pauseAll.data != resumeAll.data)
+        assertTrue(pauseAll.data.startsWith("sdm://transfer-command/"))
+    }
 }

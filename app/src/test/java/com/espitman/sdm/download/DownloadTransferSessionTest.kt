@@ -72,6 +72,24 @@ class DownloadTransferSessionTest {
     }
 
     @Test
+    fun bulkCommandsTrackStartIdWithoutStartingAJob() {
+        val session = DownloadTransferSession()
+        assertEquals(SessionCommandResult.None, session.handleCommand(4, PauseAllCommand))
+        assertEquals(4, session.startIdIfIdle())
+        assertEquals(SessionCommandResult.None, session.handleCommand(5, ResumeAllCommand))
+        assertEquals(5, session.startIdIfIdle())
+
+        val start = StartTransferCommand("dl-1", "/tmp/a.part")
+        val job = Job()
+        session.handleCommand(6, start)
+        session.attachJob(start.downloadId, job)
+        assertEquals(SessionCommandResult.None, session.handleCommand(7, PauseAllCommand))
+        assertFalse(session.isPauseRequested(start.downloadId))
+        assertNull(session.startIdIfIdle())
+        assertTrue(job.isActive)
+    }
+
+    @Test
     fun pauseCancelsTheAttachedJobAndKeepsTheSessionAliveUntilFinish() {
         val session = DownloadTransferSession()
         val command = StartTransferCommand("dl-1", "/tmp/a.part")

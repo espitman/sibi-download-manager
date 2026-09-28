@@ -47,6 +47,18 @@ class TransferServiceLifecyclePolicyTest {
                 command = null,
             ),
         )
+        assertNull(
+            TransferServiceLifecyclePolicy.claimedIdToReleaseOnRejectedForeground(
+                enteredForeground = false,
+                command = PauseAllCommand,
+            ),
+        )
+        assertNull(
+            TransferServiceLifecyclePolicy.claimedIdToReleaseOnRejectedForeground(
+                enteredForeground = false,
+                command = ResumeAllCommand,
+            ),
+        )
     }
 
     @Test
@@ -71,6 +83,8 @@ class TransferServiceLifecyclePolicyTest {
                 ResumeTransferCommand("id"),
             ),
         )
+        assertFalse(TransferServiceLifecyclePolicy.startQueueObserverBeforeHandling(PauseAllCommand))
+        assertFalse(TransferServiceLifecyclePolicy.startQueueObserverBeforeHandling(ResumeAllCommand))
         assertTrue(TransferServiceLifecyclePolicy.startQueueObserverBeforeHandling(null))
     }
 

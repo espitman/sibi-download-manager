@@ -1,8 +1,5 @@
 package com.espitman.sdm.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,7 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.error
@@ -78,15 +76,13 @@ internal fun AddDownloadSheet(
             ?: singleUrl.substringBefore('?').substringAfterLast('/').ifBlank { "Download" }
     }
     val fileType = if (singleUrl == null) "LINKS" else fileName.substringAfterLast('.', "FILE").uppercase().take(5)
-    val motion = remember { Animatable(0f) }
-    var closing by remember { mutableStateOf(false) }
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     val scope = rememberCoroutineScope()
     val dismissAnimated: () -> Unit = {
-        if (!closing && !isSubmitting) scope.launch {
-            closing = true
-            motion.animateTo(0f, tween(260, easing = CubicBezierEasing(.4f, 0f, .3f, 1f)))
-            onDismiss()
-        }
+        if (!isSubmitting) sheetHost.dismissThen(onDismiss)
     }
     fun applyUrl(value: String) {
         if (isSubmitting) return
@@ -169,9 +165,6 @@ internal fun AddDownloadSheet(
             isSubmitting = false
         }
     }
-    LaunchedEffect(Unit) {
-        motion.animateTo(1f, tween(320, easing = CubicBezierEasing(.2f, .82f, .24f, 1f)))
-    }
     Dialog(onDismissRequest = dismissAnimated, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         SideEffect {
@@ -181,14 +174,12 @@ internal fun AddDownloadSheet(
             }
         }
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = .72f * motion.value)).clickable(remember { MutableInteractionSource() }, indication = null, onClick = dismissAnimated)
+            Modifier.fillMaxSize().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, indication = null, onClick = dismissAnimated)
                 .statusBarsPadding().navigationBarsPadding().imePadding().padding(start = 12.dp, end = 12.dp, bottom = designOverlayBottomInset(), top = 12.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).graphicsLayer {
-                    translationY = (size.height + 36.dp.toPx()) * (1f - motion.value)
-                }.clickable(remember { MutableInteractionSource() }, indication = null) {},
+                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, indication = null) {},
                 color = sdmColor(0xFF151618, 0xFFFAF8F2), contentColor = SdmText,
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 22.dp, bottomEnd = 22.dp),
                 border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)),

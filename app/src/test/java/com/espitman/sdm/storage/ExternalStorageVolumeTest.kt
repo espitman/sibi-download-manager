@@ -22,6 +22,28 @@ class ExternalStorageVolumeTest {
     }
 
     @Test
+    fun relativePathFromExternalStorageTreeDocumentIds() {
+        assertEquals("Download/SDM-QA", ExternalStorageVolume.relativePathFromDocumentId("primary:Download/SDM-QA"))
+        assertEquals("", ExternalStorageVolume.relativePathFromDocumentId("primary:"))
+        assertEquals("", ExternalStorageVolume.relativePathFromDocumentId("primary"))
+        assertEquals("DCIM", ExternalStorageVolume.relativePathFromDocumentId("1A2B-3C4D:DCIM"))
+        assertNull(ExternalStorageVolume.relativePathFromDocumentId(null))
+        assertNull(ExternalStorageVolume.relativePathFromDocumentId(" "))
+        assertNull(ExternalStorageVolume.relativePathFromDocumentId("primary:Download/../etc"))
+    }
+
+    @Test
+    fun fileOnVolumeJoinsTheDocumentRelativePath() {
+        val root = File("/storage/emulated/0")
+        assertEquals(
+            File("/storage/emulated/0/Download/SDM-QA"),
+            ExternalStorageVolume.fileOnVolume(root, "primary:Download/SDM-QA"),
+        )
+        assertEquals(root, ExternalStorageVolume.fileOnVolume(root, "primary:"))
+        assertNull(ExternalStorageVolume.fileOnVolume(root, "primary:foo/../bar"))
+    }
+
+    @Test
     fun matchesPrimaryOrUuidWithoutBroadPrefixCollisions() {
         assertTrue(ExternalStorageVolume.matchesVolumeId("primary", isPrimary = true, uuid = null))
         assertTrue(ExternalStorageVolume.matchesVolumeId("PRIMARY", isPrimary = true, uuid = "ignored"))

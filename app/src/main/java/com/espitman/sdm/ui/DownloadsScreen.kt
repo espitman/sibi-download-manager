@@ -5,13 +5,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -35,7 +36,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -46,7 +47,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -65,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.IntOffset
@@ -92,11 +91,11 @@ import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 internal enum class HomeOverlay { KeepActive, SpeedLimit, Preferences }
-private val LocalHomeSheetVisible = staticCompositionLocalOf { true }
+internal val LocalHomeSheetVisible = staticCompositionLocalOf { true }
 
 @Stable
 internal class DownloadsUiState {
-    var category by mutableStateOf(DownloadCategory.Downloading)
+    var category by mutableStateOf(DownloadCategory.All)
     var searchOpen by mutableStateOf(false)
     var query by mutableStateOf("")
     var menuOpen by mutableStateOf(false)
@@ -113,7 +112,7 @@ internal fun restoreDownloadsUiState(saved: List<*>): DownloadsUiState {
     val restored = DownloadsUiState()
     restored.category = (saved.getOrNull(0) as? String)
         ?.let { name -> DownloadCategory.entries.firstOrNull { it.name == name } }
-        ?: DownloadCategory.Downloading
+        ?: DownloadCategory.All
     restored.searchOpen = saved.getOrNull(1) as? Boolean ?: false
     restored.query = saved.getOrNull(2) as? String ?: ""
     restored.menuOpen = false
@@ -195,6 +194,7 @@ internal fun confirmCancelDownload(
 internal fun priorityToggleToast(highPriority: Boolean): String =
     if (highPriority) "High priority enabled" else "Priority returned to normal"
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun InteractiveDownloadsScreen(
     uiState: DownloadsUiState,
@@ -203,6 +203,7 @@ internal fun InteractiveDownloadsScreen(
     onSelectedDownloadIdChange: (String?) -> Unit,
     onToast: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onRevealFileInFiles: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val repository = AppRepositories.downloads(context)
@@ -268,23 +269,64 @@ internal fun InteractiveDownloadsScreen(
         },
         hiddenCompletedIds,
     )
-    var completedDeleteId by remember { mutableStateOf<String?>(null) }
-    var incompleteDeleteId by remember { mutableStateOf<String?>(null) }
-    var deletingIncomplete by remember { mutableStateOf(false) }
     var clearCompletedRequested by remember { mutableStateOf(false) }
     var deletingCompleted by remember { mutableStateOf(false) }
     var overlayClosing by remember { mutableStateOf(false) }
     val overlayScope = rememberCoroutineScope()
+    var networkNoticeOpen by remember { mutableStateOf(false) }
+    var actionNotice by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val pendingActions = remember { mutableStateMapOf<String, Pair<DownloadState, String>>() }
+    fun showPending(id: String, label: String) {
+        val state = records.firstOrNull { it.id == id }?.state ?: return
+        pendingActions[id] = state to label
+        overlayScope.launch {
+            delay(2_000L)
+            if (pendingActions[id] == (state to label)) pendingActions.remove(id)
+        }
+    }
+    fun allowedNetworkOrNotice(): Boolean {
+        if (AppRepositories.networkRestriction(context).allowsTransfers()) return true
+        networkNoticeOpen = true
+        return false
+    }
+    fun resumeOrShowNetworkNotice(id: String) {
+        if (allowedNetworkOrNotice()) {
+            val before = records.firstOrNull { it.id == id }
+            showPending(id, "Resuming…")
+            DownloadTransferService.resumeTransfer(context, id)
+            overlayScope.launch {
+                delay(2_000L)
+                val after = repository.get(id)
+                if (after != null && before != null &&
+                    (after.state == DownloadState.FAILED || after.state == DownloadState.PAUSED) &&
+                    (after.updatedAtEpochMillis >= before.updatedAtEpochMillis)
+                ) {
+                    actionNotice = "Download did not resume" to
+                        (after.error?.let { "The retry failed: $it. Check your connection and try again." }
+                            ?: "The download is still paused. Check your connection and try again.")
+                }
+            }
+        }
+    }
     val dismissOverlay: () -> Unit = {
         if (!overlayClosing) overlayScope.launch {
             overlayClosing = true
-            delay(320)
+            delay(SDM_SHEET_TRAVEL_MS.toLong())
             uiState.overlay = null
             overlayClosing = false
         }
     }
     val settingsRepository = SettingsRepository.get(LocalContext.current)
     val settings by settingsRepository.settings.collectAsState()
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    val availableSelectionIds = remember(downloads) { downloads.map { it.id }.toSet() }
+    LaunchedEffect(availableSelectionIds) {
+        selectedIds = pruneDownloadsSelection(selectedIds, availableSelectionIds)
+    }
+    val selectionMode = selectedIds.isNotEmpty()
+    var selectionDeleteOpen by remember { mutableStateOf(false) }
+    var deletingSelection by remember { mutableStateOf(false) }
+    var selectionActing by remember { mutableStateOf(false) }
     LaunchedEffect(selectedDownloadId) {
         val id = selectedDownloadId ?: return@LaunchedEffect
         repository.awaitInitialized()
@@ -325,21 +367,20 @@ internal fun InteractiveDownloadsScreen(
                     dispatchTransferCardAction(
                         action = transferCardAction(selectedRecord.state),
                         start = {
+                            if (!allowedNetworkOrNotice()) return@dispatchTransferCardAction
                             overlayScope.launch {
                                 AppRepositories.queueScheduler(context).startQueued(selectedRecord.id)
                             }
                         },
-                        pause = { DownloadTransferService.pauseTransfer(context, selectedRecord.id) },
-                        resumeOrRetry = { DownloadTransferService.resumeTransfer(context, selectedRecord.id) },
+                        pause = {
+                            showPending(selectedRecord.id, "Pausing…")
+                            DownloadTransferService.pauseTransfer(context, selectedRecord.id)
+                        },
+                        resumeOrRetry = { resumeOrShowNetworkNotice(selectedRecord.id) },
                     )
                 },
                 onCancel = {
                     DownloadTransferService.cancelTransfer(context, selectedRecord.id)
-                },
-                onDelete = {
-                    IncompleteDownloadDeleteCoordinator.delete(selectedRecord.id, repository) { id ->
-                        DownloadTransferService.cancelTransfer(context, id)
-                    }
                 },
                 onPriority = {
                     val previousPriority = selectedRecord.priority
@@ -351,9 +392,23 @@ internal fun InteractiveDownloadsScreen(
                         }
                     }
                 },
+                onRevealFileInFiles = onRevealFileInFiles,
             )
         }
+        if (networkNoticeOpen) SdmNoticeDialog(
+            title = "No internet connection",
+            message = "This download remains paused. Reconnect to the internet, or use Wi-Fi if Wi-Fi only is enabled, then tap Resume.",
+            onDismiss = { networkNoticeOpen = false },
+        )
+        actionNotice?.let { (title, message) ->
+            SdmNoticeDialog(title, message) { actionNotice = null }
+        }
         return
+    }
+
+    BackHandler(selectionMode) {
+        selectedIds = emptySet()
+        selectionDeleteOpen = false
     }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
@@ -363,34 +418,131 @@ internal fun InteractiveDownloadsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
             item { DownloadStatusCard(records, downloadedTodayBytes, displayedBytesPerSecond, settings.connections) }
-            item { Spacer(Modifier.height(18.dp)); DownloadToolbar(downloads.size, uiState.category,
-                onDownloadAll = {
-                    overlayScope.launch {
-                        AppRepositories.queueScheduler(context).downloadAll()
-                        onToast("All downloads started")
-                    }
-                },
-                onPauseAll = {
-                    overlayScope.launch {
-                        AppRepositories.queueScheduler(context).pauseAll { id ->
-                            DownloadTransferService.pauseTransfer(context, id)
+            item {
+                Spacer(Modifier.height(18.dp))
+                DownloadToolbar(
+                    downloads.size,
+                    uiState.category,
+                    selectionMode = selectionMode,
+                    onDownloadAll = {
+                        if (records.none { it.state != DownloadState.COMPLETED }) {
+                            actionNotice = "Nothing to download" to "There are no unfinished downloads to start."
+                        } else if (allowedNetworkOrNotice()) overlayScope.launch {
+                            AppRepositories.queueScheduler(context).downloadAll()
                         }
-                        onToast("All active downloads paused")
+                    },
+                    onPauseAll = {
+                        val pauseable = records.filter {
+                            it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED)
+                        }
+                        if (pauseable.isEmpty()) {
+                            actionNotice = "Nothing to pause" to "There are no active or queued downloads."
+                        } else {
+                            pauseable.forEach { showPending(it.id, "Pausing…") }
+                            DownloadTransferService.pauseAll(context)
+                        }
+                    },
+                    onClearCompleted = {
+                        if (downloads.any { it.category == DownloadCategory.Completed }) clearCompletedRequested = true
+                    },
+                )
+            }
+            stickyHeader(key = "download-tabs") {
+                Column(Modifier.fillMaxWidth().background(SdmBackground)) {
+                    Spacer(Modifier.height(8.dp))
+                    if (selectionMode) {
+                        DownloadSelectionToolbar(
+                        count = selectedIds.size,
+                        canPause = downloadsSelectionPauseIds(records, selectedIds).isNotEmpty(),
+                        canResume = downloadsSelectionStartQueuedIds(records, selectedIds).isNotEmpty() ||
+                            downloadsSelectionResumeOrRetryIds(records, selectedIds).isNotEmpty(),
+                        onClose = {
+                            selectedIds = emptySet()
+                            selectionDeleteOpen = false
+                        },
+                        onPause = {
+                            if (selectionActing || deletingSelection) return@DownloadSelectionToolbar
+                            selectionActing = true
+                            overlayScope.launch {
+                                try {
+                                    val pauseIds = downloadsSelectionPauseIds(records, selectedIds)
+                                    val succeeded = mutableSetOf<String>()
+                                    pauseIds.forEach { id ->
+                                        try {
+                                            showPending(id, "Pausing…")
+                                            DownloadTransferService.pauseTransfer(context, id)
+                                            succeeded += id
+                                        } catch (_: Throwable) {
+                                        }
+                                    }
+                                    selectedIds = removeActedOnDownloadsSelection(selectedIds, succeeded)
+                                    onToast(downloadsSelectionPauseToast(succeeded.size))
+                                } finally {
+                                    selectionActing = false
+                                }
+                            }
+                        },
+                        onResume = {
+                            if (selectionActing || deletingSelection) return@DownloadSelectionToolbar
+                            if (!allowedNetworkOrNotice()) return@DownloadSelectionToolbar
+                            selectionActing = true
+                            overlayScope.launch {
+                                try {
+                                    val succeeded = mutableSetOf<String>()
+                                    downloadsSelectionStartQueuedIds(records, selectedIds).forEach { id ->
+                                        try {
+                                            showPending(id, "Starting…")
+                                            AppRepositories.queueScheduler(context).startQueued(id)
+                                            succeeded += id
+                                        } catch (_: Throwable) {
+                                        }
+                                    }
+                                    downloadsSelectionResumeOrRetryIds(records, selectedIds).forEach { id ->
+                                        try {
+                                            resumeOrShowNetworkNotice(id)
+                                            succeeded += id
+                                        } catch (_: Throwable) {
+                                        }
+                                    }
+                                    selectedIds = removeActedOnDownloadsSelection(selectedIds, succeeded)
+                                    onToast(downloadsSelectionResumeToast(succeeded.size))
+                                } finally {
+                                    selectionActing = false
+                                }
+                            }
+                        },
+                        onDelete = {
+                            if (selectionActing || deletingSelection) return@DownloadSelectionToolbar
+                            if (!downloadsSelectionDeleteTargets(records, selectedIds).isEmpty) {
+                                selectionDeleteOpen = true
+                            }
+                        },
+                        )
+                    } else {
+                        DownloadTabs(uiState.category, downloadTabCounts(downloads)) {
+                            uiState.category = it
+                            uiState.query = ""
+                        }
                     }
-                },
-                onClearCompleted = {
-                    if (downloads.any { it.category == DownloadCategory.Completed }) clearCompletedRequested = true
-                },
-            ) }
-            item { Spacer(Modifier.height(8.dp)); DownloadTabs(uiState.category) { uiState.category = it; uiState.query = "" }; Spacer(Modifier.height(12.dp)) }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
             val visibleDownloads = filterDownloadCards(downloads, uiState.category, uiState.query)
             if (visibleDownloads.isEmpty()) {
                 item { EmptyDownloads(uiState.category) }
             } else {
                 items(visibleDownloads, key = { it.id }) { item ->
                     DownloadCard(
-                        item = item,
+                        item = pendingActions[item.id]?.let { item.copy(metadataValue = it.second, trailing = it.second) } ?: item,
+                        selected = item.id in selectedIds,
+                        selectionMode = selectionMode,
                         onOpen = { onSelectedDownloadIdChange(item.id) },
+                        onToggleSelection = {
+                            selectedIds = toggleDownloadsSelection(selectedIds, item.id)
+                        },
+                        onLongPressSelect = {
+                            selectedIds = selectedIds + item.id
+                        },
                         onAction = {
                             val record = records.firstOrNull { it.id == item.id }
                             val action = record?.let { transferCardAction(it.state) }
@@ -400,21 +552,17 @@ internal fun InteractiveDownloadsScreen(
                                 dispatchTransferCardAction(
                                     action = action,
                                     start = {
+                                        if (!allowedNetworkOrNotice()) return@dispatchTransferCardAction
                                         overlayScope.launch {
                                             AppRepositories.queueScheduler(context).startQueued(item.id)
                                         }
                                     },
-                                    pause = { DownloadTransferService.pauseTransfer(context, item.id) },
-                                    resumeOrRetry = { DownloadTransferService.resumeTransfer(context, item.id) },
+                                    pause = {
+                                        showPending(item.id, "Pausing…")
+                                        DownloadTransferService.pauseTransfer(context, item.id)
+                                    },
+                                    resumeOrRetry = { resumeOrShowNetworkNotice(item.id) },
                                 )
-                            }
-                        },
-                        onManage = {
-                            val record = records.firstOrNull { it.id == item.id } ?: return@DownloadCard
-                            if (record.state == DownloadState.COMPLETED) {
-                                completedDeleteId = item.id
-                            } else {
-                                incompleteDeleteId = item.id
                             }
                         },
                     )
@@ -424,75 +572,119 @@ internal fun InteractiveDownloadsScreen(
         }
     }
 
-    val deleteTarget = completedDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state == DownloadState.COMPLETED } }
-    val incompleteDeleteTarget = incompleteDeleteId?.let { id -> records.firstOrNull { it.id == id && it.state != DownloadState.COMPLETED } }
-    if (incompleteDeleteTarget != null) {
-        SdmConfirmDialog(
-            title = "Delete download?",
-            message = "This removes the download and its partial file. It cannot be resumed afterward.",
-            dismissLabel = "Keep",
-            confirmLabel = "Delete",
-            submitting = deletingIncomplete,
-            onDismiss = { if (!deletingIncomplete) incompleteDeleteId = null },
-            onConfirm = {
-                if (deletingIncomplete) return@SdmConfirmDialog
-                deletingIncomplete = true
-                overlayScope.launch {
-                    try {
-                        val deleted = IncompleteDownloadDeleteCoordinator.delete(
-                            incompleteDeleteTarget.id,
-                            repository,
-                        ) { id -> DownloadTransferService.cancelTransfer(context, id) }
-                        if (deleted) {
-                            if (selectedDownloadId == incompleteDeleteTarget.id) onSelectedDownloadIdChange(null)
-                            onToast("Download and partial file deleted")
-                            incompleteDeleteId = null
-                        } else {
-                            onToast("Unable to delete download. Please try again.")
-                        }
-                    } finally {
-                        deletingIncomplete = false
-                    }
-                }
-            },
-        )
+    val selectionDeleteTargets = remember(selectionDeleteOpen, records, selectedIds) {
+        if (!selectionDeleteOpen) {
+            DownloadsSelectionDeleteTargets(emptyList(), emptyList())
+        } else {
+            downloadsSelectionDeleteTargets(records, selectedIds)
+        }
     }
-    if (deleteTarget != null) {
+    LaunchedEffect(selectionDeleteOpen, selectionDeleteTargets.isEmpty, deletingSelection) {
+        if (selectionDeleteOpen && selectionDeleteTargets.isEmpty && !deletingSelection) {
+            selectionDeleteOpen = false
+        }
+    }
+    if (selectionDeleteOpen && !selectionDeleteTargets.isEmpty) {
+        val copy = downloadsSelectionDeleteCopy(selectionDeleteTargets)
+        val incompleteIds = selectionDeleteTargets.incompleteIds
+        val completedIds = selectionDeleteTargets.completedIds
         SdmConfirmDialog(
-            title = "Remove from Completed?",
-            message = "Choose whether to keep the downloaded file in Files.",
-            dismissLabel = "Keep in list",
-            confirmLabel = "Remove only",
-            deleteFileLabel = "Remove and delete file",
-            submitting = deletingCompleted,
-            onDismiss = { if (!deletingCompleted) completedDeleteId = null },
+            title = copy.title,
+            message = copy.message,
+            dismissLabel = copy.dismissLabel,
+            confirmLabel = copy.confirmLabel,
+            deleteFileLabel = copy.deleteFileLabel,
+            submitting = deletingSelection,
+            onDismiss = { if (!deletingSelection) selectionDeleteOpen = false },
             onConfirm = {
-                if (deletingCompleted) return@SdmConfirmDialog
-                deletingCompleted = true
+                if (deletingSelection) return@SdmConfirmDialog
+                deletingSelection = true
                 overlayScope.launch {
                     try {
-                        hiddenCompletedIds = completedVisibility.hide(listOf(deleteTarget.id))
-                        onToast("Removed from Completed. File remains in Files.")
-                        completedDeleteId = null
+                        val succeeded = mutableSetOf<String>()
+                        var incompleteFailed = 0
+                        incompleteIds.forEach { id ->
+                            val deleted = try {
+                                IncompleteDownloadDeleteCoordinator.delete(id, repository) { cancelId ->
+                                    DownloadTransferService.cancelTransfer(context, cancelId)
+                                }
+                            } catch (_: Throwable) {
+                                false
+                            }
+                            if (deleted) succeeded += id else incompleteFailed += 1
+                        }
+                        if (completedIds.isNotEmpty()) {
+                            hiddenCompletedIds = completedVisibility.hide(completedIds)
+                            succeeded += completedIds
+                        }
+                        selectedIds = removeActedOnDownloadsSelection(selectedIds, succeeded)
+                        onToast(
+                            downloadsSelectionDeleteToast(
+                                incompleteSucceeded = incompleteIds.size - incompleteFailed,
+                                incompleteFailed = incompleteFailed,
+                                completedSucceeded = completedIds.size,
+                                completedFailed = 0,
+                                deleteCompletedFiles = false,
+                            ),
+                        )
+                        if (incompleteFailed == 0) selectionDeleteOpen = false
                     } finally {
-                        deletingCompleted = false
+                        deletingSelection = false
                     }
                 }
             },
-            onDeleteFile = {
-                if (deletingCompleted) return@SdmConfirmDialog
-                deletingCompleted = true
-                overlayScope.launch {
-                    try {
-                        val result = CompletedFileDeleteCoordinator.delete(
-                            deleteTarget.id,
-                            repository,
-                            DocumentsContractContentDocuments(context),
-                        )
-                        onToast(completedFileDeleteActionMessage(result))
-                        if (shouldCloseDeleteDialog(result)) completedDeleteId = null
-                    } finally {
-                        deletingCompleted = false
+            onDeleteFile = if (copy.deleteFileLabel == null) {
+                null
+            } else {
+                {
+                    if (!deletingSelection) {
+                        deletingSelection = true
+                        overlayScope.launch {
+                            try {
+                                val succeeded = mutableSetOf<String>()
+                                var incompleteFailed = 0
+                                var completedFailed = 0
+                                incompleteIds.forEach { id ->
+                                    val deleted = try {
+                                        IncompleteDownloadDeleteCoordinator.delete(id, repository) { cancelId ->
+                                            DownloadTransferService.cancelTransfer(context, cancelId)
+                                        }
+                                    } catch (_: Throwable) {
+                                        false
+                                    }
+                                    if (deleted) succeeded += id else incompleteFailed += 1
+                                }
+                                completedIds.forEach { id ->
+                                    val result = try {
+                                        CompletedFileDeleteCoordinator.delete(
+                                            id,
+                                            repository,
+                                            DocumentsContractContentDocuments(context),
+                                        )
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                    if (result != null && shouldCloseDeleteDialog(result)) {
+                                        succeeded += id
+                                    } else {
+                                        completedFailed += 1
+                                    }
+                                }
+                                selectedIds = removeActedOnDownloadsSelection(selectedIds, succeeded)
+                                onToast(
+                                    downloadsSelectionDeleteToast(
+                                        incompleteSucceeded = incompleteIds.size - incompleteFailed,
+                                        incompleteFailed = incompleteFailed,
+                                        completedSucceeded = completedIds.size - completedFailed,
+                                        completedFailed = completedFailed,
+                                        deleteCompletedFiles = true,
+                                    ),
+                                )
+                                if (incompleteFailed == 0 && completedFailed == 0) selectionDeleteOpen = false
+                            } finally {
+                                deletingSelection = false
+                            }
+                        }
                     }
                 }
             },
@@ -546,6 +738,14 @@ internal fun InteractiveDownloadsScreen(
                 }
             },
         )
+    }
+    if (networkNoticeOpen) SdmNoticeDialog(
+        title = "No internet connection",
+        message = "Downloads cannot start on this connection. Reconnect to the internet, or use Wi-Fi if Wi-Fi only is enabled, then try again.",
+        onDismiss = { networkNoticeOpen = false },
+    )
+    actionNotice?.let { (title, message) ->
+        SdmNoticeDialog(title, message) { actionNotice = null }
     }
 
     CompositionLocalProvider(LocalHomeSheetVisible provides !overlayClosing) { when (uiState.overlay) {
@@ -645,7 +845,7 @@ private fun DownloadStatusCard(
             Text("SDM", color = SdmGold.copy(alpha = .055f), fontSize = 86.sp, lineHeight = 86.sp, letterSpacing = (-6.8).sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp))
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.Top) { Text("PREMIUM STATUS", color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f)); Box(Modifier.padding(top = 3.dp).size(7.dp).background(SdmSuccess, CircleShape)); Spacer(Modifier.width(6.dp)); Text("${values.activeCount} active", color = SdmSuccess, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                Row(Modifier.padding(top = 10.dp).height(44.dp), verticalAlignment = Alignment.Bottom) { Text(values.speedValue, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text("MB/s", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
+                Row(Modifier.padding(top = 10.dp).height(44.dp), verticalAlignment = Alignment.Bottom) { Text(values.speedValue, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-1.8).sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Text(values.speedUnit, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 3.dp)) }
                 Text("Aggregate download speed", color = SdmMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp, bottom = 14.dp))
                 Row(Modifier.fillMaxWidth()) { DownloadStat(values.downloadedToday, "Downloaded today", Modifier.weight(1f)); VerticalDivider(); DownloadStat(values.remaining, "Remaining", Modifier.weight(1f).padding(start = 10.dp)); VerticalDivider(); DownloadStat(values.connections, "Connections", Modifier.weight(1f).padding(start = 10.dp)) }
             }
@@ -657,30 +857,112 @@ private fun DownloadStatusCard(
 @Composable private fun DownloadStat(value: String, label: String, modifier: Modifier) { Column(modifier.padding(end = 7.dp)) { Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(label, color = SdmMuted, fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp)) } }
 
 @Composable
-private fun DownloadToolbar(count: Int, category: DownloadCategory, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
+private fun DownloadToolbar(count: Int, category: DownloadCategory, selectionMode: Boolean, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
+    val bulkEnabled = !selectionMode
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text("Downloads", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold); Text("$count items", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp)) }
         if (category == DownloadCategory.Completed) {
-            BulkButton("Clear All", SdmIcons.Delete, false, onClearCompleted)
+            BulkButton("Clear All", SdmIcons.Delete, false, bulkEnabled, if (bulkEnabled) onClearCompleted else ({}))
         } else {
-            BulkButton("Download All", SdmIcons.DownloadAll, true, onDownloadAll); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, onPauseAll)
+            BulkButton("Download All", SdmIcons.DownloadAll, true, bulkEnabled, if (bulkEnabled) onDownloadAll else ({})); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, bulkEnabled, if (bulkEnabled) onPauseAll else ({}))
         }
     }
 }
 
 @Composable
-private fun BulkButton(label: String, icon: ImageVector, highlighted: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .48f) else SdmLine), modifier = Modifier.height(38.dp)) {
+private fun DownloadSelectionToolbar(
+    count: Int,
+    canPause: Boolean,
+    canResume: Boolean,
+    onClose: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val onGold = sdmColor(0xFF080808, 0xFF181713)
+    Row(
+        Modifier.fillMaxWidth().height(48.dp)
+            .background(SdmGold, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.weight(1f).height(28.dp)
+                .clickable(role = Role.Button, onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(downloadsSelectionCountLabel(count), color = onGold, fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
+                Icon(SdmIcons.Close, "Close selection", tint = onGold, modifier = Modifier.size(12.dp))
+            }
+        }
+        SelectionActionButton("Pause", Modifier.weight(1f), canPause, onPause)
+        SelectionActionButton("Resume", Modifier.weight(1f), canResume, onResume)
+        SelectionActionButton("Delete", Modifier.weight(1f), true, onDelete, danger = true)
+    }
+}
+
+@Composable
+private fun SelectionActionButton(
+    label: String,
+    modifier: Modifier,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    danger: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        color = if (danger) sdmColor(0xFF241B1A, 0xFF2A1614) else sdmColor(0xFF121315, 0xFF181713),
+        contentColor = if (danger) sdmColor(0xFFEF756B, 0xFFEF756B) else sdmColor(0xFFF3D675, 0xFFD4AF37),
+        shape = RoundedCornerShape(9.dp),
+        modifier = modifier.height(28.dp).alpha(if (enabled) 1f else .38f),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun BulkButton(label: String, icon: ImageVector, highlighted: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, color = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .48f) else SdmLine), modifier = Modifier.height(38.dp).alpha(if (enabled) 1f else .38f)) {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(8.dp)); Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold) }
     }
 }
 
 @Composable
-private fun DownloadTabs(selected: DownloadCategory, onSelect: (DownloadCategory) -> Unit) {
-    Row(Modifier.fillMaxWidth().background(SdmSurface, RoundedCornerShape(14.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        DownloadCategory.entries.forEach { category ->
-            val active = selected == category
-            Box(Modifier.weight(1f).height(40.dp).background(if (active) sdmColor(0xFF25251F, 0xFFF5EDD4) else Color.Transparent, RoundedCornerShape(10.dp)).then(if (active) Modifier.border(1.dp, SdmGold.copy(alpha = .28f), RoundedCornerShape(10.dp)) else Modifier).clickable { onSelect(category) }, contentAlignment = Alignment.Center) { Text(category.label, color = if (active) SdmGoldHigh else SdmMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+private fun DownloadTabs(
+    selected: DownloadCategory,
+    counts: Map<DownloadCategory, Int>,
+    onSelect: (DownloadCategory) -> Unit,
+) {
+    Box(Modifier.fillMaxWidth().background(SdmSurface, RoundedCornerShape(14.dp))) {
+        Row(
+            Modifier.fillMaxWidth().padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DownloadCategory.entries.forEach { category ->
+                val active = selected == category
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .background(if (active) sdmColor(0xFF25251F, 0xFFF5EDD4) else Color.Transparent, RoundedCornerShape(10.dp))
+                        .then(if (active) Modifier.border(1.dp, SdmGold.copy(alpha = .28f), RoundedCornerShape(10.dp)) else Modifier)
+                        .clickable { onSelect(category) }
+                        .padding(horizontal = 2.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(category.label, color = if (active) SdmGoldHigh else SdmMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Text((counts[category] ?: 0).toString(), color = (if (active) SdmGoldHigh else SdmMuted).copy(alpha = .55f), fontSize = 9.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                    }
+                }
+            }
         }
     }
 }
@@ -688,8 +970,8 @@ private fun DownloadTabs(selected: DownloadCategory, onSelect: (DownloadCategory
 @Composable
 private fun EmptyDownloads(category: DownloadCategory) {
     SdmEmptyState(
-        if (category == DownloadCategory.Completed) "No completed downloads" else "No ${category.label.lowercase()} downloads",
-        "Finished files will appear here.",
+        emptyDownloadsTitle(category),
+        emptyDownloadsDescription(category),
     )
 }
 
@@ -713,32 +995,95 @@ internal fun SdmEmptyState(title: String, description: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onAction: () -> Unit, onManage: () -> Unit) {
-    val queued = item.category == DownloadCategory.Queued
-    Surface(color = SdmSurface, contentColor = SdmText, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.fillMaxWidth().then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)) {
+private fun DownloadCard(
+    item: DownloadCardModel,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onOpen: (() -> Unit)?,
+    onToggleSelection: () -> Unit = {},
+    onLongPressSelect: () -> Unit = {},
+    onAction: () -> Unit,
+) {
+    val queued = item.isQueued
+    Surface(
+        color = if (selected) sdmColor(0xFF211F17, 0xFFF5EDD4) else SdmSurface,
+        contentColor = SdmText,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (selected) SdmGold.copy(alpha = .65f) else SdmLine),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) onToggleSelection() else onOpen?.invoke()
+                },
+                onLongClick = onLongPressSelect,
+            )
+            .semantics {
+                if (selectionMode) {
+                    stateDescription = if (selected) "Selected" else "Not selected"
+                }
+            },
+    ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                Box(Modifier.size(width = 46.dp, height = 52.dp).background(if (queued) sdmColor(0xFF17181A, 0xFFF0ECE3) else sdmColor(0xFF181813, 0xFFF2EAD2), RoundedCornerShape(12.dp)).border(1.dp, if (queued) SdmLine else SdmGold.copy(alpha = .3f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text(item.type, color = if (queued) SdmMuted else SdmGoldHigh, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = .6.sp) }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 18.9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
-                Spacer(Modifier.width(12.dp))
-                Surface(onClick = onManage, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmMuted, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            SdmIcons.Delete,
-                            if (item.category == DownloadCategory.Completed) "Remove from Completed" else "Delete download",
-                            modifier = Modifier.size(18.dp),
+                Box(
+                    Modifier
+                        .size(width = 46.dp, height = 52.dp)
+                        .background(
+                            if (selected) sdmColor(0xFF2A2616, 0xFFF5EDD4)
+                            else if (queued) sdmColor(0xFF17181A, 0xFFF0ECE3)
+                            else sdmColor(0xFF181813, 0xFFF2EAD2),
+                            RoundedCornerShape(12.dp),
                         )
+                        .border(
+                            1.dp,
+                            if (selected) SdmGold.copy(alpha = .7f) else if (queued) SdmLine else SdmGold.copy(alpha = .3f),
+                            RoundedCornerShape(12.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        item.type,
+                        color = if (selected || !queued) SdmGoldHigh else SdmMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = .6.sp,
+                    )
+                    if (selected) {
+                        Box(
+                            Modifier.align(Alignment.BottomEnd)
+                                .offset(x = 6.dp, y = 6.dp)
+                                .size(18.dp)
+                                .background(SdmGold, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(SdmIcons.Check, "Selected", tint = SdmBackground, modifier = Modifier.size(11.dp))
+                        }
                     }
                 }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) { Text(item.name, fontSize = 14.sp, lineHeight = 18.9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) { Text(item.size, color = SdmMuted, fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Box(Modifier.size(3.dp).background(sdmColor(0xFF5E5C56, 0xFF8C887E), CircleShape)); Spacer(Modifier.width(8.dp)); Text(item.metadataValue, color = SdmMuted, fontSize = 11.sp) } }
                 Spacer(Modifier.width(6.dp))
                 if (item.category == DownloadCategory.Completed) {
-                    Surface(color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(SdmIcons.Check, "Completed", modifier = Modifier.size(19.dp)) }
+                    Box(Modifier.size(width = 32.dp, height = 44.dp), contentAlignment = Alignment.Center) {
+                        Icon(SdmIcons.Check, "Completed", tint = SdmGoldHigh, modifier = Modifier.size(19.dp))
                     }
                 } else {
-                    Surface(onClick = onAction, color = sdmColor(0xFF1C1D1F, 0xFFECE8DF), contentColor = SdmGoldHigh, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause, if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause", modifier = Modifier.size(19.dp)) } }
+                    Box(
+                        Modifier
+                            .size(width = 32.dp, height = 44.dp)
+                            .clickable(role = Role.Button, onClick = if (selectionMode) onToggleSelection else onAction),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause,
+                            if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
+                            tint = SdmGoldHigh,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
                 }
             }
             Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(3.dp).background(sdmColor(0xFF34332F, 0xFFDED8CB), CircleShape)) { Box(Modifier.fillMaxWidth(if (queued) 0f else item.progress).height(3.dp).background(SdmGold, CircleShape)) }
@@ -750,18 +1095,14 @@ private fun DownloadCard(item: DownloadCardModel, onOpen: (() -> Unit)?, onActio
 @Composable
 private fun HomeSheet(icon: ImageVector, eyebrow: String, title: String, description: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val visible = LocalHomeSheetVisible.current
-    val slide = remember { Animatable(0f) }
-    val scrim = remember { Animatable(0f) }
-    LaunchedEffect(visible) {
-        launch { slide.animateTo(if (visible) 1f else 0f, tween(320, easing = CubicBezierEasing(.2f, .82f, .24f, 1f))) }
-        launch { scrim.animateTo(if (visible) 1f else 0f, tween(200)) }
-    }
+    val motion = rememberSdmSheetMotion(visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().statusBarsPadding().background(Color.Black.copy(alpha = .72f * scrim.value)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().statusBarsPadding().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
             Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
-                Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).graphicsLayer { translationY = (size.height + 24.dp.toPx()) * (1f - slide.value); scaleX = .985f + .015f * slide.value; scaleY = scaleX; alpha = .72f + .28f * scrim.value }.clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)), shadowElevation = 18.dp) {
+                Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)), shadowElevation = 18.dp) {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(17.dp)) {
                         Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp).size(width = 42.dp, height = 4.dp).background(sdmColor(0xFF514F48, 0xFFB8B2A7), CircleShape))
                         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -889,15 +1230,13 @@ private fun DownloadDetailsScreen(
     onMoveToTop: () -> Unit,
     onPause: () -> Unit,
     onCancel: () -> Unit,
-    onDelete: suspend () -> Boolean,
     onPriority: () -> Unit,
+    onRevealFileInFiles: (String) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var headersOpen by remember(download.id) { mutableStateOf(false) }
     var segmentsOpen by remember(download.id) { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
-    var deleteOpen by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var verifying by remember { mutableStateOf(false) }
@@ -908,6 +1247,7 @@ private fun DownloadDetailsScreen(
     }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val folderPicker = rememberFileManagerPickerController()
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
     val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + designHeaderInset().roundToPx() + 58.dp.roundToPx() }
@@ -917,8 +1257,7 @@ private fun DownloadDetailsScreen(
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        (listOf("Rename", "Verify checksum", "Move to top") +
-                            if (download.state != DownloadState.COMPLETED) listOf("Delete download") else emptyList()).forEach { label ->
+                        listOf("Rename", "Verify checksum", "Move to top").forEach { label ->
                             Box(
                                 Modifier.fillMaxWidth().height(54.dp).clickable {
                                     menuOpen = false
@@ -945,7 +1284,6 @@ private fun DownloadDetailsScreen(
                                             }
                                         }
                                         "Move to top" -> onMoveToTop()
-                                        "Delete download" -> deleteOpen = true
                                     }
                                 }.padding(horizontal = 10.dp),
                                 contentAlignment = Alignment.CenterStart,
@@ -974,7 +1312,15 @@ private fun DownloadDetailsScreen(
                     )
                 }
             }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = { onToast(detailsOpenFolderToast(download)) }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(sdmColor(0xFF0D0E0F, 0xFFFAF8F2))) { HorizontalDivider(color = SdmLine); Surface(onClick = {
+                performDetailsOpenFolder(
+                    download = download,
+                    discover = { treeUri -> SaveLocationFileManagers.discover(context, treeUri) },
+                    onToast = onToast,
+                    onRevealFileInFiles = onRevealFileInFiles,
+                    showPicker = folderPicker::show,
+                )
+            }, color = sdmColor(0xFF161612, 0xFFF5EDD4), contentColor = SdmGoldHigh, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmGold.copy(alpha = .44f)), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().height(50.dp)) { Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(SdmIcons.FolderPlain, null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text("Open folder", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) } } }
         }
     }
     if (cancelOpen) CancelDownloadDialog({ cancelOpen = false }) {
@@ -984,31 +1330,6 @@ private fun DownloadDetailsScreen(
             returnToList = onBack,
         )
     }
-    if (deleteOpen) SdmConfirmDialog(
-        title = "Delete download?",
-        message = "This removes the download and its partial file. It cannot be resumed afterward.",
-        dismissLabel = "Keep",
-        confirmLabel = "Delete",
-        submitting = deleting,
-        onDismiss = { if (!deleting) deleteOpen = false },
-        onConfirm = {
-            if (deleting) return@SdmConfirmDialog
-            deleting = true
-            actionScope.launch {
-                try {
-                    if (onDelete()) {
-                        deleteOpen = false
-                        onBack()
-                        onToast("Download and partial file deleted")
-                    } else {
-                        onToast("Unable to delete download. Please try again.")
-                    }
-                } finally {
-                    deleting = false
-                }
-            }
-        },
-    )
     if (renameOpen) SdmRenameDialog(
         fileName = download.fileName,
         submitting = renaming,
@@ -1027,6 +1348,7 @@ private fun DownloadDetailsScreen(
             }
         },
     )
+    FileManagerPickerHost(folderPicker, onToast)
 }
 
 @Composable
@@ -1246,17 +1568,21 @@ private fun DisclosureInfo(
 @Composable private fun DisclosureRow(title:String,value:String,open:Boolean,onClick:()->Unit){Row(Modifier.fillMaxWidth().heightIn(min=54.dp).clickable(onClick=onClick).padding(horizontal=14.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically){Text(title,fontSize=12.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text(value,fontSize=12.sp);Icon(SdmIcons.Chevron,null,tint=SdmMuted,modifier=Modifier.padding(start=8.dp).size(16.dp).rotate(if(open)90f else 0f))}}
 
 @Composable private fun CancelDownloadDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)) {
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
+    val dismiss = { sheetHost.dismissThen(onDismiss) }
+    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = dismiss)) {
             Box(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
-                Surface(Modifier.fillMaxWidth().clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
+                Surface(Modifier.fillMaxWidth().onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                     Column(Modifier.padding(21.dp)) {
                         Text("Cancel download?", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         Text("The partial file will be kept so you can resume later.", color = SdmMuted, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SheetActionButton("Keep downloading", false, Modifier.weight(1f), onDismiss)
+                            SheetActionButton("Keep downloading", false, Modifier.weight(1f), dismiss)
                             Surface(onClick = onConfirm, color = sdmColor(0xFF191A1C, 0xFFECE8DF), contentColor = SdmDanger, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(1f).height(50.dp)) {
                                 Box(contentAlignment = Alignment.Center) { Text("Cancel download", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold) }
                             }

@@ -13,14 +13,17 @@ internal object BrowserPrivacySession {
         }
     }
 
-    fun end(webViews: Collection<WebView>) {
+    fun end(webViews: Collection<WebView>, clearData: Boolean = true) {
         webViews.forEach { view ->
             view.stopLoading()
-            view.clearHistory()
-            view.clearCache(true)
-            view.clearFormData()
+            if (clearData) {
+                view.clearHistory()
+                view.clearCache(true)
+                view.clearFormData()
+            }
             view.destroy()
         }
+        if (!clearData) return
         CookieManager.getInstance().removeAllCookies {
             CookieManager.getInstance().flush()
         }

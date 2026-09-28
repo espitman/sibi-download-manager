@@ -22,10 +22,15 @@ object TransferNotificationPendingIntentSpec {
 
     const val PENDING_INTENT_KIND_FOREGROUND_SERVICE = "foregroundService"
 
-    private val CONTROL_ACTIONS = setOf(
+    private val ITEM_CONTROL_ACTIONS = setOf(
         DownloadTransferCommand.ACTION_PAUSE_TRANSFER,
         DownloadTransferCommand.ACTION_RESUME_TRANSFER,
         DownloadTransferCommand.ACTION_CANCEL_TRANSFER,
+    )
+
+    private val BULK_CONTROL_ACTIONS = setOf(
+        DownloadTransferCommand.ACTION_PAUSE_ALL,
+        DownloadTransferCommand.ACTION_RESUME_ALL,
     )
 
     fun flags(): Int = FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT
@@ -33,9 +38,20 @@ object TransferNotificationPendingIntentSpec {
     fun usesForegroundServicePendingIntent(sdkInt: Int): Boolean = sdkInt >= 26
 
     fun identity(downloadId: String?, serviceAction: String?): TransferNotificationActionIdentity? {
-        val id = downloadId?.trim().orEmpty()
         val action = serviceAction?.trim().orEmpty()
-        if (id.isEmpty() || action !in CONTROL_ACTIONS) return null
+        if (action in BULK_CONTROL_ACTIONS) {
+            val id = DownloadTransferCommand.BULK_TARGET_ID
+            return TransferNotificationActionIdentity(
+                downloadId = id,
+                serviceAction = action,
+                requestCode = requestCode(id, action),
+                data = intentData(id, action),
+                flags = flags(),
+                pendingIntentKind = PENDING_INTENT_KIND_FOREGROUND_SERVICE,
+            )
+        }
+        val id = downloadId?.trim().orEmpty()
+        if (id.isEmpty() || action !in ITEM_CONTROL_ACTIONS) return null
         return TransferNotificationActionIdentity(
             downloadId = id,
             serviceAction = action,

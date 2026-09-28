@@ -110,6 +110,7 @@ object AppRepositories {
                 speedLimiter = limiter,
                 segmentCount = { SettingsRepository.get(appContext).settings.value.connections },
                 requestContext = BrowserRequestContextRegistry::get,
+                networkUnavailable = { isNetworkOffline(appContext) },
             ).also { transferEngine = it }
         }
     }
@@ -141,6 +142,11 @@ object AppRepositories {
     fun transferAllowance(context: Context): MutableTransferAllowance {
         ensureNetworkRestriction(context)
         return transferAllowance!!
+    }
+
+    fun isNetworkOffline(context: Context): Boolean {
+        ensureNetworkRestriction(context)
+        return connectivityMonitor?.current()?.isValidated != true
     }
 
     fun networkRestriction(context: Context): NetworkRestrictionCoordinator {

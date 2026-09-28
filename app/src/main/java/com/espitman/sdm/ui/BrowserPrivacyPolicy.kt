@@ -13,5 +13,13 @@ internal data class BrowserPrivacyPolicy(
             clearCookiesAtSessionEnd = true,
             clearWebStorageAtSessionEnd = true,
         )
+        val Regular = BrowserPrivacyPolicy(
+            persistHistory = true,
+            persistCache = true,
+            clearCookiesAtSessionEnd = false,
+            clearWebStorageAtSessionEnd = false,
+        )
+
+        fun forTab(isPrivate: Boolean): BrowserPrivacyPolicy = if (isPrivate) Private else Regular
     }
 }

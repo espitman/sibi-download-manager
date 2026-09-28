@@ -2,6 +2,7 @@ package com.espitman.sdm.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -14,6 +15,8 @@ class FilesUiStateTest {
         assertFalse(state.searchOpen)
         assertEquals("", state.query)
         assertEquals(FileSortOption.NewestFirst, state.sort)
+        assertNull(state.pendingRevealFileId)
+        assertEquals(0, state.revealEpoch)
     }
 
     @Test
@@ -31,6 +34,8 @@ class FilesUiStateTest {
         assertTrue(restored.searchOpen)
         assertEquals("Editorial_Assets — آرشیو.zip", restored.query)
         assertEquals(FileSortOption.OldestFirst, restored.sort)
+        assertNull(restored.pendingRevealFileId)
+        assertEquals(0, restored.revealEpoch)
     }
 
     @Test

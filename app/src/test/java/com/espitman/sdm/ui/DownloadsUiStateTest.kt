@@ -11,10 +11,10 @@ import org.junit.Test
 
 class DownloadsUiStateTest {
     @Test
-    fun defaultsAreDownloadingWithSearchAndOverlaysClosed() {
+    fun defaultsAreAllWithSearchAndOverlaysClosed() {
         val state = DownloadsUiState()
 
-        assertEquals(DownloadCategory.Downloading, state.category)
+        assertEquals(DownloadCategory.All, state.category)
         assertFalse(state.searchOpen)
         assertEquals("", state.query)
         assertFalse(state.menuOpen)
@@ -61,7 +61,7 @@ class DownloadsUiStateTest {
     fun malformedSavedValuesFallBackToDefaults() {
         val restored = restoreDownloadsUiState(listOf("UnknownTab", "yes", null))
 
-        assertEquals(DownloadCategory.Downloading, restored.category)
+        assertEquals(DownloadCategory.All, restored.category)
         assertFalse(restored.searchOpen)
         assertEquals("", restored.query)
         assertFalse(restored.menuOpen)
@@ -92,6 +92,20 @@ class DownloadsUiStateTest {
         assertEquals(DownloadCategory.Queued, restored.category)
         assertEquals("Part.Two", restored.query)
         assertTrue(restored.searchOpen)
+    }
+
+    @Test
+    fun previouslySavedStatusTabsRestoreAndAllRoundTrips() {
+        val downloading = restoreDownloadsUiState(listOf("Downloading", false, ""))
+        val queued = restoreDownloadsUiState(listOf("Queued", false, ""))
+        val completed = restoreDownloadsUiState(listOf("Completed", true, "done"))
+        val all = DownloadsUiState()
+
+        assertEquals(DownloadCategory.Downloading, downloading.category)
+        assertEquals(DownloadCategory.Queued, queued.category)
+        assertEquals(DownloadCategory.Completed, completed.category)
+        assertEquals(DownloadCategory.All, restoreDownloadsUiState(saveDownloadsUiState(all)).category)
+        assertEquals("All", saveDownloadsUiState(all)[0])
     }
 
     private fun download(id: String) = Download(

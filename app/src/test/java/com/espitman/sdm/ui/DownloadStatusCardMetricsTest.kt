@@ -42,6 +42,7 @@ class DownloadStatusCardMetricsTest {
 
         assertEquals(0, values.activeCount)
         assertEquals("0", values.speedValue)
+        assertEquals("MB/s", values.speedUnit)
         assertEquals("0 B", values.downloadedToday)
         assertEquals("0 B", values.remaining)
         assertEquals("16", values.connections)
@@ -64,6 +65,7 @@ class DownloadStatusCardMetricsTest {
         assertEquals(2, values.activeCount)
         assertEquals("8", values.connections)
         assertEquals("0", values.speedValue)
+        assertEquals("MB/s", values.speedUnit)
     }
 
     @Test
@@ -81,6 +83,7 @@ class DownloadStatusCardMetricsTest {
         )
         assertEquals("—", unknown.remaining)
         assertEquals("2", unknown.speedValue)
+        assertEquals("MB/s", unknown.speedUnit)
 
         val remaining = downloadStatusCardValues(
             listOf(
@@ -127,6 +130,7 @@ class DownloadStatusCardMetricsTest {
         )
         assertEquals(0, idle.activeCount)
         assertEquals("0", idle.speedValue)
+        assertEquals("MB/s", idle.speedUnit)
         assertEquals(formatBytes(8_192L), idle.downloadedToday)
         assertEquals("0 B", idle.remaining)
         assertEquals("16", idle.connections)
@@ -138,9 +142,29 @@ class DownloadStatusCardMetricsTest {
         )
         assertEquals(1, live.activeCount)
         assertEquals("2", live.speedValue)
+        assertEquals("MB/s", live.speedUnit)
         assertEquals(formatBytes(250L), live.downloadedToday)
         assertEquals("—", live.remaining)
         assertEquals("16", live.connections)
+    }
+
+    @Test
+    fun activeStatusUsesSharedDecimalKilobytesBelowOneMegabyte() {
+        val subKilobyte = downloadStatusCardValues(
+            listOf(record(id = "slow", state = DownloadState.DOWNLOADING, totalBytes = null)),
+            downloadedTodayBytes = 0L,
+            recentBytesPerSecond = 500L,
+        )
+        assertEquals("<1", subKilobyte.speedValue)
+        assertEquals("KB/s", subKilobyte.speedUnit)
+
+        val kilobytes = downloadStatusCardValues(
+            listOf(record(id = "mid", state = DownloadState.DOWNLOADING, totalBytes = null)),
+            downloadedTodayBytes = 0L,
+            recentBytesPerSecond = 500_000L,
+        )
+        assertEquals("500", kilobytes.speedValue)
+        assertEquals("KB/s", kilobytes.speedUnit)
     }
 
     @Test

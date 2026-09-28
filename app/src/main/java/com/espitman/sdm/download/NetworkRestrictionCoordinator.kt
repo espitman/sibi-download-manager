@@ -28,7 +28,8 @@ class NetworkRestrictionCoordinator(
     }
 
     private suspend fun applyLocked() {
-        val allowed = allowsTransfers()
+        val network = connectivity()
+        val allowed = WifiOnlyPolicy.allowsTransfers(wifiOnly(), network)
         allowance.setAllowed(allowed)
         repository.awaitInitialized()
         if (allowed) {
@@ -36,7 +37,10 @@ class NetworkRestrictionCoordinator(
                 repository.requeueNetworkPolicyPaused(clock.currentTimeMillis())
             }
             scheduler.schedule()
-        } else {
+        } else if (network.isValidated) {
+            // A validated but disallowed transport (for example, cellular while Wi-Fi only
+            // is enabled) is a policy pause. Losing connectivity alone is not: keep active
+            // transfers visible until they fail or the user pauses them explicitly.
             repository.pauseQueuedPreservingOffsets(
                 clock.currentTimeMillis(),
                 DownloadPauseCause.NETWORK_POLICY,

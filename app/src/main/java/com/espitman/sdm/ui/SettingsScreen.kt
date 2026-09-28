@@ -1,5 +1,10 @@
 package com.espitman.sdm.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -11,26 +16,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.espitman.sdm.data.settings.SettingsRepository
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
@@ -39,7 +42,11 @@ import com.espitman.sdm.ui.theme.*
 private enum class SettingsOverlay { Connections, Simultaneous, SpeedLimit, Theme, Reset }
 
 @Composable
-internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Unit) {
+internal fun SettingsScreen(
+    showHeader: Boolean = true,
+    uiState: SettingsUiState = rememberSettingsUiState(),
+    onToast: (String) -> Unit,
+) {
     val context = LocalContext.current
     val repository = remember(context) { SettingsRepository.get(context) }
     val settings by repository.settings.collectAsState()
@@ -51,59 +58,112 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
     val downloadComplete = settings.downloadComplete
     val speedAlerts = settings.speedAlerts
     val appliedTheme = settings.theme
+    val themeLabel = if (appliedTheme == "light") "Light & Gold" else "Black & Gold"
     var pendingTheme by remember { mutableStateOf(appliedTheme) }
     var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     var renderedOverlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     LaunchedEffect(overlay) {
         if (overlay != null) renderedOverlay = overlay
         else {
-            if (renderedOverlay != SettingsOverlay.Reset) delay(320)
+            delay(SDM_SHEET_TRAVEL_MS.toLong())
             renderedOverlay = null
         }
     }
 
     fun toast(message: String) = onToast(message)
     val saveLocation = rememberSaveLocationActions(onToast)
+    val activeQuery = settingsSearchActiveQuery(uiState.searchOpen, uiState.query)
+    val visibleRows = remember(activeQuery, saveLocation.label, themeLabel, version) {
+        filterSettingsRows(
+            settingsSearchCatalog(
+                saveLocationLabel = saveLocation.label,
+                themeLabel = themeLabel,
+                versionName = version,
+            ),
+            activeQuery,
+        ).toSet()
+    }
+    val showAccount = activeQuery.isBlank()
+    val showEmpty = activeQuery.isNotBlank() && visibleRows.isEmpty()
+    BackHandler(uiState.searchOpen) { closeSettingsSearch(uiState) }
 
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
-        if (showHeader) AppHeader("Settings", showMore = false)
+        if (showHeader) AppHeader("Settings", showMore = false, onSearch = { toggleSettingsSearch(uiState) })
+        AnimatedVisibility(uiState.searchOpen, enter = fadeIn(tween(140)), exit = fadeOut(tween(120))) {
+            SettingsSearchPanel(
+                query = uiState.query,
+                onQueryChange = { uiState.query = it },
+                onTrailingAction = { applySettingsSearchTrailingAction(uiState) },
+            )
+        }
         LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp)) {
-            item { AccountCard() }
-            item {
-                SettingsGroup("DOWNLOAD BEHAVIOR") {
-                    ValueRow(SdmIcons.Connections, "Connections", "Parallel threads per download", connections.toString(), chevron = true) { overlay = SettingsOverlay.Connections }
-                    SettingDivider()
-                    ValueRow(SdmIcons.Simultaneous, "Simultaneous downloads", "Maximum active downloads", simultaneous.toString(), chevron = true) { overlay = SettingsOverlay.Simultaneous }
-                    SettingDivider()
-                    ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { repository.update { current -> current.copy(autoResume = it) }; toast(if (it) "Auto-resume enabled" else "Auto-resume disabled") }
+            if (showAccount) item { AccountCard() }
+            if (showEmpty) {
+                item { SdmEmptyState("No matching settings", "Try another search.") }
+            } else {
+                item {
+                    FilteredSettingsGroup("DOWNLOAD BEHAVIOR", visibleRows) {
+                        add(SettingsSearchRow.Connections) {
+                            ValueRow(SdmIcons.Connections, "Connections", "Parallel threads per download", connections.toString(), chevron = true) { overlay = SettingsOverlay.Connections }
+                        }
+                        add(SettingsSearchRow.Simultaneous) {
+                            ValueRow(SdmIcons.Simultaneous, "Simultaneous downloads", "Maximum active downloads", simultaneous.toString(), chevron = true) { overlay = SettingsOverlay.Simultaneous }
+                        }
+                        add(SettingsSearchRow.AutoResume) {
+                            ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { repository.update { current -> current.copy(autoResume = it) }; toast(if (it) "Auto-resume enabled" else "Auto-resume disabled") }
+                        }
+                    }
                 }
-            }
-            item {
-                SettingsGroup("NETWORK") {
-                    ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") }
-                    SettingDivider()
-                    ValueRow(SdmIcons.Gauge, "Speed limit", "Combined download speed", if (settings.unlimitedSpeed) "Unlimited" else "${settings.speedLimitMbps.toInt()} MB/s", chevron = true) { overlay = SettingsOverlay.SpeedLimit }
+                item {
+                    FilteredSettingsGroup("NETWORK", visibleRows) {
+                        add(SettingsSearchRow.WifiOnly) {
+                            ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") }
+                        }
+                        add(SettingsSearchRow.SpeedLimit) {
+                            ValueRow(SdmIcons.Gauge, "Speed limit", "Combined download speed", if (settings.unlimitedSpeed) "Unlimited" else "${settings.speedLimitMbps.toInt()} MB/s", chevron = true) { overlay = SettingsOverlay.SpeedLimit }
+                        }
+                    }
                 }
-            }
-            item { SettingsGroup("STORAGE") { ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() } } }
-            item {
-                SettingsGroup("NOTIFICATIONS") {
-                    ToggleRow(SdmIcons.Notifications, "Download complete", "Notify when a transfer finishes", downloadComplete) { repository.update { current -> current.copy(downloadComplete = it) }; toast(if (it) "Completion alerts enabled" else "Completion alerts disabled") }
-                    SettingDivider()
-                    ToggleRow(SdmIcons.Speed, "Speed alerts", "Warn when transfers stall", speedAlerts) { repository.update { current -> current.copy(speedAlerts = it) }; toast(if (it) "Speed alerts enabled" else "Speed alerts disabled") }
+                item {
+                    FilteredSettingsGroup("STORAGE", visibleRows) {
+                        add(SettingsSearchRow.SaveLocation) {
+                            ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() }
+                        }
+                    }
                 }
-            }
-            item {
-                SettingsGroup("APPEARANCE") {
-                    ValueRow(SdmIcons.Theme, "Theme", if (appliedTheme == "light") "Light & Gold" else "Black & Gold", themeSwatch = true, lightSwatch = appliedTheme == "light") { pendingTheme = appliedTheme; overlay = SettingsOverlay.Theme }
-                    SettingDivider()
-                    ValueRow(SdmIcons.Language, "Language", "English only", "Fixed")
+                item {
+                    FilteredSettingsGroup("NOTIFICATIONS", visibleRows) {
+                        add(SettingsSearchRow.DownloadComplete) {
+                            ToggleRow(SdmIcons.Notifications, "Download complete", "Notify when a transfer finishes", downloadComplete) { repository.update { current -> current.copy(downloadComplete = it) }; toast(if (it) "Completion alerts enabled" else "Completion alerts disabled") }
+                        }
+                        add(SettingsSearchRow.SpeedAlerts) {
+                            ToggleRow(SdmIcons.Speed, "Speed alerts", "Warn when transfers stall", speedAlerts) { repository.update { current -> current.copy(speedAlerts = it) }; toast(if (it) "Speed alerts enabled" else "Speed alerts disabled") }
+                        }
+                    }
                 }
-            }
-            item { SettingsGroup("ABOUT") { ValueRow(SdmIcons.Info, "SDM version", "Sibi Download Manager", version) } }
-            item {
-                Surface(color = sdmColor(0xFF191414, 0xFFFFF4F2), contentColor = SdmDanger, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Color(0xFFEF756B).copy(alpha = .32f)), modifier = Modifier.padding(top = 22.dp).fillMaxWidth().height(50.dp).clickable(remember { MutableInteractionSource() }, null, role = Role.Button) { overlay = SettingsOverlay.Reset }) {
-                    Box(contentAlignment = Alignment.Center) { Text("Reset settings", fontSize = 13.sp, letterSpacing = 0.sp, fontWeight = FontWeight.ExtraBold) }
+                item {
+                    FilteredSettingsGroup("APPEARANCE", visibleRows) {
+                        add(SettingsSearchRow.Theme) {
+                            ValueRow(SdmIcons.Theme, "Theme", themeLabel, themeSwatch = true, lightSwatch = appliedTheme == "light") { pendingTheme = appliedTheme; overlay = SettingsOverlay.Theme }
+                        }
+                        add(SettingsSearchRow.Language) {
+                            ValueRow(SdmIcons.Language, "Language", "English only", "Fixed")
+                        }
+                    }
+                }
+                item {
+                    FilteredSettingsGroup("ABOUT", visibleRows) {
+                        add(SettingsSearchRow.Version) {
+                            ValueRow(SdmIcons.Info, "SDM version", "Sibi Download Manager", version)
+                        }
+                    }
+                }
+                if (SettingsSearchRow.Reset in visibleRows) {
+                    item {
+                        Surface(color = sdmColor(0xFF191414, 0xFFFFF4F2), contentColor = SdmDanger, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Color(0xFFEF756B).copy(alpha = .32f)), modifier = Modifier.padding(top = 22.dp).fillMaxWidth().height(50.dp).clickable(remember { MutableInteractionSource() }, null, role = Role.Button) { overlay = SettingsOverlay.Reset }) {
+                            Box(contentAlignment = Alignment.Center) { Text("Reset settings", fontSize = 13.sp, letterSpacing = 0.sp, fontWeight = FontWeight.ExtraBold) }
+                        }
+                    }
                 }
             }
         }
@@ -120,7 +180,17 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
                 repository.update { current -> current.copy(simultaneous = it) }; overlay = null; toast("$it simultaneous downloads")
             }
         }
-        SettingsOverlay.SpeedLimit -> Unit
+        SettingsOverlay.SpeedLimit -> {
+            var unlimited by remember { mutableStateOf(settings.unlimitedSpeed) }
+            var limit by remember { mutableFloatStateOf(settings.speedLimitMbps) }
+            var wifi by remember { mutableStateOf(settings.speedLimitWifiOnly) }
+            CompositionLocalProvider(LocalHomeSheetVisible provides (overlay != null)) {
+                SpeedLimitSheet(unlimited, { unlimited = it }, limit, { limit = it }, wifi, { wifi = it }, { overlay = null }) { message ->
+                    repository.update { it.copy(unlimitedSpeed = unlimited, speedLimitMbps = limit, speedLimitWifiOnly = wifi) }
+                    onToast(message)
+                }
+            }
+        }
         SettingsOverlay.Theme -> SettingsSheet(SdmIcons.Theme, "APPEARANCE", "Choose theme", "Select the visual style for every SDM screen.", { overlay = null }, overlay != null) {
             Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 ThemeChoice("Black & Gold", "Deep black surfaces with premium gold accents", false, pendingTheme == "dark") { pendingTheme = "dark" }
@@ -134,6 +204,7 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
             }
         }
         SettingsOverlay.Reset -> ResetDialog(
+            visible = overlay != null,
             onDismiss = { overlay = null },
             onReset = {
                 repository.reset(); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
@@ -141,33 +212,18 @@ internal fun SettingsScreen(showHeader: Boolean = true, onToast: (String) -> Uni
         )
         null -> Unit
     }
-    if (overlay == SettingsOverlay.SpeedLimit) {
-        var unlimited by remember { mutableStateOf(settings.unlimitedSpeed) }
-        var limit by remember { mutableFloatStateOf(settings.speedLimitMbps) }
-        var wifi by remember { mutableStateOf(settings.speedLimitWifiOnly) }
-        SpeedLimitSheet(unlimited, { unlimited = it }, limit, { limit = it }, wifi, { wifi = it }, { overlay = null }) { message ->
-            repository.update { it.copy(unlimitedSpeed = unlimited, speedLimitMbps = limit, speedLimitWifiOnly = wifi) }
-            onToast(message)
-        }
-    }
 
 }
 
 @Composable
-private fun SettingsSheet(icon: ImageVector, eyebrow: String, title: String, description: String, onDismiss: () -> Unit, visible: Boolean, content: @Composable ColumnScope.() -> Unit) {
-    var entered by remember { mutableStateOf(false) }
+internal fun SettingsSheet(icon: ImageVector, eyebrow: String, title: String, description: String, onDismiss: () -> Unit, visible: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    val motion = rememberSdmSheetMotion(visible)
     var panelHeight by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { entered = true }
-    val target = if (entered && visible) 1f else 0f
-    val travel by animateFloatAsState(target, tween(320, easing = CubicBezierEasing(.2f, .82f, .24f, 1f)), label = "settings-sheet-travel")
-    val opacity by animateFloatAsState(target, tween(220), label = "settings-sheet-opacity")
-    val scrim by animateFloatAsState(target, tween(200), label = "settings-sheet-scrim")
     val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.Black.copy(alpha = .72f * scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
-            Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.graphicsLayer { translationY = (panelHeight + extraTravel) * (1f - travel); scaleX = .985f + .015f * travel; scaleY = scaleX; alpha = .72f + .28f * opacity; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(.5f, 1f) }.clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFFD4AF37).copy(alpha = .35f)), shadowElevation = 18.dp) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
+            Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color(0xFFD4AF37).copy(alpha = .35f)), shadowElevation = 18.dp) {
                 Column(Modifier.padding(17.dp)) {
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), CircleShape))
                     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -222,18 +278,82 @@ private fun SheetButton(label: String, primary: Boolean, modifier: Modifier = Mo
 }
 
 @Composable
-private fun ResetDialog(onDismiss: () -> Unit, onReset: () -> Unit) {
+private fun ResetDialog(visible: Boolean, onDismiss: () -> Unit, onReset: () -> Unit) {
+    val motion = rememberSdmSheetMotion(visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = LocalView.current
-        SideEffect { (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f) }
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color.Black.copy(alpha = .7f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
-            Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
+        DisableDialogWindowDim()
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(sdmSheetScrim(motion.scrim)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss).padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset()), contentAlignment = Alignment.BottomCenter) {
+            Surface(Modifier.fillMaxWidth().widthIn(max = 560.dp).onSizeChanged { panelHeight = it.height }.sdmSheetPanel(motion, panelHeight, extraTravel).clickable(remember { MutableInteractionSource() }, null) {}, color = sdmColor(0xFF17181A, 0xFFFFFFFF), contentColor = SdmText, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, SdmLine)) {
                 Column(Modifier.padding(21.dp)) {
                     Text("Reset all settings?", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text("This restores SDM defaults. Your downloads and saved files will not be removed.", color = SdmMuted, fontSize = 13.sp, lineHeight = 19.5.sp, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp).fillMaxWidth(.94f))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { SheetButton("Keep settings", false, Modifier.weight(1f), onClick = onDismiss); SheetButton("Reset settings", false, Modifier.weight(1f), danger = true, onClick = onReset) }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSearchPanel(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onTrailingAction: () -> Unit,
+) {
+    val searchFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(50)
+        searchFocusRequester.requestFocus()
+    }
+    val trailingAction = settingsSearchTrailingAction(query)
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = SdmText, fontSize = 13.sp),
+            cursorBrush = SolidColor(SdmGold),
+            modifier = Modifier.fillMaxWidth().height(48.dp).background(SdmSurface, RoundedCornerShape(14.dp)).border(1.dp, SdmLine, RoundedCornerShape(14.dp)).padding(start = 46.dp, end = 42.dp).focusRequester(searchFocusRequester),
+            decorationBox = { inner ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) Text("Search settings", color = sdmColor(0xFF77746D, 0xFF77736A), fontSize = 13.sp)
+                    inner()
+                }
+            },
+        )
+        Icon(SdmIcons.Search, null, tint = SdmMuted, modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp).size(20.dp))
+        IconButton(onClick = onTrailingAction, modifier = Modifier.align(Alignment.CenterEnd).size(42.dp)) {
+            Icon(
+                SdmIcons.Close,
+                if (trailingAction == SettingsSearchTrailingAction.ClearQuery) "Clear search" else "Close search",
+                tint = SdmMuted,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+    }
+}
+
+private class SettingsGroupRowsScope(private val visible: Set<SettingsSearchRow>) {
+    val rows = mutableListOf<@Composable () -> Unit>()
+    fun add(row: SettingsSearchRow, content: @Composable () -> Unit) {
+        if (row in visible) rows += content
+    }
+}
+
+@Composable
+private fun FilteredSettingsGroup(
+    title: String,
+    visible: Set<SettingsSearchRow>,
+    build: SettingsGroupRowsScope.() -> Unit,
+) {
+    val shown = SettingsGroupRowsScope(visible).apply(build).rows
+    if (shown.isEmpty()) return
+    SettingsGroup(title) {
+        shown.forEachIndexed { index, row ->
+            if (index > 0) SettingDivider()
+            row()
         }
     }
 }

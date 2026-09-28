@@ -1,12 +1,6 @@
 package com.espitman.sdm.ui
 
 import androidx.activity.compose.BackHandler
-import android.content.ClipData
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,11 +18,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +47,7 @@ import com.espitman.sdm.storage.CompletedFileAction
 import com.espitman.sdm.storage.CompletedFileIdentity
 import com.espitman.sdm.storage.CompletedFileShareAccess
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
@@ -61,6 +58,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.download.Clock
 import com.espitman.sdm.download.CompletedFileDeleteCoordinator
@@ -85,10 +83,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.espitman.sdm.ui.theme.SdmBackground
 import com.espitman.sdm.ui.theme.SdmGold
 import com.espitman.sdm.ui.theme.SdmGoldHigh
@@ -107,6 +109,8 @@ internal class FilesUiState {
     var query by mutableStateOf("")
     var sort by mutableStateOf(FileSortOption.NewestFirst)
     var refreshEpoch by mutableIntStateOf(0)
+    var pendingRevealFileId by mutableStateOf<String?>(null)
+    var revealEpoch by mutableIntStateOf(0)
 }
 
 internal fun saveFilesUiState(state: FilesUiState): List<Any> = listOf(
@@ -144,6 +148,7 @@ internal fun FilesTopBar(
     onToast: (String) -> Unit,
 ) {
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    val picker = rememberFileManagerPickerController()
     val context = LocalContext.current
     val saveLocationStore = remember(context) { SaveLocationStore.get(context) }
     Column(
@@ -212,7 +217,15 @@ internal fun FilesTopBar(
                                 }
                                 FilesHeaderMenuItem(SdmIcons.FolderPlain, "Open save location") {
                                     menuOpen = false
-                                    openSaveLocation(context, saveLocationStore.read().treeUri)?.let(onToast)
+                                    performFilesOpenSaveLocation(
+                                        treeUri = saveLocationStore.read().treeUri,
+                                        discover = { treeUri ->
+                                            SaveLocationFileManagers.discover(context, treeUri)
+                                        },
+                                        onToast = onToast,
+                                        showInAppFolder = { prepareFilesFolderView(uiState) },
+                                        showPicker = picker::show,
+                                    )
                                 }
                             }
                         }
@@ -222,34 +235,7 @@ internal fun FilesTopBar(
         }
         HorizontalDivider(thickness = 1.dp, color = SdmGold.copy(alpha = .14f))
     }
-}
-
-private fun openSaveLocation(context: Context, treeUriString: String?): String? {
-    if (treeUriString.isNullOrBlank()) {
-        return "This folder is private to SDM. Completed files are listed below."
-    }
-    return try {
-        val treeUri = Uri.parse(treeUriString)
-        val folderUri = DocumentsContract.buildDocumentUriUsingTree(
-            treeUri,
-            DocumentsContract.getTreeDocumentId(treeUri),
-        )
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(folderUri, DocumentsContract.Document.MIME_TYPE_DIR)
-            clipData = ClipData.newUri(context.contentResolver, "Save location", folderUri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val filesActivity = context.packageManager.queryIntentActivities(
-            intent,
-            PackageManager.MATCH_DEFAULT_ONLY,
-        ).firstOrNull { it.activityInfo.packageName.contains("documentsui") }
-            ?: return "The system Files app is unavailable."
-        intent.setClassName(filesActivity.activityInfo.packageName, filesActivity.activityInfo.name)
-        context.startActivity(intent)
-        null
-    } catch (_: Exception) {
-        "No file manager can open this folder."
-    }
+    FileManagerPickerHost(picker, onToast)
 }
 
 @Composable
@@ -310,11 +296,27 @@ internal fun FilesScreen(
     val saveLocationStore = remember(context) { SaveLocationStore.get(context) }
     val saveLocation by saveLocationStore.location.collectAsState()
     var selectedId by remember { mutableStateOf<String?>(null) }
+    var revealScrollEpoch by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
     var menuForId by remember { mutableStateOf<String?>(null) }
     var renameFor by remember { mutableStateOf<FileRowModel?>(null) }
     var deleteFor by remember { mutableStateOf<FileRowModel?>(null) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.revealEpoch) {
+        val id = uiState.pendingRevealFileId ?: return@LaunchedEffect
+        uiState.pendingRevealFileId = null
+        selectedId = id
+        revealScrollEpoch = uiState.revealEpoch
+    }
+    LaunchedEffect(revealScrollEpoch, files) {
+        if (revealScrollEpoch == 0) return@LaunchedEffect
+        val id = selectedId ?: return@LaunchedEffect
+        val index = files.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            listState.animateScrollToItem(filesRevealListIndex(uiState.searchOpen, index))
+        }
+    }
     fun refreshFiles() {
         refreshEpoch += 1
     }
@@ -336,6 +338,7 @@ internal fun FilesScreen(
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) FilesTopBar(uiState, onToast)
         LazyColumn(
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -361,7 +364,12 @@ internal fun FilesScreen(
                     }
                 }
             }
-            item { Text("RECENT FILES", color = SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.43.sp, modifier = Modifier.padding(bottom = 4.dp)) }
+            item {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("RECENT FILES", color = SdmMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.43.sp, modifier = Modifier.weight(1f))
+                    Text(if (uiState.sort == FileSortOption.NewestFirst) "Newest first" else "Oldest first", color = SdmMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
             if (files.isEmpty()) {
                 item {
                     SdmEmptyState("No matching files", "Try another search or file type.")

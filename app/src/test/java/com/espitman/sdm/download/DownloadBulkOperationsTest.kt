@@ -26,6 +26,29 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class DownloadBulkOperationsTest {
     @Test
+    fun offlineResumeAndDownloadAllLeaveRecordsInTheirCurrentState() = runBlocking {
+        val repo = FakeDownloadRepository(listOf(
+            item("paused", DownloadState.PAUSED, downloadedBytes = 12L),
+            item("failed", DownloadState.FAILED, error = "Network unavailable"),
+            item("queued", DownloadState.QUEUED),
+        ))
+        val starter = RecordingStarter()
+        val scheduler = DownloadQueueScheduler(
+            repo, { 2 }, starter, transferAllowance = TransferAllowance { false },
+        )
+
+        scheduler.resume("paused")
+        scheduler.resumeAll()
+        scheduler.downloadAll()
+
+        assertEquals(DownloadState.PAUSED, repo.get("paused")?.state)
+        assertEquals(12L, repo.get("paused")?.downloadedBytes)
+        assertEquals(DownloadState.FAILED, repo.get("failed")?.state)
+        assertEquals(DownloadState.QUEUED, repo.get("queued")?.state)
+        assertTrue(starter.startedIds().isEmpty())
+    }
+
+    @Test
     fun downloadAllRequeuesEligibleRecordsPreservesCompletedAndSchedulesOnce() = runBlocking {
         val repo = FakeDownloadRepository(
             listOf(
@@ -194,6 +217,41 @@ class DownloadBulkOperationsTest {
             assertTrue(download.state == DownloadState.QUEUED || download.state == DownloadState.PAUSED)
             assertEquals(null, download.error)
         }
+    }
+
+    @Test
+    fun resumeAllResumesPausedAndKeepsQueuedWithoutFailedOrCancelled() = runBlocking {
+        val repo = FakeDownloadRepository(
+            listOf(
+                item("paused", DownloadState.PAUSED, createdAt = 1, downloadedBytes = 12L),
+                item("waiting", DownloadState.QUEUED, createdAt = 2, downloadedBytes = 8L),
+                item("running", DownloadState.DOWNLOADING, downloadedBytes = 20L),
+                item("failed", DownloadState.FAILED, error = "x", downloadedBytes = 6L),
+                item("cancelled", DownloadState.CANCELLED, downloadedBytes = 7L),
+                item(
+                    "done",
+                    DownloadState.COMPLETED,
+                    downloadedBytes = 100L,
+                    totalBytes = 100L,
+                    completedAt = 8_000L,
+                ),
+            ),
+        )
+        val starter = RecordingStarter()
+        val scheduler = DownloadQueueScheduler(repo, { 3 }, starter)
+
+        scheduler.resumeAll()
+
+        assertEquals(DownloadState.QUEUED, repo.get("paused")!!.state)
+        assertEquals(12L, repo.get("paused")!!.downloadedBytes)
+        assertEquals(DownloadState.QUEUED, repo.get("waiting")!!.state)
+        assertEquals(8L, repo.get("waiting")!!.downloadedBytes)
+        assertEquals(DownloadState.DOWNLOADING, repo.get("running")!!.state)
+        assertEquals(DownloadState.FAILED, repo.get("failed")!!.state)
+        assertEquals("x", repo.get("failed")!!.error)
+        assertEquals(DownloadState.CANCELLED, repo.get("cancelled")!!.state)
+        assertEquals(DownloadState.COMPLETED, repo.get("done")!!.state)
+        assertEquals(listOf("paused", "waiting"), starter.startedIds())
     }
 
     @Test

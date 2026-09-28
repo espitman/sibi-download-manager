@@ -5,10 +5,14 @@ import com.espitman.sdm.domain.DownloadState
 import java.util.Locale
 
 internal enum class DownloadCategory(val label: String) {
-    Downloading("Downloading"),
-    Queued("Queued"),
+    All("All"),
+    Downloading("Active"),
+    Queued("Queue"),
     Completed("Completed"),
 }
+
+internal val downloadStatusCategories: List<DownloadCategory> =
+    DownloadCategory.entries.filter { it != DownloadCategory.All }
 
 internal data class DownloadCardModel(
     val id: String,
@@ -21,6 +25,7 @@ internal data class DownloadCardModel(
     val trailing: String,
     val category: DownloadCategory,
     val showPlayAction: Boolean,
+    val isQueued: Boolean,
 )
 
 internal fun mapDownloadToCard(
@@ -30,9 +35,10 @@ internal fun mapDownloadToCard(
 ): DownloadCardModel {
     val metrics = calculateDownloadProgressMetrics(download, nowEpochMillis, recentBytesPerSecond)
     val category = when (download.state) {
-        DownloadState.QUEUED -> DownloadCategory.Queued
+        DownloadState.CONNECTING, DownloadState.DOWNLOADING -> DownloadCategory.Downloading
+        DownloadState.QUEUED, DownloadState.PAUSED -> DownloadCategory.Queued
         DownloadState.COMPLETED -> DownloadCategory.Completed
-        else -> DownloadCategory.Downloading
+        DownloadState.FAILED, DownloadState.CANCELLED -> DownloadCategory.All
     }
     val progressLabel = "${metrics.percentLabel} · ${formatBytes(download.downloadedBytes)}"
 
@@ -62,7 +68,7 @@ internal fun mapDownloadToCard(
             trailing = "Completed"
         }
         DownloadState.FAILED -> {
-            metadataValue = failedDownloadCardLabel(download.error)
+            metadataValue = "Error · ${failedDownloadCardLabel(download.error)}"
             trailing = "Retry"
         }
         DownloadState.CANCELLED -> {
@@ -90,6 +96,7 @@ internal fun mapDownloadToCard(
             DownloadState.FAILED,
             DownloadState.CANCELLED,
         ),
+        isQueued = download.state == DownloadState.QUEUED,
     )
 }
 
@@ -98,8 +105,39 @@ internal fun filterDownloadCards(
     category: DownloadCategory,
     query: String,
 ): List<DownloadCardModel> = cards.filter { card ->
-    card.category == category && card.name.contains(query, ignoreCase = true)
+    matchesDownloadCategory(card, category) && card.name.contains(query, ignoreCase = true)
 }
+
+internal fun matchesDownloadCategory(
+    card: DownloadCardModel,
+    category: DownloadCategory,
+): Boolean = category == DownloadCategory.All || card.category == category
+
+internal fun downloadTabCounts(cards: List<DownloadCardModel>): Map<DownloadCategory, Int> {
+    val statusCounts = cards.groupingBy { it.category }.eachCount()
+    return buildMap {
+        put(DownloadCategory.All, cards.size)
+        downloadStatusCategories.forEach { category ->
+            put(category, statusCounts[category] ?: 0)
+        }
+    }
+}
+
+internal fun downloadTabTitle(category: DownloadCategory, count: Int): String =
+    "${category.label} $count"
+
+internal fun emptyDownloadsTitle(category: DownloadCategory): String = when (category) {
+    DownloadCategory.All -> "No downloads"
+    DownloadCategory.Completed -> "No completed downloads"
+    else -> "No ${category.label.lowercase()} downloads"
+}
+
+internal fun emptyDownloadsDescription(category: DownloadCategory): String =
+    if (category == DownloadCategory.All) {
+        "Downloads you add will appear here."
+    } else {
+        "Finished files will appear here."
+    }
 
 internal fun formatClockEta(seconds: Long?): String {
     if (seconds == null || seconds < 0L) return "Calculating…"
@@ -115,5 +153,5 @@ internal fun formatClockEta(seconds: Long?): String {
 
 internal fun formatCardSpeed(bytesPerSecond: Long): String {
     if (bytesPerSecond <= 0L) return "—"
-    return "${displayMegabytesPerSecond(bytesPerSecond)} MB/s"
+    return decimalSpeedDisplay(bytesPerSecond).formatted
 }

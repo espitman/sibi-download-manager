@@ -114,6 +114,23 @@ class DownloadDetailsTelemetryTest {
     }
 
     @Test
+    fun currentSpeedUsesSharedDecimalKilobytesBelowOneMegabyte() {
+        val subKilobyte = mapDownloadDetailsTelemetry(
+            record(),
+            speed(currentBytesPerSecond = 500L, samples = listOf(500L)),
+        )
+        assertEquals("<1", subKilobyte.metrics.speedValue)
+        assertEquals("KB/s", subKilobyte.metrics.speedUnit)
+
+        val kilobytes = mapDownloadDetailsTelemetry(
+            record(),
+            speed(currentBytesPerSecond = 500_000L, samples = listOf(500_000L)),
+        )
+        assertEquals("500", kilobytes.metrics.speedValue)
+        assertEquals("KB/s", kilobytes.metrics.speedUnit)
+    }
+
+    @Test
     fun httpAndHttpsSecurityNeverInventTlsVersion() {
         val https = mapDownloadDetailsTelemetry(
             record(url = "https://media.sibicdn.net/releases/Dune.mkv"),

@@ -6,13 +6,18 @@ import com.espitman.sdm.storage.StorageCapacity
 import com.espitman.sdm.storage.StorageCapacityProbe
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -23,6 +28,42 @@ import org.junit.Before
 import org.junit.Test
 
 class DownloadTransferEngineSegmentedTest {
+    @Test
+    fun offlineRequestFailureStaysActiveInsteadOfBecomingError() = runBlocking {
+        val (repo, _, part) = fixture("offline-segment")
+        server.shutdown()
+        try {
+            engine(networkUnavailable = { true }).executeTransfer(
+                "offline-segment", server.url("/file").toString(), part, repo,
+            )
+            org.junit.Assert.fail("Expected an offline retry signal")
+        } catch (_: OfflineTransferRetryException) {
+            assertEquals(DownloadState.DOWNLOADING, repo.get("offline-segment")?.state)
+        }
+    }
+
+    @Test
+    fun manualPauseCancelsSegmentRequestsStalledWithoutAResponse() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+        }
+        val (repo, destination, part) = fixture("segment-stall")
+        val pauseRequested = AtomicBoolean(false)
+        val transfer = async(Dispatchers.IO) {
+            engine().executeTransfer("segment-stall", server.url("/file").toString(), part, repo,
+                pauseRequested = pauseRequested::get)
+        }
+        assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+        pauseRequested.set(true)
+        withTimeout(2_000L) {
+            transfer.cancel()
+            transfer.join()
+        }
+        assertEquals(DownloadState.PAUSED, repo.get("segment-stall")?.state)
+        assertFalse(destination.exists())
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var directory: File
     private val payload = ByteArray((1024 * 1024) + 17) { (it % 251).toByte() }
@@ -163,9 +204,10 @@ class DownloadTransferEngineSegmentedTest {
         return Triple(repo, destination, part)
     }
 
-    private fun engine() = DownloadTransferEngine(
+    private fun engine(networkUnavailable: () -> Boolean = { false }) = DownloadTransferEngine(
         okHttpClient = OkHttpClient(),
         ioDispatcher = Dispatchers.IO,
         progressUpdateIntervalBytes = 64 * 1024L,
+        networkUnavailable = networkUnavailable,
     )
 }

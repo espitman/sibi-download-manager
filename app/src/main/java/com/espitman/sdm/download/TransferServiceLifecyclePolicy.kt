@@ -11,7 +11,11 @@ object TransferServiceLifecyclePolicy {
 
     fun startQueueObserverBeforeHandling(command: TransferCommand?): Boolean {
         return when (command) {
-            is PauseTransferCommand, is CancelTransferCommand -> false
+            is PauseTransferCommand,
+            is CancelTransferCommand,
+            is PauseAllCommand,
+            is ResumeAllCommand,
+            -> false
             else -> true
         }
     }

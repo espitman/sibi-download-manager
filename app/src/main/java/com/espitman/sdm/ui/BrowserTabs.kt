@@ -5,6 +5,7 @@ internal data class BrowserTab(
     val title: String,
     val url: String?,
     val isPrivate: Boolean,
+    val desktopSite: Boolean = false,
 )
 
 internal data class BrowserTabsSnapshot(
@@ -38,12 +39,36 @@ internal data class BrowserTabsSnapshot(
             if (tab.id == id) tab.copy(url = url, title = title.ifBlank { tab.title }) else tab
         },
     )
+
+    fun setDesktopSite(id: String, desktopSite: Boolean): BrowserTabsSnapshot = copy(
+        tabs = tabs.map { tab ->
+            if (tab.id == id) tab.copy(desktopSite = desktopSite) else tab
+        },
+    )
 }
 
 internal fun initialBrowserTabs(): BrowserTabsSnapshot = BrowserTabsSnapshot(
     tabs = listOf(
-        BrowserTab("tab-1", "Sibi Media", "https://media.sibicdn.net", isPrivate = true),
-        BrowserTab("tab-2", "Internet Archive", "https://archive.org", isPrivate = true),
+        BrowserTab("tab-1", "Sibi Media", "https://media.sibicdn.net", isPrivate = false),
+        BrowserTab("tab-2", "Internet Archive", "https://archive.org", isPrivate = false),
     ),
     activeId = "tab-1",
 )
+
+internal fun createBrowserTab(
+    id: String,
+    explicitPrivate: Boolean,
+): BrowserTab = BrowserTab(
+    id,
+    if (explicitPrivate) "Private tab" else "New tab",
+    null,
+    explicitPrivate,
+)
+
+internal fun persistableBrowserTabs(tabs: List<BrowserTab>): List<BrowserTab> =
+    tabs.filterNot(BrowserTab::isPrivate)
+
+internal fun persistableActiveId(tabs: List<BrowserTab>, previousActiveId: String): String? {
+    if (tabs.isEmpty()) return null
+    return if (tabs.any { it.id == previousActiveId }) previousActiveId else tabs.last().id
+}

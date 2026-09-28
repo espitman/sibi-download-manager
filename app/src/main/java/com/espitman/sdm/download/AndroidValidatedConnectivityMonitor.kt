@@ -83,7 +83,9 @@ class AndroidValidatedConnectivityMonitor(
         connectivityManager.registerDefaultNetworkCallback(callback)
     }
 
-    fun current(): ValidatedConnectivity = mutableConnectivity.value
+    // A network can disappear before its callback reaches the app. Control actions
+    // must inspect the current default network instead of relying on the last event.
+    fun current(): ValidatedConnectivity = readCurrent().also(::publish)
 
     private fun publish(next: ValidatedConnectivity) {
         mutableConnectivity.value = next

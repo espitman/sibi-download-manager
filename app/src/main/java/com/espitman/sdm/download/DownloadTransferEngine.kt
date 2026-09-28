@@ -18,6 +18,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -39,6 +42,12 @@ import java.nio.file.StandardCopyOption
 import kotlin.math.max
 import kotlin.math.min
 
+@OptIn(InternalCoroutinesApi::class)
+private fun Job.invokeOnCancelling(handler: (Throwable?) -> Unit): DisposableHandle =
+    invokeOnCompletion(onCancelling = true, invokeImmediately = true, handler = handler)
+
+internal class OfflineTransferRetryException(cause: Throwable) : IOException("Network is offline", cause)
+
 interface Clock {
     fun currentTimeMillis(): Long
 
@@ -59,6 +68,7 @@ class DownloadTransferEngine(
     private val speedLimiter: SpeedLimiter = SpeedLimiter.Unlimited,
     private val segmentCount: () -> Int = { SegmentedTransferPolicy.INITIAL_SEGMENT_COUNT },
     private val requestContext: (String) -> ScopedRequestContext? = { null },
+    private val networkUnavailable: () -> Boolean = { false },
 ) {
     private val okHttpClient = okHttpClient.newBuilder()
         .addNetworkInterceptor(ScopedRequestContextInterceptor())
@@ -213,6 +223,13 @@ class DownloadTransferEngine(
                 persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested, pauseCause)
                 throw cancellation
             } catch (e: Throwable) {
+                try {
+                    currentCoroutineContext().ensureActive()
+                } catch (cancellation: CancellationException) {
+                    persistPausedIfRequested(repository, downloadId, tempFile, pauseRequested, pauseCause)
+                    throw cancellation
+                }
+                if (e is IOException && networkUnavailable()) throw OfflineTransferRetryException(e)
                 reportFailure(repository, downloadId, transferFailureMessage(e, "Segmented transfer failure"))
                 return@withContext
             }
@@ -229,7 +246,7 @@ class DownloadTransferEngine(
         var activeCall = okHttpClient.newCall(
             buildTransferRequest(url, sendRange, resumeOffset, storedValidators, scopedRequestContext),
         )
-        val cancellationHandle = coroutineContext.job.invokeOnCompletion { cause ->
+        val cancellationHandle = coroutineContext.job.invokeOnCancelling { cause ->
             if (cause is CancellationException) activeCall.cancel()
         }
         try {
@@ -602,6 +619,7 @@ class DownloadTransferEngine(
                 commitRestartPartial(tempFile, restartFile, restartAccepted)
                 throw cancellation
             }
+            if (e is IOException && networkUnavailable()) throw OfflineTransferRetryException(e)
             try {
                 reportFailure(repository, downloadId, transferFailureMessage(e, "Download transfer failure"))
             } catch (_: Throwable) {
@@ -783,7 +801,7 @@ class DownloadTransferEngine(
         requestContext?.let { requestBuilder.tag(ScopedRequestContext::class.java, it) }
         val request = requestBuilder.build()
         val call = okHttpClient.newCall(request)
-        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
+        val cancellationHandle = currentCoroutineContext().job.invokeOnCancelling { cause ->
             if (cause is CancellationException) call.cancel()
         }
         try {

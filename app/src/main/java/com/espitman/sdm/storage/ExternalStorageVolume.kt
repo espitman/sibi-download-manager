@@ -19,6 +19,27 @@ object ExternalStorageVolume {
         return volumeId.takeIf { it.isNotEmpty() }
     }
 
+    /**
+     * Path under the volume root for a tree document id such as
+     * `primary:Download/SDM-QA`. A volume-only id (`primary` or `primary:`)
+     * maps to the empty relative path.
+     */
+    fun relativePathFromDocumentId(documentId: String?): String? {
+        if (documentId.isNullOrBlank()) return null
+        val relative = documentId
+            .substringAfter(':', missingDelimiterValue = "")
+            .trim()
+            .trim('/')
+            .replace('\\', '/')
+        if (relative.split('/').any { it == ".." }) return null
+        return relative
+    }
+
+    fun fileOnVolume(volumeRoot: File, documentId: String?): File? {
+        val relative = relativePathFromDocumentId(documentId) ?: return null
+        return if (relative.isEmpty()) volumeRoot else File(volumeRoot, relative)
+    }
+
     fun matchesVolumeId(volumeId: String, isPrimary: Boolean, uuid: String?): Boolean {
         if (volumeId.equals(PRIMARY_ID, ignoreCase = true)) return isPrimary
         val volumeUuid = uuid?.trim()?.takeIf { it.isNotEmpty() } ?: return false

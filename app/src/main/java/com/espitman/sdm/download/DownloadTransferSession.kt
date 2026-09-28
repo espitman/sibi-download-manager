@@ -40,7 +40,7 @@ class DownloadTransferSession {
                 if (alreadyCancelRequested) return@synchronized SessionCommandResult.None
                 cancelAttachedJobIfNeeded(command.downloadId, transfer)
             }
-            null -> SessionCommandResult.None
+            is PauseAllCommand, is ResumeAllCommand, null -> SessionCommandResult.None
         }
     }
 

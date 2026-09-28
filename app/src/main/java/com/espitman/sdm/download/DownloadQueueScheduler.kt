@@ -48,6 +48,7 @@ class DownloadQueueScheduler(
     suspend fun downloadAll() {
         bulkMutex.withLock {
             repository.awaitInitialized()
+            if (!transferAllowance.isAllowed()) return@withLock
             repository.requeueForDownloadAll(clock.currentTimeMillis())
             schedule()
         }
@@ -70,8 +71,34 @@ class DownloadQueueScheduler(
         }
     }
 
+    suspend fun resumeAll() {
+        bulkMutex.withLock {
+            repository.awaitInitialized()
+            if (!transferAllowance.isAllowed()) return@withLock
+            val snapshot = repository.schedulingSnapshot()
+            val nowEpochMillis = clock.currentTimeMillis()
+            for (download in snapshot) {
+                when (download.state) {
+                    DownloadState.PAUSED -> repository.resumePaused(
+                        id = download.id,
+                        nowEpochMillis = max(nowEpochMillis, download.updatedAtEpochMillis),
+                    )
+                    DownloadState.QUEUED,
+                    DownloadState.CONNECTING,
+                    DownloadState.DOWNLOADING,
+                    DownloadState.COMPLETED,
+                    DownloadState.FAILED,
+                    DownloadState.CANCELLED,
+                    -> Unit
+                }
+            }
+            schedule()
+        }
+    }
+
     suspend fun resume(downloadId: String) {
         repository.awaitInitialized()
+        if (!transferAllowance.isAllowed()) return
         val current = repository.get(downloadId) ?: return
         val nowEpochMillis = max(clock.currentTimeMillis(), current.updatedAtEpochMillis)
         when (current.state) {

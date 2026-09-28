@@ -119,6 +119,28 @@ class DownloadTransferCommandTest {
     }
 
     @Test
+    fun parsesBulkPauseAndResumeWithoutADownloadId() {
+        assertEquals(
+            PauseAllCommand,
+            DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_PAUSE_ALL,
+                downloadId = null,
+                tempFilePath = null,
+            ),
+        )
+        assertEquals(
+            ResumeAllCommand,
+            DownloadTransferCommand.parse(
+                action = DownloadTransferCommand.ACTION_RESUME_ALL,
+                downloadId = "   ",
+                tempFilePath = "/ignored.part",
+            ),
+        )
+        assertEquals(DownloadTransferCommand.BULK_TARGET_ID, PauseAllCommand.downloadId)
+        assertEquals(DownloadTransferCommand.BULK_TARGET_ID, ResumeAllCommand.downloadId)
+    }
+
+    @Test
     fun rejectsResumeCommandsWithoutADownloadId() {
         val action = DownloadTransferCommand.ACTION_RESUME_TRANSFER
         listOf(null, "", "   ").forEach { downloadId ->

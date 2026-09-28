@@ -1,36 +1,37 @@
 package com.espitman.sdm.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,21 +43,29 @@ import com.espitman.sdm.ui.theme.SdmLine
 import com.espitman.sdm.ui.theme.SdmMuted
 import com.espitman.sdm.ui.theme.SdmText
 import com.espitman.sdm.ui.theme.sdmColor
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun BrowserSettingsSheet(
+    preferences: BrowserPreferences,
     onDismiss: () -> Unit,
     onClearData: () -> Unit,
+    onPreferencesChange: (BrowserPreferences) -> Unit,
     onToast: (String) -> Unit,
 ) {
-    val progress = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { progress.animateTo(1f, tween(320)) }
-    fun close() { scope.launch { progress.animateTo(0f, tween(200)); onDismiss() } }
-    Dialog(onDismissRequest = ::close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    val sheetHost = rememberSdmSheetHost()
+    val motion = rememberSdmSheetMotion(sheetHost.visible)
+    var panelHeight by remember { mutableIntStateOf(0) }
+    var enginePickerOpen by remember { mutableStateOf(false) }
+    val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
+    fun close() { sheetHost.dismissThen(onDismiss) }
+    fun toggle(label: String, enabled: Boolean, next: BrowserPreferences) {
+        onPreferencesChange(next)
+        onToast("$label ${if (enabled) "enabled" else "disabled"}")
+    }
+    Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        DisableDialogWindowDim()
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = .72f * progress.value)).clickable(onClick = ::close),
+            Modifier.fillMaxSize().background(sdmSheetScrim(motion.scrim)).clickable(onClick = { close() }),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Surface(
@@ -65,12 +74,9 @@ internal fun BrowserSettingsSheet(
                 shape = RoundedCornerShape(22.dp),
                 border = BorderStroke(1.dp, SdmGold.copy(alpha = .35f)),
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = designOverlayBottomInset())
-                    .graphicsLayer {
-                        translationY = (1f - progress.value) * 96.dp.toPx()
-                        scaleX = .985f + .015f * progress.value
-                        scaleY = .985f + .015f * progress.value
-                        alpha = .72f + .28f * progress.value
-                    }.clickable {},
+                    .onSizeChanged { panelHeight = it.height }
+                    .sdmSheetPanel(motion, panelHeight, extraTravel)
+                    .clickable {},
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Box(
@@ -92,27 +98,80 @@ internal fun BrowserSettingsSheet(
                         }
                     }
                     Text("Privacy", color = SdmText, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-                    BrowserSettingRow("Private by default", "Open new tabs without saving history", SdmIcons.Lock, true) {
-                        onToast("All browser tabs are private")
+                    BrowserSettingRow("Private by default", "Start privately when Browser opens", SdmIcons.Lock, preferences.privateByDefault) {
+                        toggle("Private browsing", !preferences.privateByDefault, preferences.copy(privateByDefault = !preferences.privateByDefault))
                     }
-                    BrowserSettingRow("Block trackers", "Reduce cross-site tracking", SdmIcons.Lock, true) {
-                        onToast("Tracker blocking is enabled")
+                    BrowserSettingRow("Block trackers", "Reduce cross-site tracking", SdmIcons.Lock, preferences.blockTrackers) {
+                        toggle("Tracker blocking", !preferences.blockTrackers, preferences.copy(blockTrackers = !preferences.blockTrackers))
                     }
-                    BrowserSettingRow("Clear on exit", "Remove tabs and browsing data", SdmIcons.Delete, false) {
-                        onToast("Private tabs and browsing data clear when Browser closes")
+                    BrowserSettingRow("Clear on exit", "Remove tabs and browsing data", SdmIcons.Delete, preferences.clearOnExit) {
+                        toggle("Clear on exit", !preferences.clearOnExit, preferences.copy(clearOnExit = !preferences.clearOnExit))
                     }
                     Text("Search", color = SdmText, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-                    BrowserSettingRow("Search engine", "Used from the address bar · Google", SdmIcons.Search, null) {
-                        onToast("Google is the current search engine")
+                    BrowserSettingRow("Search engine", "Used from the address bar · ${preferences.searchEngine.label}", SdmIcons.Search, null) {
+                        enginePickerOpen = true
                     }
                     Row(
                         Modifier.fillMaxWidth().padding(top = 14.dp).height(54.dp)
                             .background(sdmColor(0xFF191414, 0xFFFFF5F2), RoundedCornerShape(14.dp))
-                            .clickable(onClick = onClearData).padding(horizontal = 12.dp),
+                            .clickable(onClick = { sheetHost.dismissThen(onClearData) }).padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(SdmIcons.Delete, null, tint = Color(0xFFEF756B), modifier = Modifier.size(20.dp))
                         Text("Clear browsing data", color = Color(0xFFEF756B), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 10.dp))
+                    }
+                }
+            }
+        }
+    }
+    if (enginePickerOpen) {
+        BrowserSearchEngineSheet(
+            selected = preferences.searchEngine,
+            onDismiss = { enginePickerOpen = false },
+            onSelect = { engine ->
+                onPreferencesChange(preferences.copy(searchEngine = engine))
+                onToast("${engine.label} is the current search engine")
+                enginePickerOpen = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun BrowserSearchEngineSheet(
+    selected: BrowserSearchEngine,
+    onDismiss: () -> Unit,
+    onSelect: (BrowserSearchEngine) -> Unit,
+) {
+    SettingsSheet(
+        SdmIcons.Search,
+        "SEARCH",
+        "Search engine",
+        "Used from the address bar.",
+        onDismiss,
+        visible = true,
+    ) {
+        Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            BrowserSearchEngine.entries.forEach { engine ->
+                val active = engine == selected
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .background(if (active) sdmColor(0xFF211F16, 0xFFF5EDD4) else sdmColor(0xFF111214, 0xFFFBFAF6), RoundedCornerShape(13.dp))
+                        .border(1.dp, if (active) SdmGold.copy(alpha = .55f) else SdmLine, RoundedCornerShape(13.dp))
+                        .clickable { onSelect(engine) }
+                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        Modifier.size(18.dp).border(2.dp, if (active) SdmGold else Color(0xFF5B5952), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (active) Box(Modifier.size(8.dp).background(SdmGoldHigh, CircleShape))
+                    }
+                    Column {
+                        Text(engine.label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(engine.hostLabel, color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
             }
