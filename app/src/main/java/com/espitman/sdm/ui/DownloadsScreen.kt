@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -603,13 +604,13 @@ internal fun InteractiveDownloadsScreen(
                 items(visibleDownloads, key = { it.id }) { item ->
                     val canReorder = canReorderDownloadCard(item, uiState.category, uiState.query,
                         selectionMode, reorderMode)
+                    Box(Modifier.fillMaxWidth()) {
                     DownloadCard(
                         item = pendingActions[item.id]?.let { item.copy(metadataValue = it.second, trailing = it.second) } ?: item,
                         selected = item.id in selectedIds,
                         selectionMode = selectionMode,
                         reorderEnabled = canReorder,
                         dragging = draggingQueuedId == item.id,
-                        dropTarget = dropQueuedTargetId == item.id,
                         dragOffset = if (draggingQueuedId == item.id) dragQueuedOffset else 0f,
                         onDragStart = {
                             draggingQueuedId = item.id
@@ -671,6 +672,17 @@ internal fun InteractiveDownloadsScreen(
                             }
                         },
                     )
+                    if (dropQueuedTargetId == item.id) {
+                        Box(
+                            Modifier.align(if (dropQueuedAfter) Alignment.BottomCenter else Alignment.TopCenter)
+                                .offset(y = if (dropQueuedAfter) 5.dp else (-5).dp)
+                                .fillMaxWidth(.92f)
+                                .height(3.dp)
+                                .background(SdmGold, CircleShape)
+                                .zIndex(2f),
+                        )
+                    }
+                    }
                     Spacer(Modifier.height(10.dp))
                 }
             }
@@ -970,7 +982,7 @@ private fun DownloadReorderToolbar(onDone: () -> Unit) {
     ) {
         Icon(SdmIcons.Sort, null, tint = SdmBackground, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(9.dp))
-        Text("Drag cards to reorder", color = SdmBackground, fontSize = 12.sp,
+        Text("Hold and drag to reorder", color = SdmBackground, fontSize = 12.sp,
             fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
         Surface(onClick = onDone, color = SdmBackground, contentColor = SdmGoldHigh,
             shape = RoundedCornerShape(9.dp), modifier = Modifier.height(30.dp)) {
@@ -1160,7 +1172,6 @@ private fun DownloadCard(
     selectionMode: Boolean = false,
     reorderEnabled: Boolean = false,
     dragging: Boolean = false,
-    dropTarget: Boolean = false,
     dragOffset: Float = 0f,
     onDragStart: () -> Unit = {},
     onDragBy: (Float) -> Unit = {},
@@ -1176,14 +1187,14 @@ private fun DownloadCard(
         color = if (selected) sdmColor(0xFF211F17, 0xFFF5EDD4) else SdmSurface,
         contentColor = SdmText,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (selected || dragging || dropTarget) SdmGold.copy(alpha = .65f) else SdmLine),
+        border = BorderStroke(1.dp, if (selected || dragging) SdmGold.copy(alpha = .65f) else SdmLine),
         modifier = Modifier
             .fillMaxWidth()
             .zIndex(if (dragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffset; if (dragging) shadowElevation = 12.dp.toPx() }
             .then(if (reorderEnabled) {
                 Modifier.pointerInput(item.id) {
-                    detectDragGestures(
+                    detectDragGesturesAfterLongPress(
                         onDragStart = { onDragStart() },
                         onDragEnd = onDragEnd,
                         onDragCancel = onDragCancel,
