@@ -151,6 +151,8 @@ interface DownloadRepository {
     suspend fun togglePriority(id: String, nowEpochMillis: Long): Download?
     /** Moves a QUEUED record first within its priority tier via a lower sortOrder; no-op if missing, non-queued, or already first. */
     suspend fun moveToTop(id: String, nowEpochMillis: Long): Download? = null
+    /** Atomically place one QUEUED record next to another in scheduler order. */
+    suspend fun reorderQueued(sourceId: String, targetId: String, placeAfter: Boolean, nowEpochMillis: Long): Boolean = false
     /** Atomically updates fileName and destinationPath for a non-active record. */
     suspend fun renameRecord(
         id: String,

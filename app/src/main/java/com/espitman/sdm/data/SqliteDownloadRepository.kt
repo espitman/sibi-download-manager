@@ -11,6 +11,7 @@ import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadPauseMutation
 import com.espitman.sdm.domain.DownloadProgressAlignment
 import com.espitman.sdm.domain.DownloadMoveToTopMutation
+import com.espitman.sdm.domain.DownloadQueueReorderMutation
 import com.espitman.sdm.domain.RequeueNetworkPausedMutation
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadRenameMutation
@@ -390,6 +391,34 @@ class SqliteDownloadRepository(
         }
     }
 
+    override suspend fun reorderQueued(
+        sourceId: String,
+        targetId: String,
+        placeAfter: Boolean,
+        nowEpochMillis: Long,
+    ): Boolean = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var changed = false
+            database.writableDatabase.inTransaction { db ->
+                val queued = queryQueued(db)
+                val next = DownloadQueueReorderMutation.apply(
+                    queued, sourceId, targetId, placeAfter, nowEpochMillis,
+                )
+                if (next.isEmpty()) return@inTransaction
+                val previousById = queued.associateBy { it.id }
+                next.forEach { download ->
+                    val previous = previousById.getValue(download.id)
+                    check(previous.state == download.state && previous.downloadedBytes == download.downloadedBytes)
+                    persistIdentity(db, download.id, download)
+                }
+                changed = true
+            }
+            if (changed) refreshLocked(database.readableDatabase)
+            changed
+        }
+    }
+
     override suspend fun renameRecord(
         id: String,
         fileName: String,
@@ -556,6 +585,11 @@ class SqliteDownloadRepository(
         null,
         null,
         null,
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toDownload()) } }
+
+    private fun queryQueued(db: SQLiteDatabase): List<Download> = db.query(
+        "downloads", COLUMNS, "state = ?", arrayOf(DownloadState.QUEUED.name),
+        null, null, "priority DESC, sort_order ASC, created_at ASC, id ASC",
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toDownload()) } }
 
     private fun queryOne(db: SQLiteDatabase, id: String): Download? = db.query(

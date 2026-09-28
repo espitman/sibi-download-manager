@@ -16,10 +16,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -43,6 +45,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -275,6 +279,11 @@ internal fun InteractiveDownloadsScreen(
     val overlayScope = rememberCoroutineScope()
     var networkNoticeOpen by remember { mutableStateOf(false) }
     var actionNotice by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val downloadsListState = rememberLazyListState()
+    var draggingQueuedId by remember { mutableStateOf<String?>(null) }
+    var dragQueuedOffset by remember { mutableFloatStateOf(0f) }
+    var dropQueuedTargetId by remember { mutableStateOf<String?>(null) }
+    var dropQueuedAfter by remember { mutableStateOf(false) }
     val pendingActions = remember { mutableStateMapOf<String, Pair<DownloadState, String>>() }
     fun showPending(id: String, label: String) {
         val state = records.firstOrNull { it.id == id }?.state ?: return
@@ -414,6 +423,7 @@ internal fun InteractiveDownloadsScreen(
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         if (showHeader) DownloadsTopBar(uiState)
         LazyColumn(
+            state = downloadsListState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         ) {
@@ -532,10 +542,66 @@ internal fun InteractiveDownloadsScreen(
                 item { EmptyDownloads(uiState.category) }
             } else {
                 items(visibleDownloads, key = { it.id }) { item ->
+                    val canReorder = uiState.category == DownloadCategory.Queued &&
+                        uiState.query.isBlank() && !selectionMode && item.isQueued
                     DownloadCard(
                         item = pendingActions[item.id]?.let { item.copy(metadataValue = it.second, trailing = it.second) } ?: item,
                         selected = item.id in selectedIds,
                         selectionMode = selectionMode,
+                        reorderEnabled = canReorder,
+                        dragging = draggingQueuedId == item.id,
+                        dropTarget = dropQueuedTargetId == item.id,
+                        dragOffset = if (draggingQueuedId == item.id) dragQueuedOffset else 0f,
+                        onDragStart = {
+                            draggingQueuedId = item.id
+                            dragQueuedOffset = 0f
+                            dropQueuedTargetId = null
+                        },
+                        onDragBy = { delta ->
+                            dragQueuedOffset += delta
+                            val visible = downloadsListState.layoutInfo.visibleItemsInfo
+                            val source = visible.firstOrNull { it.key == item.id }
+                            if (source != null) {
+                                val movedCenter = source.offset + source.size / 2f + dragQueuedOffset
+                                val target = visible.asSequence()
+                                    .filter { it.key != item.id && it.key is String }
+                                    .filter { info -> records.any { record ->
+                                        record.id == info.key && record.state == DownloadState.QUEUED
+                                    } }
+                                    .minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - movedCenter) }
+                                val sourceCenter = source.offset + source.size / 2f
+                                val targetCenter = target?.let { it.offset + it.size / 2f }
+                                dropQueuedTargetId = if (targetCenter != null &&
+                                    kotlin.math.abs(movedCenter - targetCenter) <
+                                    kotlin.math.abs(movedCenter - sourceCenter)
+                                ) target.key as String else null
+                                dropQueuedAfter = targetCenter != null && targetCenter > sourceCenter
+                                if (movedCenter < downloadsListState.layoutInfo.viewportStartOffset + source.size / 2f ||
+                                    movedCenter > downloadsListState.layoutInfo.viewportEndOffset - source.size / 2f
+                                ) {
+                                    overlayScope.launch {
+                                        downloadsListState.scrollBy(if (dragQueuedOffset > 0f) 32f else -32f)
+                                    }
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            val targetId = dropQueuedTargetId
+                            val after = dropQueuedAfter
+                            draggingQueuedId = null
+                            dragQueuedOffset = 0f
+                            dropQueuedTargetId = null
+                            if (targetId != null) overlayScope.launch {
+                                if (repository.reorderQueued(item.id, targetId, after, System.currentTimeMillis())) {
+                                    AppRepositories.queueScheduler(context).schedule()
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            draggingQueuedId = null
+                            dragQueuedOffset = 0f
+                            dropQueuedTargetId = null
+                        },
                         onOpen = { onSelectedDownloadIdChange(item.id) },
                         onToggleSelection = {
                             selectedIds = toggleDownloadsSelection(selectedIds, item.id)
@@ -1001,6 +1067,14 @@ private fun DownloadCard(
     item: DownloadCardModel,
     selected: Boolean = false,
     selectionMode: Boolean = false,
+    reorderEnabled: Boolean = false,
+    dragging: Boolean = false,
+    dropTarget: Boolean = false,
+    dragOffset: Float = 0f,
+    onDragStart: () -> Unit = {},
+    onDragBy: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {},
     onOpen: (() -> Unit)?,
     onToggleSelection: () -> Unit = {},
     onLongPressSelect: () -> Unit = {},
@@ -1011,9 +1085,22 @@ private fun DownloadCard(
         color = if (selected) sdmColor(0xFF211F17, 0xFFF5EDD4) else SdmSurface,
         contentColor = SdmText,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (selected) SdmGold.copy(alpha = .65f) else SdmLine),
+        border = BorderStroke(1.dp, if (selected || dragging || dropTarget) SdmGold.copy(alpha = .65f) else SdmLine),
         modifier = Modifier
             .fillMaxWidth()
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer { translationY = dragOffset; if (dragging) shadowElevation = 12.dp.toPx() }
+            .then(if (reorderEnabled) Modifier.pointerInput(item.id) {
+                detectDragGestures(
+                    onDragStart = { onDragStart() },
+                    onDragEnd = onDragEnd,
+                    onDragCancel = onDragCancel,
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        onDragBy(dragAmount.y)
+                    },
+                )
+            } else Modifier)
             .combinedClickable(
                 onClick = {
                     if (selectionMode) onToggleSelection() else onOpen?.invoke()
