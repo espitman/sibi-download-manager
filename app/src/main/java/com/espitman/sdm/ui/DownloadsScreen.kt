@@ -479,7 +479,6 @@ internal fun InteractiveDownloadsScreen(
             item {
                 Spacer(Modifier.height(18.dp))
                 DownloadToolbar(
-                    downloads.size,
                     uiState.category,
                     selectionMode = selectionMode,
                     reorderMode = reorderMode,
@@ -961,14 +960,17 @@ private fun DownloadStatusCard(
 @Composable private fun DownloadStat(value: String, label: String, modifier: Modifier) { Column(modifier.padding(end = 7.dp)) { Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(label, color = SdmMuted, fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp)) } }
 
 @Composable
-private fun DownloadToolbar(count: Int, category: DownloadCategory, selectionMode: Boolean, reorderMode: Boolean, onReorder: () -> Unit, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
+private fun DownloadToolbar(category: DownloadCategory, selectionMode: Boolean, reorderMode: Boolean, onReorder: () -> Unit, onDownloadAll: () -> Unit, onPauseAll: () -> Unit, onClearCompleted: () -> Unit) {
     val bulkEnabled = !selectionMode && !reorderMode
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { Text("Downloads", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold); Text("$count items", color = SdmMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 3.dp)) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
         if (category == DownloadCategory.Completed) {
             BulkButton("Clear All", SdmIcons.Delete, false, bulkEnabled, if (bulkEnabled) onClearCompleted else ({}))
         } else {
-            BulkButton("Reorder", SdmIcons.Sort, false, bulkEnabled, if (bulkEnabled) onReorder else ({})); Spacer(Modifier.width(6.dp)); BulkButton("Download All", SdmIcons.DownloadAll, true, bulkEnabled, if (bulkEnabled) onDownloadAll else ({})); Spacer(Modifier.width(6.dp)); BulkButton("Pause All", SdmIcons.Pause, false, bulkEnabled, if (bulkEnabled) onPauseAll else ({}))
+            BulkButton("Reorder", SdmIcons.Sort, false, bulkEnabled, if (bulkEnabled) onReorder else ({}), Modifier.weight(1f))
+            Spacer(Modifier.width(6.dp))
+            BulkButton("Download All", SdmIcons.DownloadAll, true, bulkEnabled, if (bulkEnabled) onDownloadAll else ({}), Modifier.weight(1f))
+            Spacer(Modifier.width(6.dp))
+            BulkButton("Pause All", SdmIcons.Pause, false, bulkEnabled, if (bulkEnabled) onPauseAll else ({}), Modifier.weight(1f))
         }
     }
 }
@@ -1051,9 +1053,9 @@ private fun SelectionActionButton(
 }
 
 @Composable
-private fun BulkButton(label: String, icon: ImageVector, highlighted: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, enabled = enabled, color = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .48f) else SdmLine), modifier = Modifier.height(38.dp).alpha(if (enabled) 1f else .38f)) {
-        Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(8.dp)); Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold) }
+private fun BulkButton(label: String, icon: ImageVector, highlighted: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(onClick = onClick, enabled = enabled, color = if (highlighted) sdmColor(0xFF211F16, 0xFFF5EDD4) else SdmSurface, contentColor = if (highlighted) SdmGoldHigh else SdmMuted, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, if (highlighted) SdmGold.copy(alpha = .48f) else SdmLine), modifier = modifier.height(38.dp).alpha(if (enabled) 1f else .38f)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 9.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(8.dp)); Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
     }
 }
 
