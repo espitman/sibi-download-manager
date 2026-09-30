@@ -156,6 +156,7 @@ interface DownloadRepository {
     suspend fun moveToTop(id: String, nowEpochMillis: Long): Download? = null
     /** Atomically place one unfinished record next to another in scheduler order. */
     suspend fun reorderQueued(sourceId: String, targetId: String, placeAfter: Boolean, nowEpochMillis: Long): Boolean = false
+    suspend fun reorderQueuedGroup(sourceIds: Set<String>, targetId: String, placeAfter: Boolean, nowEpochMillis: Long): Boolean = false
     /** Atomically updates fileName and destinationPath for a non-active record. */
     suspend fun renameRecord(
         id: String,

@@ -287,6 +287,8 @@ internal fun InteractiveDownloadsScreen(
     var networkNoticeOpen by remember { mutableStateOf(false) }
     var actionNotice by remember { mutableStateOf<Pair<String, String>?>(null) }
     val downloadsListState = rememberLazyListState()
+    var reorderSelectedIds by remember { mutableStateOf(setOf<String>()) }
+    var draggedGroupIds by remember { mutableStateOf(setOf<String>()) }
     var draggingQueuedId by remember { mutableStateOf<String?>(null) }
     var dragQueuedOffset by remember { mutableFloatStateOf(0f) }
     var dropQueuedTargetId by remember { mutableStateOf<String?>(null) }
@@ -419,6 +421,7 @@ internal fun InteractiveDownloadsScreen(
     var reorderMode by remember { mutableStateOf(false) }
     BackHandler(reorderMode) {
         reorderMode = false
+        reorderSelectedIds = emptySet()
         reorderPreviewIds.clear()
     }
     var selectionDeleteOpen by remember { mutableStateOf(false) }
@@ -563,6 +566,7 @@ internal fun InteractiveDownloadsScreen(
                     if (reorderMode) {
                         DownloadReorderToolbar {
                             reorderMode = false
+                            reorderSelectedIds = emptySet()
                             reorderPreviewIds.clear()
                         }
                     } else if (selectionMode) {
@@ -652,13 +656,15 @@ internal fun InteractiveDownloadsScreen(
             val visibleDownloads = filterDownloadCards(downloads, uiState.category, uiState.query)
             val previewRanks = reorderPreviewIds.withIndex().associate { it.value to it.index }
             val renderedDownloads = if (reorderPreviewIds.isEmpty()) visibleDownloads else
-                visibleDownloads.sortedBy { previewRanks[it.id] ?: Int.MAX_VALUE }
+                visibleDownloads.filter { draggingQueuedId == null || it.id !in draggedGroupIds || it.id == draggingQueuedId }
+                    .sortedBy { previewRanks[it.id] ?: Int.MAX_VALUE }
             if (renderedDownloads.isEmpty()) {
                 item { EmptyDownloads(uiState.category) }
             } else {
                 items(renderedDownloads, key = { it.id }) { item ->
                     val canReorder = canReorderDownloadCard(item, uiState.category, uiState.query,
-                        selectionMode, reorderMode)
+                        false, reorderMode)
+                    val insertionGold = SdmGold
                     Box(
                         Modifier.fillMaxWidth()
                             .then(if (draggingQueuedId == item.id) Modifier else Modifier.animateItem(
@@ -666,12 +672,20 @@ internal fun InteractiveDownloadsScreen(
                                 fadeOutSpec = null,
                                 placementSpec = tween(170),
                             ))
-                            .zIndex(if (draggingQueuedId == item.id) 3f else 0f),
+                            .zIndex(if (draggingQueuedId == item.id) 3f else 0f)
+                            .drawWithContent {
+                                drawContent()
+                                if (dropQueuedTargetId == item.id) {
+                                    val y = if (dropQueuedAfter) size.height else 0f
+                                    drawLine(insertionGold, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx())
+                                }
+                            },
                     ) {
                     DownloadCard(
                         item = pendingActions[item.id]?.let { item.copy(metadataValue = it.second, trailing = it.second) } ?: item,
-                        selected = item.id in selectedIds,
-                        selectionMode = selectionMode,
+                        selected = item.id in (if (reorderMode) reorderSelectedIds else selectedIds),
+                        selectionMode = selectionMode || reorderMode,
+                        dragCount = if (draggingQueuedId == item.id) draggedGroupIds.size else 0,
                         reorderEnabled = canReorder,
                         dragging = draggingQueuedId == item.id,
                         dropTarget = dropQueuedTargetId == item.id,
@@ -680,10 +694,16 @@ internal fun InteractiveDownloadsScreen(
                         onDragStart = {
                             reorderDragGeneration++
                             reorderPreviewIds.clear()
-                            reorderPreviewIds.addAll(renderedDownloads.map { it.id })
+                            draggedGroupIds = if (item.id in reorderSelectedIds) reorderSelectedIds.filter { id ->
+                                records.any { it.id == id && it.state != DownloadState.COMPLETED }
+                            }.toSet() else setOf(item.id)
+                            reorderPreviewIds.addAll(renderedDownloads.map { it.id }.filter { it !in draggedGroupIds || it == item.id })
                             dragStartQueuedIndex = reorderPreviewIds.indexOf(item.id)
                             draggingQueuedId = item.id
-                            dragQueuedOffset = 0f
+                            val sourceLayout = downloadsListState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == item.id }
+                            dragQueuedOffset = downloadsListState.layoutInfo.visibleItemsInfo
+                                .filter { it.key in draggedGroupIds && it.key != item.id && sourceLayout != null && it.index < sourceLayout.index }
+                                .sumOf { it.size + downloadsListState.layoutInfo.mainAxisItemSpacing }.toFloat()
                             dropQueuedTargetId = null
                             dragEdgeDirection = 0
                         },
@@ -697,7 +717,8 @@ internal fun InteractiveDownloadsScreen(
                                 records.any { it.id == id && it.state != DownloadState.COMPLETED }
                             }
                             val sourceIndex = nextOrder.indexOf(item.id)
-                            val changed = sourceIndex >= 0 && sourceIndex != dragStartQueuedIndex
+                            val changed = sourceIndex >= 0 && (sourceIndex != dragStartQueuedIndex || draggedGroupIds.size > 1)
+                            val finishedGroupIds = draggedGroupIds
                             val targetId = if (sourceIndex > 0) nextOrder[sourceIndex - 1]
                                 else nextOrder.getOrNull(1)
                             val after = sourceIndex > 0
@@ -708,7 +729,7 @@ internal fun InteractiveDownloadsScreen(
                             dragStartQueuedIndex = -1
                             if (changed && targetId != null) overlayScope.launch {
                                 try {
-                                    if (repository.reorderQueued(item.id, targetId, after, System.currentTimeMillis())) {
+                                    if (repository.reorderQueuedGroup(finishedGroupIds, targetId, after, System.currentTimeMillis())) {
                                         AppRepositories.queueScheduler(context).schedule()
                                     }
                                 } finally {
@@ -728,10 +749,13 @@ internal fun InteractiveDownloadsScreen(
                         },
                         onOpen = { if (!reorderMode) onSelectedDownloadIdChange(item.id) },
                         onToggleSelection = {
-                            selectedIds = toggleDownloadsSelection(selectedIds, item.id)
+                            if (reorderMode) {
+                                if (canReorder) reorderSelectedIds = toggleDownloadsSelection(reorderSelectedIds, item.id)
+                            } else selectedIds = toggleDownloadsSelection(selectedIds, item.id)
                         },
                         onLongPressSelect = {
-                            if (!reorderMode) selectedIds = selectedIds + item.id
+                            if (reorderMode) { if (canReorder) reorderSelectedIds = reorderSelectedIds + item.id }
+                            else selectedIds = selectedIds + item.id
                         },
                         onAction = {
                             if (reorderMode) return@DownloadCard
@@ -1066,7 +1090,7 @@ private fun DownloadReorderToolbar(onDone: () -> Unit) {
     ) {
         Icon(SdmIcons.Sort, null, tint = SdmBackground, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(9.dp))
-        Text("Hold and drag to reorder", color = SdmBackground, fontSize = 12.sp,
+        Text("Tap to select · hold handle to move", color = SdmBackground, fontSize = 12.sp,
             fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
         Surface(onClick = onDone, color = SdmBackground, contentColor = SdmGoldHigh,
             shape = RoundedCornerShape(9.dp), modifier = Modifier.height(30.dp)) {
@@ -1256,6 +1280,7 @@ private fun DownloadCard(
     selectionMode: Boolean = false,
     reorderEnabled: Boolean = false,
     dragging: Boolean = false,
+    dragCount: Int = 0,
     dropTarget: Boolean = false,
     dropAfter: Boolean = false,
     dragOffset: Float = 0f,
@@ -1310,24 +1335,10 @@ private fun DownloadCard(
                     )
                 }
             }
-            .then(if (reorderEnabled) {
-                Modifier.pointerInput(item.id) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { currentDragStart() },
-                        onDragEnd = { currentDragEnd() },
-                        onDragCancel = { currentDragCancel() },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            currentDragBy(dragAmount.y)
-                        },
-                    )
-                }
-            } else {
-                Modifier.combinedClickable(
-                    onClick = { if (selectionMode) onToggleSelection() else onOpen?.invoke() },
-                    onLongClick = onLongPressSelect,
-                )
-            })
+            .combinedClickable(
+                onClick = { if (selectionMode) onToggleSelection() else onOpen?.invoke() },
+                onLongClick = onLongPressSelect,
+            )
             .semantics {
                 if (selectionMode) {
                     stateDescription = if (selected) "Selected" else "Not selected"
@@ -1359,6 +1370,12 @@ private fun DownloadCard(
                         fontWeight = FontWeight.Black,
                         letterSpacing = .6.sp,
                     )
+                    if (dragging && dragCount > 1) {
+                        Box(Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-7).dp)
+                            .background(SdmGold, RoundedCornerShape(7.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) {
+                            Text("$dragCount", color = SdmBackground, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
                     if (selected) {
                         Box(
                             Modifier.align(Alignment.BottomEnd)
@@ -1382,7 +1399,14 @@ private fun DownloadCard(
                     Box(
                         Modifier
                             .size(width = 32.dp, height = 44.dp)
-                            .then(if (reorderEnabled) Modifier else Modifier.clickable(
+                            .then(if (reorderEnabled) Modifier.pointerInput(item.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { currentDragStart() },
+                                    onDragEnd = { currentDragEnd() },
+                                    onDragCancel = { currentDragCancel() },
+                                    onDrag = { change, amount -> change.consume(); currentDragBy(amount.y) },
+                                )
+                            } else Modifier.clickable(
                                 role = Role.Button, onClick = if (selectionMode) onToggleSelection else onAction)),
                         contentAlignment = Alignment.Center,
                     ) {

@@ -417,14 +417,18 @@ class SqliteDownloadRepository(
         targetId: String,
         placeAfter: Boolean,
         nowEpochMillis: Long,
+    ): Boolean = reorderQueuedGroup(setOf(sourceId), targetId, placeAfter, nowEpochMillis)
+
+    override suspend fun reorderQueuedGroup(
+        sourceIds: Set<String>, targetId: String, placeAfter: Boolean, nowEpochMillis: Long,
     ): Boolean = onIo {
         awaitInitialized()
         mutex.withLock {
             var changed = false
             database.writableDatabase.inTransaction { db ->
                 val queued = queryUnfinished(db)
-                val next = DownloadQueueReorderMutation.apply(
-                    queued, sourceId, targetId, placeAfter, nowEpochMillis,
+                val next = DownloadQueueReorderMutation.applyGroup(
+                    queued, sourceIds, targetId, placeAfter, nowEpochMillis,
                 )
                 if (next.isEmpty()) return@inTransaction
                 val previousById = queued.associateBy { it.id }

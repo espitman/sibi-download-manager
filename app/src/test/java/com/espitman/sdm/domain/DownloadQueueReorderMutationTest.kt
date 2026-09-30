@@ -5,6 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DownloadQueueReorderMutationTest {
+    @Test fun movesNonAdjacentGroupPreservingQueueOrderAndProgress() {
+        val queue = listOf(row("a", 0), row("b", 1), row("c", 2), row("d", 3))
+        val next = DownloadQueueReorderMutation.applyGroup(queue, setOf("c", "a"), "d", true, 100)
+        assertEquals(listOf("b", "d", "a", "c"), next.sortedWith(DownloadQueueOrder.comparator).map { it.id })
+        assertTrue(next.all { it.state == DownloadState.QUEUED && it.downloadedBytes == 0L })
+        val back = DownloadQueueReorderMutation.applyGroup(next, setOf("a", "c"), "b", false, 101)
+        assertEquals(listOf("a", "c", "b", "d"), back.sortedWith(DownloadQueueOrder.comparator).map { it.id })
+        assertTrue(DownloadQueueReorderMutation.applyGroup(queue, setOf("a", "c"), "a", true, 100).isEmpty())
+    }
     @Test fun movesDownAndUpWithinQueue() {
         val queue = listOf(row("a", 0), row("b", 1), row("c", 2))
         val down = DownloadQueueReorderMutation.apply(queue, "a", "c", true, 100)
