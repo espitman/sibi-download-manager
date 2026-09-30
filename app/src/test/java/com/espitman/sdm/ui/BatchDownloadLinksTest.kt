@@ -8,6 +8,22 @@ import org.junit.Test
 
 class BatchDownloadLinksTest {
     @Test
+    fun reportsProgressAndCancellationDoesNotSubmitRemainingLinks() = runBlocking {
+        val progress = mutableListOf<Pair<Int, Int>>()
+        val attempted = mutableListOf<String>()
+        try {
+            submitDownloadLinks(listOf("one", "two", "three"), onProgress = { done, total -> progress += done to total }) {
+                attempted += it
+                if (it == "two") throw kotlinx.coroutines.CancellationException("Closed")
+                SubmissionResult.Success(Download(url = "https://example.com/one", fileName = "one", createdAtEpochMillis = 1))
+            }
+            org.junit.Assert.fail("Cancellation must propagate")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            assertEquals(listOf("one", "two"), attempted)
+            assertEquals(listOf(1 to 3), progress)
+        }
+    }
+    @Test
     fun eachEpisodeLineKeepsItsOwnSignedQueryString() {
         val first = "https://example.com/Ted.Lasso.S01E01.mkv?md5=a_b-c&u=146599&expires=1790232138"
         val second = "https://example.com/Ted.Lasso.S01E02.mkv?md5=d_e-f&u=146599&expires=1790232138"

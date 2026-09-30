@@ -60,7 +60,10 @@ internal fun AddDownloadSheet(
     var urlError by remember { mutableStateOf<String?>(null) }
     var schedule by remember { mutableStateOf<DownloadSchedule?>(null) }
     var scheduleOpen by remember { mutableStateOf(false) }
-    var isSubmitting by rememberSaveable { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var submittedCount by remember { mutableIntStateOf(0) }
+    var submittingTotal by remember { mutableIntStateOf(0) }
+    var submissionJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var savedHandoffPhase by rememberSaveable {
         mutableStateOf(NotificationPermissionHandoff.Phase.Consumed.savedName)
     }
@@ -85,7 +88,8 @@ internal fun AddDownloadSheet(
     val extraTravel = with(LocalDensity.current) { 24.dp.toPx() }
     val scope = rememberCoroutineScope()
     val dismissAnimated: () -> Unit = {
-        if (!isSubmitting) sheetHost.dismissThen(onDismiss)
+        submissionJob?.cancel()
+        sheetHost.dismissThen(onDismiss)
     }
     fun applyUrl(value: String) {
         if (isSubmitting) return
@@ -94,7 +98,10 @@ internal fun AddDownloadSheet(
     }
     suspend fun processBatch(input: String, startNow: Boolean) {
         val links = parseDownloadLinks(input)
-        val outcome = submitDownloadLinks(links.urls) { link ->
+        submissionJob = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        submittingTotal = links.urls.size
+        submittedCount = 0
+        val outcome = submitDownloadLinks(links.urls, onProgress = { done, _ -> submittedCount = done }) { link ->
             coordinator.submit(link, startNow, if (links.urls.size == 1) requestContext else null, schedule)
         }
         val remaining = links.invalidLines + outcome.failedUrls
@@ -103,7 +110,7 @@ internal fun AddDownloadSheet(
             onToast(if (outcome.added == 1) "Download added" else "${outcome.added} downloads added")
         }
         if (remaining.isEmpty()) {
-            dismissAnimated()
+            sheetHost.dismissThen(onDismiss)
         } else {
             url = remaining.joinToString("\n")
             urlError = if (outcome.added > 0) {
@@ -118,6 +125,7 @@ internal fun AddDownloadSheet(
             try {
                 processBatch(input, startNow)
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                isSubmitting = false
                 throw cancellation
             } catch (_: Throwable) {
                 urlError = "Failed to submit download"
@@ -191,7 +199,7 @@ internal fun AddDownloadSheet(
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 9.dp, bottom = 2.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), RoundedCornerShape(99.dp)))
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 16.dp, top = 7.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("New download", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        IconButton(onClick = dismissAnimated, enabled = !isSubmitting, modifier = Modifier.size(44.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp))) {
+                        IconButton(onClick = dismissAnimated, modifier = Modifier.size(44.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp))) {
                             Icon(SdmIcons.Close, "Close add download", tint = SdmMuted, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -255,8 +263,8 @@ internal fun AddDownloadSheet(
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { submit(startNow = false) }, enabled = !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
-                            Text(if (parsedLinks.urls.size > 1) "Queue ${parsedLinks.urls.size}" else "Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                        Button(contentPadding = PaddingValues(horizontal = 8.dp), onClick = { submit(startNow = false) }, enabled = !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
+                            Text(if (isSubmitting) "$submittedCount/$submittingTotal" else if (parsedLinks.urls.size > 1) "Queue ${parsedLinks.urls.size}" else "Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                         Button(onClick = { submit(startNow = true) }, enabled = url.isNotBlank() && !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = SdmGold, contentColor = Color(0xFF080808)), shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1.2f).height(48.dp)) {
                             Icon(SdmIcons.Download, null, modifier = Modifier.size(21.dp))

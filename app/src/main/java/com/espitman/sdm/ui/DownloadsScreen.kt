@@ -525,6 +525,8 @@ internal fun InteractiveDownloadsScreen(
         if (downloads.count { it.category == DownloadCategory.Queued } < 2) {
             actionNotice = "Nothing to reorder" to "Add at least two unfinished downloads to change their order."
         } else {
+            reorderSelectedIds = downloads.filter { it.id in selectedIds && it.category == DownloadCategory.Queued }.map { it.id }.toSet()
+            selectedIds = emptySet()
             reorderMode = true
         }
     }
@@ -575,6 +577,9 @@ internal fun InteractiveDownloadsScreen(
                         canPause = downloadsSelectionPauseIds(records, selectedIds).isNotEmpty(),
                         canResume = downloadsSelectionStartQueuedIds(records, selectedIds).isNotEmpty() ||
                             downloadsSelectionResumeOrRetryIds(records, selectedIds).isNotEmpty(),
+                        canReorder = uiState.category != DownloadCategory.Completed && uiState.query.isBlank() &&
+                            downloads.any { it.id in selectedIds && it.category == DownloadCategory.Queued },
+                        onReorder = onReorderAction,
                         onClose = {
                             selectedIds = emptySet()
                             selectionDeleteOpen = false
@@ -644,7 +649,6 @@ internal fun InteractiveDownloadsScreen(
                                 uiState.category = it
                                 uiState.query = ""
                             },
-                            onReorder = onReorderAction,
                             onDownloadAll = onDownloadAllAction,
                             onPauseAll = onPauseAllAction,
                             onClearCompleted = onClearCompletedAction,
@@ -1106,6 +1110,8 @@ private fun DownloadSelectionToolbar(
     count: Int,
     canPause: Boolean,
     canResume: Boolean,
+    canReorder: Boolean,
+    onReorder: () -> Unit,
     onClose: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -1119,26 +1125,26 @@ private fun DownloadSelectionToolbar(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.weight(1f).height(28.dp)
-                .clickable(role = Role.Button, onClick = onClose),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(downloadsSelectionCountLabel(count), color = onGold, fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
-                Icon(SdmIcons.Close, "Close selection", tint = onGold, modifier = Modifier.size(12.dp))
-            }
+        Box(Modifier.padding(start = 4.dp).size(28.dp).background(onGold, CircleShape),
+            contentAlignment = Alignment.Center) {
+            Text(count.toString(), color = SdmGold, fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
-        SelectionActionButton("Pause", Modifier.weight(1f), canPause, onPause)
-        SelectionActionButton("Resume", Modifier.weight(1f), canResume, onResume)
-        SelectionActionButton("Delete", Modifier.weight(1f), true, onDelete, danger = true)
+        Box(Modifier.size(28.dp).clickable(role = Role.Button, onClick = onClose),
+            contentAlignment = Alignment.Center) {
+            Icon(SdmIcons.Close, "Close selection", tint = onGold, modifier = Modifier.size(20.dp))
+        }
+        SelectionActionButton("Pause", SdmIcons.Pause, Modifier.weight(1f), canPause, onPause)
+        SelectionActionButton("Resume", SdmIcons.Play, Modifier.weight(1f), canResume, onResume)
+        SelectionActionButton("Reorder", SdmIcons.Reorder, Modifier.weight(1f), canReorder, onReorder)
+        SelectionActionButton("Delete", SdmIcons.Delete, Modifier.weight(1f), true, onDelete, danger = true)
     }
 }
 
 @Composable
 private fun SelectionActionButton(
     label: String,
+    icon: ImageVector,
     modifier: Modifier,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -1147,13 +1153,13 @@ private fun SelectionActionButton(
     Surface(
         onClick = onClick,
         enabled = enabled,
-        color = if (danger) sdmColor(0xFF241B1A, 0xFF2A1614) else sdmColor(0xFF121315, 0xFF181713),
+        color = sdmColor(0xFF121315, 0xFF181713),
         contentColor = if (danger) sdmColor(0xFFEF756B, 0xFFEF756B) else sdmColor(0xFFF3D675, 0xFFD4AF37),
         shape = RoundedCornerShape(9.dp),
         modifier = modifier.height(28.dp).alpha(if (enabled) 1f else .38f),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(label, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            Icon(icon, label, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -1163,7 +1169,6 @@ private fun DownloadTabs(
     selected: DownloadCategory,
     counts: Map<DownloadCategory, Int>,
     onSelect: (DownloadCategory) -> Unit,
-    onReorder: () -> Unit,
     onDownloadAll: () -> Unit,
     onPauseAll: () -> Unit,
     onClearCompleted: () -> Unit,
@@ -1217,7 +1222,6 @@ private fun DownloadTabs(
                                 listOf(Triple("Clear All", SdmIcons.Delete, onClearCompleted))
                             } else {
                                 listOf(
-                                    Triple("Reorder", SdmIcons.Sort, onReorder),
                                     Triple("Download All", SdmIcons.DownloadAll, onDownloadAll),
                                     Triple("Pause All", SdmIcons.Pause, onPauseAll),
                                 )

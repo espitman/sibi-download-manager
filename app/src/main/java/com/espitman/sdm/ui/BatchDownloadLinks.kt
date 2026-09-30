@@ -37,12 +37,13 @@ internal data class BatchSubmissionOutcome(
 
 internal suspend fun submitDownloadLinks(
     urls: List<String>,
+    onProgress: (Int, Int) -> Unit = { _, _ -> },
     submit: suspend (String) -> SubmissionResult,
 ): BatchSubmissionOutcome {
     var added = 0
     val failed = mutableListOf<String>()
     var firstFailure: String? = null
-    urls.forEach { url ->
+    urls.forEachIndexed { index, url ->
         val result = try {
             submit(url)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -57,6 +58,7 @@ internal suspend fun submitDownloadLinks(
                 if (firstFailure == null) firstFailure = result.message
             }
         }
+        onProgress(index + 1, urls.size)
     }
     return BatchSubmissionOutcome(added, failed, firstFailure)
 }
