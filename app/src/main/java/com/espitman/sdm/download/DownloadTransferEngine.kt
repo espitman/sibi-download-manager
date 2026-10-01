@@ -66,6 +66,7 @@ class DownloadTransferEngine(
     private val destinationPublisher: DownloadDestinationPublisher = DownloadDestinationPublisher.KeepLocal,
     private val storageCapacity: StorageCapacityProbe = StorageCapacityProbe.Unknown,
     private val speedLimiter: SpeedLimiter = SpeedLimiter.Unlimited,
+    private val individualSpeedLimiter: (String) -> SpeedLimiter = { SpeedLimiter.Unlimited },
     private val segmentCount: () -> Int = { SegmentedTransferPolicy.INITIAL_SEGMENT_COUNT },
     private val requestContext: (String) -> ScopedRequestContext? = { null },
     private val networkUnavailable: () -> Boolean = { false },
@@ -478,7 +479,8 @@ class DownloadTransferEngine(
                                 while (chunkOffset < allowedBytes) {
                                     currentCoroutineContext().ensureActive()
                                     val remaining = allowedBytes - chunkOffset
-                                    val admitted = speedLimiter.acquire(remaining)
+                                    val individualAdmission = individualSpeedLimiter(downloadId).acquire(remaining)
+                                    val admitted = speedLimiter.acquire(individualAdmission)
                                     currentCoroutineContext().ensureActive()
                                     require(admitted > 0) { "Speed limiter admitted no bytes" }
                                     val toWrite = min(admitted, remaining)
@@ -680,6 +682,7 @@ class DownloadTransferEngine(
                             totalBytes = totalBytes,
                             validators = validators,
                             output = segmentFiles[index],
+                            individualLimiter = individualSpeedLimiter(downloadId),
                             requestContext = requestContext,
                         ) { written ->
                             progressMutex.withLock {
@@ -788,6 +791,7 @@ class DownloadTransferEngine(
         totalBytes: Long,
         validators: HttpRangeResume.ResumeValidators,
         output: File,
+        individualLimiter: SpeedLimiter,
         requestContext: ScopedRequestContext?,
         onBytesWritten: suspend (Long) -> Unit,
     ) {
@@ -846,7 +850,8 @@ class DownloadTransferEngine(
                             if (received + read > range.length) throw SegmentFallbackException()
                             var offset = 0
                             while (offset < read) {
-                                val admitted = speedLimiter.acquire(read - offset)
+                                val individualAdmission = individualLimiter.acquire(read - offset)
+                                val admitted = speedLimiter.acquire(individualAdmission)
                                 currentCoroutineContext().ensureActive()
                                 val written = min(admitted, read - offset)
                                 stream.write(buffer, offset, written)

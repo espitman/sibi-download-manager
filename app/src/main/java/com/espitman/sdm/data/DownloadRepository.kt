@@ -21,6 +21,8 @@ interface DownloadRepository {
         awaitInitialized()
         return downloads.value
     }
+    suspend fun refreshLink(id: String, expected: Download, metadata: com.espitman.sdm.network.DownloadMetadata, restart: Boolean, now: Long): Download = error("Link refresh is not implemented")
+    suspend fun updateSpeedLimit(id: String, bytesPerSecond: Long?, now: Long): Download = error("Speed limit update is not implemented")
     suspend fun insert(download: Download)
     suspend fun delete(id: String): Boolean
     /** Replace or clear the time window without changing transfer state or progress. */

@@ -22,3 +22,11 @@ internal fun designOverlayBottomInset(): Dp {
     val systemInset = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
     return (68.dp - systemInset).coerceAtLeast(0.dp)
 }
+
+// Header space must stay identical even when an ancestor has consumed system insets.
+@Composable
+internal fun designHeaderTopSpace(): Dp {
+    val density = LocalDensity.current
+    val systemInset = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    return maxOf(52.dp, systemInset)
+}

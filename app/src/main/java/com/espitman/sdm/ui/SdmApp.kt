@@ -301,8 +301,7 @@ internal fun AppHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(top = designHeaderInset())
+                .padding(top = designHeaderTopSpace())
                 .height(63.dp)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,

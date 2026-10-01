@@ -29,6 +29,7 @@ internal object SdmIcons {
     val Back = outline("Back", "M15 18l-6-6 6-6")
     val Chevron = outline("Chevron", "M9 6l6 6-6 6")
     val Lock = outline("Lock", "M7 11h10v8H7zM9 11V8a3 3 0 0 1 6 0v3")
+    val Link = outline("Link", "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2")
     val Refresh = outline("Refresh", "M5 12a7 7 0 1 0 2-5M5 4v5h5")
     val Schedule = outline("Schedule", "M20 12a8 8 0 1 1-16 0a8 8 0 1 1 16 0M12 7v5l3 2")
     val Connections = outline("Connections", "M6 5v14M12 5v14M18 5v14")

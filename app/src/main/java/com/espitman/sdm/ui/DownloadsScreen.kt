@@ -285,6 +285,11 @@ internal fun InteractiveDownloadsScreen(
     var overlayClosing by remember { mutableStateOf(false) }
     val overlayScope = rememberCoroutineScope()
     var networkNoticeOpen by remember { mutableStateOf(false) }
+    var refreshIds by remember { mutableStateOf<Set<String>?>(null) }
+    refreshIds?.let { ids ->
+        val targets = records.filter { it.id in ids && it.state != DownloadState.COMPLETED }
+        if (targets.isNotEmpty()) RefreshDownloadLinksSheet(targets, { refreshIds = null }, onToast)
+    }
     var actionNotice by remember { mutableStateOf<Pair<String, String>?>(null) }
     val downloadsListState = rememberLazyListState()
     var reorderSelectedIds by remember { mutableStateOf(setOf<String>()) }
@@ -580,6 +585,8 @@ internal fun InteractiveDownloadsScreen(
                         canReorder = uiState.category != DownloadCategory.Completed && uiState.query.isBlank() &&
                             downloads.any { it.id in selectedIds && it.category == DownloadCategory.Queued },
                         onReorder = onReorderAction,
+                        canRefresh = records.any { it.id in selectedIds && it.state != DownloadState.COMPLETED },
+                        onRefresh = { refreshIds = selectedIds },
                         onClose = {
                             selectedIds = emptySet()
                             selectionDeleteOpen = false
@@ -764,6 +771,11 @@ internal fun InteractiveDownloadsScreen(
                         onAction = {
                             if (reorderMode) return@DownloadCard
                             val record = records.firstOrNull { it.id == item.id }
+                            if (record?.state == DownloadState.FAILED &&
+                                com.espitman.sdm.domain.DownloadFailure.classify(record.error) == com.espitman.sdm.domain.DownloadFailure.EXPIRED_LINK) {
+                                refreshIds = setOf(record.id)
+                                return@DownloadCard
+                            }
                             val action = record?.let { transferCardAction(it.state) }
                             if (action == null || action == TransferCardAction.None) {
                                 Unit
@@ -1029,7 +1041,7 @@ private fun DownloadsHeader(
     }
     Box(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().background(SdmBackground)) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = designHeaderInset()).height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = designHeaderTopSpace()).height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(36.dp).background(sdmColor(0xFF171712, 0xFFF2EAD2), RoundedCornerShape(11.dp)).border(1.dp, SdmGold.copy(alpha = .5f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) { Text("SD", color = SdmGoldHigh, fontSize = 13.sp, fontWeight = FontWeight.Black) }
                 Spacer(Modifier.width(10.dp))
                 Text("Downloads", color = SdmText, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.36).sp, modifier = Modifier.weight(1f))
@@ -1112,6 +1124,8 @@ private fun DownloadSelectionToolbar(
     canResume: Boolean,
     canReorder: Boolean,
     onReorder: () -> Unit,
+    canRefresh: Boolean,
+    onRefresh: () -> Unit,
     onClose: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -1134,10 +1148,23 @@ private fun DownloadSelectionToolbar(
             contentAlignment = Alignment.Center) {
             Icon(SdmIcons.Close, "Close selection", tint = onGold, modifier = Modifier.size(20.dp))
         }
-        SelectionActionButton("Pause", SdmIcons.Pause, Modifier.weight(1f), canPause, onPause)
-        SelectionActionButton("Resume", SdmIcons.Play, Modifier.weight(1f), canResume, onResume)
-        SelectionActionButton("Reorder", SdmIcons.Reorder, Modifier.weight(1f), canReorder, onReorder)
-        SelectionActionButton("Delete", SdmIcons.Delete, Modifier.weight(1f), true, onDelete, danger = true)
+        val actionScroll = rememberScrollState()
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val actionWidth = (maxWidth - 12.dp) / 4
+            Row(Modifier.fillMaxWidth().horizontalScroll(actionScroll),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                SelectionActionButton("Pause", SdmIcons.Pause, Modifier.width(actionWidth), canPause, onPause)
+                SelectionActionButton("Resume", SdmIcons.Play, Modifier.width(actionWidth), canResume, onResume)
+                SelectionActionButton("Reorder", SdmIcons.Reorder, Modifier.width(actionWidth), canReorder, onReorder)
+                SelectionActionButton("Delete", SdmIcons.Delete, Modifier.width(actionWidth), true, onDelete, danger = true)
+                SelectionActionButton("Refresh links", SdmIcons.Link, Modifier.width(actionWidth), canRefresh, onRefresh)
+            }
+            if (actionScroll.canScrollForward) Box(Modifier.align(Alignment.CenterEnd).width(12.dp).height(28.dp)
+                .background(Brush.horizontalGradient(listOf(Color.Transparent, SdmGold))))
+            if (actionScroll.canScrollBackward) Box(Modifier.align(Alignment.CenterStart).width(8.dp).height(28.dp)
+                .background(Brush.horizontalGradient(listOf(SdmGold, Color.Transparent))))
+        }
     }
 }
 
@@ -1307,6 +1334,9 @@ private fun DownloadCard(
         animationSpec = tween(180),
         label = "Reorder target fade",
     )
+    Box(Modifier.fillMaxWidth()
+        .zIndex(if (dragging) 1f else 0f)
+        .graphicsLayer { translationY = dragOffset }) {
     Surface(
         color = if (selected) sdmColor(0xFF211F17, 0xFFF5EDD4) else SdmSurface,
         contentColor = SdmText,
@@ -1314,8 +1344,7 @@ private fun DownloadCard(
         border = BorderStroke(1.dp, if (selected || dragging) SdmGold.copy(alpha = .65f) else SdmLine),
         modifier = Modifier
             .fillMaxWidth()
-            .zIndex(if (dragging) 1f else 0f)
-            .graphicsLayer { translationY = dragOffset; if (dragging) shadowElevation = 12.dp.toPx() }
+            .graphicsLayer { if (dragging) shadowElevation = 12.dp.toPx() }
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
                 drawContent()
@@ -1415,8 +1444,8 @@ private fun DownloadCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            if (reorderEnabled) SdmIcons.Sort else if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause,
-                            if (reorderEnabled) "Drag to reorder" else if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
+                            if (reorderEnabled) SdmIcons.Sort else if (item.metadataValue == "Error · Link expired") SdmIcons.Link else if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause,
+                            if (reorderEnabled) "Drag to reorder" else if (item.metadataValue == "Error · Link expired") "Refresh link" else if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
                             tint = SdmGoldHigh,
                             modifier = Modifier.size(19.dp),
                         )
@@ -1424,9 +1453,20 @@ private fun DownloadCard(
                 }
             }
             Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(3.dp).background(sdmColor(0xFF34332F, 0xFFDED8CB), CircleShape)) { Box(Modifier.fillMaxWidth(if (queued) 0f else item.progress).height(3.dp).background(SdmGold, CircleShape)) }
-            Row(Modifier.fillMaxWidth().padding(top = 9.dp)) { Text(item.progressLabel, color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(item.trailing, color = SdmMuted, fontSize = 11.sp) }
+            Row(Modifier.fillMaxWidth().padding(top = 9.dp)) { Text(item.progressLabel, color = SdmGoldHigh, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(if (item.metadataValue == "Error · Link expired") "Refresh link" else item.trailing, color = SdmMuted, fontSize = 11.sp) }
         }
     }
+    if (item.speedLimitBytesPerSecond != null) {
+        Canvas(Modifier.matchParentSize().semantics {
+            contentDescription = "Speed limited to ${individualSpeedLimitLabel(item.speedLimitBytesPerSecond)}"
+        }) {
+            // Center on the 45-degree point of the 16 dp corner arc; half outside the card.
+            val corner = (16f * (1f - kotlin.math.sqrt(.5f))).dp.toPx()
+            drawCircle(Color(0xFFFF9F43), radius = 6.dp.toPx(), center = Offset(corner, corner))
+        }
+    }
+    }
+
 }
 
 @Composable
@@ -1576,7 +1616,10 @@ private fun DownloadDetailsScreen(
     var segmentsOpen by remember(download.id) { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
+    var refreshOpen by remember { mutableStateOf(false) }
+    if (refreshOpen) RefreshDownloadLinksSheet(listOf(download), { refreshOpen = false }, onToast)
     var scheduleOpen by remember { mutableStateOf(false) }
+    var speedLimitOpen by remember(download.id) { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var verifying by remember { mutableStateOf(false) }
     val speedTracker = remember(download.id) { DownloadDetailsSpeedTracker() }
@@ -1592,16 +1635,18 @@ private fun DownloadDetailsScreen(
     val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + designHeaderInset().roundToPx() + 58.dp.roundToPx() }
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         Box(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = designHeaderInset()).height(64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp)) }; Text("Download details", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(48.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
+            Row(Modifier.fillMaxWidth().padding(top = designHeaderTopSpace()).height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Box(Modifier.size(36.dp).clickable(onClick = onBack), contentAlignment = Alignment.CenterStart) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp).offset(x = (-7).dp)) }; Text("Download details", fontSize = 18.sp, letterSpacing = (-.36).sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(42.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         (listOf("Rename", "Verify checksum", "Move to top") +
+                            (if (download.state != DownloadState.COMPLETED) listOf("Refresh link") else emptyList()) +
                             if (download.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELLED)) listOf("Schedule") else emptyList()).forEach { label ->
                             Box(
                                 Modifier.fillMaxWidth().height(54.dp).clickable {
                                     menuOpen = false
                                     when (label) {
+                                        "Refresh link" -> refreshOpen = true
                                         "Rename" -> renameOpen = true
                                         "Verify checksum" -> {
                                             if (verifying) return@clickable
@@ -1655,6 +1700,17 @@ private fun DownloadDetailsScreen(
                                 color = SdmGoldHigh, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(max = 176.dp),
                             )
+                        }
+                    }
+                }
+                item {
+                    Surface(onClick = { speedLimitOpen = true }, color = SdmSurface,
+                        shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, SdmLine),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Speed limit", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text(individualSpeedLimitLabel(download.speedLimitBytesPerSecond), color = SdmGoldHigh, fontSize = 11.sp)
+                            Icon(SdmIcons.Chevron, null, tint = SdmMuted, modifier = Modifier.padding(start = 8.dp).size(15.dp))
                         }
                     }
                 }
@@ -1719,6 +1775,9 @@ private fun DownloadDetailsScreen(
             }
         }
     }
+    if (speedLimitOpen) IndividualSpeedLimitSheet(download,
+        "${telemetry.metrics.speedValue} ${telemetry.metrics.speedUnit}",
+        { speedLimitOpen = false }, onToast)
     FileManagerPickerHost(folderPicker, onToast)
 }
 

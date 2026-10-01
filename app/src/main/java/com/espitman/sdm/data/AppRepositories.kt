@@ -103,6 +103,7 @@ object AppRepositories {
         synchronized(this) {
             transferEngine?.let { return it }
             val appContext = context.applicationContext
+            val individual = com.espitman.sdm.download.IndividualSpeedLimiters(downloads(appContext).downloads, restrictionScope)
             return DownloadTransferEngine(
                 destinationPublisher = SafDownloadDestinationPublisher(
                     trees = DocumentsContractTreeAccess(appContext.contentResolver),
@@ -111,6 +112,7 @@ object AppRepositories {
                 ),
                 storageCapacity = storageCapacityProbe(appContext),
                 speedLimiter = limiter,
+                individualSpeedLimiter = individual::forDownload,
                 segmentCount = { SettingsRepository.get(appContext).settings.value.connections },
                 requestContext = BrowserRequestContextRegistry::get,
                 networkUnavailable = { isNetworkOffline(appContext) },

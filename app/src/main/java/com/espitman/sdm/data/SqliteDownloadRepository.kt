@@ -470,6 +470,45 @@ class SqliteDownloadRepository(
         }
     }
 
+    override suspend fun refreshLink(id: String, expected: Download,
+        metadata: com.espitman.sdm.network.DownloadMetadata, restart: Boolean, now: Long): Download = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var backup: java.io.File? = null
+            var part: java.io.File? = null
+            lateinit var updated: Download
+            try {
+                database.writableDatabase.inTransaction { db ->
+                    val current = queryOne(db, id) ?: error("Download no longer exists")
+                    check(current.url == expected.url && current.downloadedBytes == expected.downloadedBytes &&
+                        current.etag == expected.etag && current.totalBytes == expected.totalBytes) {
+                        "Download changed. Check the link again."
+                    }
+                    updated = com.espitman.sdm.domain.DownloadLinkRefresh.replacement(current, metadata, restart, now)
+                    current.destinationPath?.let { path ->
+                        part = com.espitman.sdm.download.DownloadPartFile.forDestination(java.io.File(path))
+                    }
+                    if (restart && part?.exists() == true) {
+                        backup = java.io.File(part!!.parentFile, part!!.name + ".refresh-" + java.util.UUID.randomUUID())
+                        check(part!!.renameTo(backup!!)) { "Unable to reset the partial file" }
+                    }
+                    persistDownloadMutation(db, id, current, updated)
+                }
+            } catch (failure: Throwable) {
+                backup?.let { check(it.renameTo(part!!)) { "Unable to restore the partial file" } }
+                throw failure
+            }
+            backup?.delete()
+            refreshLocked(database.readableDatabase)
+            updated
+        }
+    }
+
+    override suspend fun updateSpeedLimit(id: String, bytesPerSecond: Long?, now: Long): Download = mutate(id) { current ->
+        require(bytesPerSecond == null || bytesPerSecond > 0)
+        current.copy(speedLimitBytesPerSecond = bytesPerSecond, updatedAtEpochMillis = maxOf(now, current.updatedAtEpochMillis))
+    }
+
     override suspend fun beginFreshRestart(
         id: String,
         nowEpochMillis: Long,
@@ -639,7 +678,7 @@ class SqliteDownloadRepository(
             "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count",
             "destination_tree_uri", "destination_display_label", "pause_cause",
             "schedule_kind", "schedule_start_epoch", "schedule_end_epoch",
-            "schedule_start_minute", "schedule_end_minute", "schedule_zone_id",
+            "schedule_start_minute", "schedule_end_minute", "schedule_zone_id", "speed_limit_bytes_per_second",
         )
     }
 }
@@ -683,6 +722,7 @@ private fun Download.toValues() = ContentValues().apply {
     putNullable("schedule_start_minute", schedule?.startMinuteOfDay)
     putNullable("schedule_end_minute", schedule?.endMinuteOfDay)
     putNullable("schedule_zone_id", schedule?.zoneId)
+    putNullable("speed_limit_bytes_per_second", speedLimitBytesPerSecond)
 }
 
 private fun ContentValues.putNullable(key: String, value: String?) {
@@ -702,6 +742,7 @@ private fun ContentValues.putNullable(key: String, value: Int?) {
 }
 
 private fun Cursor.toDownload() = Download(
+    speedLimitBytesPerSecond = nullableLong("speed_limit_bytes_per_second"),
     id = getString(getColumnIndexOrThrow("id")),
     url = getString(getColumnIndexOrThrow("url")),
     fileName = getString(getColumnIndexOrThrow("file_name")),

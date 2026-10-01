@@ -58,8 +58,10 @@ data class Download(
     val pauseCause: DownloadPauseCause? = null,
     /** Optional user-selected time window; null means the download can run at any time. */
     val schedule: DownloadSchedule? = null,
+    val speedLimitBytesPerSecond: Long? = null,
 ) {
     init {
+        require(speedLimitBytesPerSecond == null || speedLimitBytesPerSecond > 0) { "Speed limit must be positive" }
         require(id.isNotBlank()) { "Download ID cannot be blank" }
         require(url.isNotBlank()) { "Download URL cannot be blank" }
         require(DownloadUrl.validate(url) is DownloadUrlResult.Valid) {

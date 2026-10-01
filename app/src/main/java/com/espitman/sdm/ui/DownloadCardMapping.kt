@@ -25,6 +25,7 @@ internal data class DownloadCardModel(
     val category: DownloadCategory,
     val showPlayAction: Boolean,
     val isQueued: Boolean,
+    val speedLimitBytesPerSecond: Long? = null,
 )
 
 internal fun mapDownloadToCard(
@@ -96,6 +97,7 @@ internal fun mapDownloadToCard(
             DownloadState.CANCELLED,
         ),
         isQueued = download.state == DownloadState.QUEUED,
+        speedLimitBytesPerSecond = download.speedLimitBytesPerSecond,
     )
 }
 
