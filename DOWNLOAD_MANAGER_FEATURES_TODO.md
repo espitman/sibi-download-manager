@@ -41,10 +41,12 @@ Verification: [Physical-device and automated validation](docs/import-export-back
 
 ## 5. Automatic folders by file type
 
-- [ ] 18. DMF-018 — Let the user map file categories to save folders through Android's document-tree picker.
-- [ ] 19. DMF-019 — Classify files using trusted metadata and filename fallback, then reserve the correct destination before download.
-- [ ] 20. DMF-020 — Handle revoked folder permissions and unknown types without losing or misplacing downloads.
+- [x] 18. DMF-018 — Let the user map file categories to save folders through Android's document-tree picker.
+- [x] 19. DMF-019 — Classify files using trusted metadata and filename fallback, then reserve the correct destination before download.
+- [x] 20. DMF-020 — Handle revoked folder permissions and unknown types without losing or misplacing downloads.
 - [ ] 21. DMF-021 — Test category rules, filename collisions, SD-card folders, and changes to rules while a download is active.
+
+Verification: [Physical-device and automated validation](docs/automatic-folders-validation.md). Real HTTP-to-SAF transfer, byte equality, collision handling, persisted rules, simulated revoked grants and rule edits during transfer passed. DMF-021 remains open only for a physical removable-SD-card check; no such volume is available on the connected device.
 
 ## 6. Configurable automatic retry
 

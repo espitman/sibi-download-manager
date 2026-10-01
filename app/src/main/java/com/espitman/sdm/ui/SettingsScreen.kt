@@ -63,6 +63,8 @@ internal fun SettingsScreen(
     val speedAlerts = settings.speedAlerts
     val appliedTheme = settings.theme
     val themeLabel = if (appliedTheme == "light") "Light & Gold" else "Black & Gold"
+    var automaticFoldersOpen by remember { mutableStateOf(false) }
+    if (automaticFoldersOpen) AutomaticFoldersSheet({ automaticFoldersOpen = false }, onToast)
     var backupOpen by remember { mutableStateOf(false) }
     if (backupOpen) BackupRestoreSheet({ backupOpen = false }, onToast)
     var pendingTheme by remember { mutableStateOf(appliedTheme) }
@@ -139,6 +141,9 @@ internal fun SettingsScreen(
                             ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() }
                         }
 
+                        add(SettingsSearchRow.AutomaticFolders) {
+                            ValueRow(SdmIcons.FolderPlain, "Automatic folders", "Save each file type in its own folder", chevron = true) { automaticFoldersOpen = true }
+                        }
                         add(SettingsSearchRow.Backup) {
                             ValueRow(SdmIcons.Folder, "Backup & restore", "Download list and app settings", chevron = true) { backupOpen = true }
                         }

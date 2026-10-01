@@ -304,7 +304,10 @@ object AppRepositories {
         val directory = { AppSpecificDownloadsDirectory.from(app) }
         val trees = DocumentsContractTreeAccess(app.contentResolver)
         val fallback = SaveLocationDestinationAllocator(saveLocation(app), directory, trees)
-        return fallback
+        val store = com.espitman.sdm.storage.CategoryFolderStore.get(app)
+        return com.espitman.sdm.storage.CategoryDestinationAllocator(
+            { store.settings.value }, fallback, directory, PersistableTreeUriGrants(app.contentResolver), trees,
+            store::markUnavailable, store::markAvailable)
     }
 
     fun submissionCoordinator(context: Context): DownloadSubmissionCoordinator = submissionCoordinator ?: synchronized(this) {

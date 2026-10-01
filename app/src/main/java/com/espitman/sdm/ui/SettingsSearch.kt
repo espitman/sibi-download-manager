@@ -22,6 +22,7 @@ internal enum class SettingsSearchRow {
     WifiOnly,
     SpeedLimit,
     SaveLocation,
+    AutomaticFolders,
     Backup,
     DownloadComplete,
     SpeedAlerts,
@@ -142,6 +143,7 @@ internal fun settingsSearchCatalog(
         subtitle = saveLocationLabel,
         synonyms = listOf("folder", "directory", "destination", "path", "storage"),
     ),
+    SettingsSearchItem(SettingsSearchRow.AutomaticFolders, "STORAGE", "Automatic folders", "Save each file type in its own folder", listOf("category", "video", "audio", "documents", "archives", "images", "folders")),
     SettingsSearchItem(SettingsSearchRow.Backup, "STORAGE", "Backup & restore", "Download list and app settings", listOf("backup", "restore", "export", "import")),
     SettingsSearchItem(
         row = SettingsSearchRow.DownloadComplete,
