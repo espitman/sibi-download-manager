@@ -12,6 +12,14 @@ class ScopedRequestContextTest {
         referer = "https://files.example.com/page",
     )
 
+    @Test fun diagnosticsDoNotDiscloseCredentialsOrPrivatePaths() {
+        val diagnostic = context.toString()
+        assertFalse(diagnostic.contains("secret"))
+        assertFalse(diagnostic.contains("/page"))
+        assertFalse(diagnostic.contains("/start"))
+        assertEquals(emptyMap<String, String>(), context.copy(requiresSignIn = true).headersFor(context.originUrl))
+    }
+
     @Test fun credentialsAreAvailableOnlyToTheExactOrigin() {
         val same = context.headersFor("https://files.example.com/download")
         assertEquals("session=secret", same["Cookie"])

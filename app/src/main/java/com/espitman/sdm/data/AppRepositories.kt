@@ -71,8 +71,11 @@ object AppRepositories {
     @Volatile private var storageCapacityProbe: StorageCapacityProbe? = null
     @Volatile private var saveLocationStorageCapacity: SaveLocationStorageCapacity? = null
 
-    fun downloads(context: Context): DownloadRepository = downloadRepository ?: synchronized(this) {
-        downloadRepository ?: SqliteDownloadRepository(context.applicationContext).also { downloadRepository = it }
+    fun downloads(context: Context): DownloadRepository {
+        BrowserRequestContextRegistry.initialize(context)
+        return downloadRepository ?: synchronized(this) {
+            downloadRepository ?: SqliteDownloadRepository(context.applicationContext).also { downloadRepository = it }
+        }
     }
 
     fun metadataRetriever(): DownloadMetadataRetriever = metadataRetriever ?: synchronized(this) {

@@ -10,6 +10,7 @@ class DownloadFailurePresentationTest {
     @Test
     fun classifiedLabelsCoverEveryFailureCategory() {
         val samples = listOf(
+            "Browser session expired. Sign in again to continue." to DownloadFailure.BROWSER_SESSION_EXPIRED,
             "java.net.UnknownHostException: Unable to resolve host" to DownloadFailure.NETWORK_LOSS,
             "SocketTimeoutException: timeout" to DownloadFailure.TIMEOUT,
             "HTTP 410: Gone" to DownloadFailure.EXPIRED_LINK,

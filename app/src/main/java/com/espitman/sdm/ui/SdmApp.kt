@@ -114,6 +114,9 @@ fun SdmApp(
     var destination by rememberSaveable { mutableStateOf(Destination.Downloads) }
     var showAddDownload by rememberSaveable { mutableStateOf(false) }
     var browserDownloadRequest by remember { mutableStateOf<BrowserDownloadRequest?>(null) }
+    var browserRepairTarget by remember { mutableStateOf<com.espitman.sdm.domain.Download?>(null) }
+    var browserSignInUrl by remember { mutableStateOf<String?>(null) }
+    var browserRepairRequest by remember { mutableStateOf<BrowserDownloadRequest?>(null) }
     var selectedDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
     var toastMessage by remember { mutableStateOf("") }
     var toastVisible by remember { mutableStateOf(false) }
@@ -184,6 +187,13 @@ fun SdmApp(
                                 showHeader = false,
                                 onSelectedDownloadIdChange = { selectedDownloadId = it },
                                 onToast = { toastMessage = it; toastSequence++ },
+                                onBrowserSignIn = { record ->
+                                    browserRepairTarget = record
+                                    browserSignInUrl = com.espitman.sdm.network.BrowserRequestContextRegistry.get(record.id)?.referer ?: record.url
+                                    selectedDownloadId = null
+                                    destination = Destination.Browser
+                                    toastMessage = "Sign in, then select the download again"; toastSequence++
+                                },
                                 onOpenSettings = { selectedDownloadId = null; destination = Destination.Settings },
                                 onRevealFileInFiles = { downloadId ->
                                     selectedDownloadId = null
@@ -195,9 +205,10 @@ fun SdmApp(
                             ) }
                             Destination.Browser -> BrowserScreen(
                                 showHeader = false,
+                                requestedUrl = browserSignInUrl,
                                 onDownloadRequested = { request ->
-                                    browserDownloadRequest = request
-                                    showAddDownload = true
+                                    if (browserRepairTarget != null) browserRepairRequest = request
+                                    else { browserDownloadRequest = request; showAddDownload = true }
                                 },
                                 onOpenDownloads = { destination = Destination.Downloads },
                                 onActivePrivacyChange = { browserPrivateMode = it },
@@ -245,6 +256,12 @@ fun SdmApp(
                 }
             }
         }
+    }
+    val repairTarget = browserRepairTarget
+    val repairRequest = browserRepairRequest
+    if (repairTarget != null && repairRequest != null) {
+        RefreshDownloadLinksSheet(listOf(repairTarget), { browserRepairRequest = null; browserRepairTarget = null; browserSignInUrl = null },
+            { toastMessage = it; toastSequence++ }, initialUrl = repairRequest.url, browserContext = repairRequest.requestContext)
     }
     if (showAddDownload) {
         AddDownloadSheet(

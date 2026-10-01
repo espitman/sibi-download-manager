@@ -262,6 +262,7 @@ class DownloadCardMappingTest {
     @Test
     fun failedCardsShowClassifiedLabelAndRetryForEveryCategory() {
         val samples = listOf(
+            "Browser session expired. Sign in again to continue." to DownloadFailure.BROWSER_SESSION_EXPIRED,
             "java.net.UnknownHostException: Unable to resolve host" to DownloadFailure.NETWORK_LOSS,
             "SocketTimeoutException: timeout" to DownloadFailure.TIMEOUT,
             "HTTP 403: Forbidden" to DownloadFailure.EXPIRED_LINK,
@@ -283,7 +284,7 @@ class DownloadCardMappingTest {
                 nowEpochMillis = 2_000L,
             )
             assertEquals("Error · ${failure.label}", card.metadataValue)
-            assertEquals("Retry", card.trailing)
+            assertEquals(if (failure == DownloadFailure.BROWSER_SESSION_EXPIRED) "Sign in again" else "Retry", card.trailing)
             assertTrue(card.showPlayAction)
             assertEquals(DownloadCategory.Queued, card.category)
             assertEquals(listOf(card.id), filterDownloadCards(listOf(card), DownloadCategory.Queued, "").map { it.id })

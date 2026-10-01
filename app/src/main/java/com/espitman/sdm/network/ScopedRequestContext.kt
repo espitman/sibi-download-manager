@@ -11,10 +11,16 @@ data class ScopedRequestContext(
     val cookie: String? = null,
     val userAgent: String? = null,
     val referer: String? = null,
+    val isPrivate: Boolean = false,
+    val retainSession: Boolean = true,
+    val requiresSignIn: Boolean = false,
 ) {
+    override fun toString(): String = "ScopedRequestContext(scope=$scopeKey, private=$isPrivate, requiresSignIn=$requiresSignIn)"
+
     private val origin: HttpUrl? = originUrl.toHttpUrlOrNull()
 
     fun headersFor(targetUrl: String): Map<String, String> {
+        if (requiresSignIn) return emptyMap()
         val target = targetUrl.toHttpUrlOrNull() ?: return emptyMap()
         return buildMap {
             userAgent?.trim()?.takeIf(String::isNotEmpty)?.let { put("User-Agent", it) }
@@ -35,12 +41,22 @@ private fun HttpUrl.sameOrigin(other: HttpUrl): Boolean =
 object BrowserRequestContextRegistry {
     private val byDownloadId = ConcurrentHashMap<String, ScopedRequestContext>()
 
-    fun put(downloadId: String, context: ScopedRequestContext?) {
-        if (context == null) byDownloadId.remove(downloadId) else byDownloadId[downloadId] = context
+    @Volatile private var store: BrowserSessionStore? = null
+
+    fun initialize(context: android.content.Context) {
+        if (store == null) synchronized(this) {
+            if (store == null) store = BrowserSessionStore(context.applicationContext)
+        }
     }
 
-    fun get(downloadId: String): ScopedRequestContext? = byDownloadId[downloadId]
-    fun remove(downloadId: String) { byDownloadId.remove(downloadId) }
+    @Synchronized fun put(downloadId: String, context: ScopedRequestContext?) {
+        if (context == null) { remove(downloadId); return }
+        store?.save(downloadId, context)
+        byDownloadId[downloadId] = context
+    }
+
+    @Synchronized fun get(downloadId: String): ScopedRequestContext? = byDownloadId[downloadId] ?: store?.read(downloadId)?.also { byDownloadId[downloadId] = it }
+    @Synchronized fun remove(downloadId: String) { store?.remove(downloadId); byDownloadId.remove(downloadId) }
 }
 
 class ScopedRequestContextInterceptor : Interceptor {

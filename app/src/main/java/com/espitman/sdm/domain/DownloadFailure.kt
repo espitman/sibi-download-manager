@@ -3,6 +3,7 @@ package com.espitman.sdm.domain
 enum class DownloadFailure(val label: String) {
     NETWORK_LOSS("Network lost"),
     TIMEOUT("Timed out"),
+    BROWSER_SESSION_EXPIRED("Sign in again"),
     EXPIRED_LINK("Link expired"),
     INSUFFICIENT_STORAGE("Not enough storage"),
     TRANSIENT_HTTP("Temporary server error"),
@@ -14,6 +15,7 @@ enum class DownloadFailure(val label: String) {
 
         fun classify(errorText: String?): DownloadFailure {
             val text = errorText.orEmpty()
+            if (text.startsWith("Browser session expired")) return BROWSER_SESSION_EXPIRED
             val httpCode = HTTP_STATUS.find(text)?.groupValues?.get(1)?.toIntOrNull()
             when (httpCode) {
                 401, 403, 410 -> return EXPIRED_LINK

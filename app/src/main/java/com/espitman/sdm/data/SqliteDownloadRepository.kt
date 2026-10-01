@@ -111,7 +111,10 @@ class SqliteDownloadRepository(
             val deleted = database.writableDatabase.inTransaction { db ->
                 db.delete("downloads", "id = ?", arrayOf(id)) > 0
             }
-            if (deleted) refreshLocked(database.readableDatabase)
+            if (deleted) {
+                com.espitman.sdm.network.BrowserRequestContextRegistry.remove(id)
+                refreshLocked(database.readableDatabase)
+            }
             deleted
         }
     }

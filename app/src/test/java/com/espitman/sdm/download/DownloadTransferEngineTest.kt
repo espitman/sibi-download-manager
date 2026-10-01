@@ -79,6 +79,70 @@ class DownloadTransferEngineTest {
         assertFalse(destination.exists())
     }
 
+    @Test fun expiredBrowserSessionPreservesPartialBytesAndDoesNotAutomaticallyRetry() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(401))
+        val url = server.url("/protected").toString()
+        val destination = File(tempDir, "protected.bin")
+        val part = DownloadPartFile.forDestination(destination).apply { writeText("partial") }
+        val download = Download(id = "browser-expired", url = url, fileName = destination.name,
+            destinationPath = destination.path, state = DownloadState.QUEUED,
+            downloadedBytes = 7, totalBytes = 15, acceptsRanges = true, etag = "\"same\"", createdAtEpochMillis = 1)
+        val repo = FakeDownloadRepository(listOf(download))
+        DownloadTransferEngine(requestContext = { com.espitman.sdm.network.ScopedRequestContext(url, cookie = "session=old") })
+            .executeTransfer(download.id, url, part, repo)
+        val failed = repo.get(download.id)!!
+        assertEquals(DownloadFailure.BROWSER_SESSION_EXPIRED, DownloadFailure.classify(failed.error))
+        assertFalse(com.espitman.sdm.domain.DownloadAutoRetryPolicy.shouldAutomaticallyRetry(failed))
+        assertEquals("partial", part.readText())
+        assertEquals(7L, failed.downloadedBytes)
+        assertFalse(destination.exists())
+    }
+
+    @Test fun unavailablePrivateSessionStopsBeforeAnyNetworkRequest() = runBlocking {
+        val url = server.url("/private").toString()
+        val destination = File(tempDir, "private.bin")
+        val download = Download(id = "private", url = url, fileName = destination.name,
+            destinationPath = destination.path, state = DownloadState.QUEUED, createdAtEpochMillis = 1)
+        val repo = FakeDownloadRepository(listOf(download))
+        DownloadTransferEngine(requestContext = { com.espitman.sdm.network.ScopedRequestContext(url, isPrivate = true, requiresSignIn = true) })
+            .executeTransfer(download.id, url, DownloadPartFile.forDestination(destination), repo)
+        assertEquals(DownloadFailure.BROWSER_SESSION_EXPIRED, DownloadFailure.classify(repo.get(download.id)!!.error))
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun renewedBrowserCookieResumesTheSameObjectByteForByte() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 7-14/15")
+            .setHeader("ETag", "\"same\"").setBody("-resumed"))
+        val url = server.url("/protected").toString()
+        val destination = File(tempDir, "renewed.bin")
+        val part = DownloadPartFile.forDestination(destination).apply { writeText("partial") }
+        val download = Download(id = "renewed-browser", url = url, fileName = destination.name,
+            destinationPath = destination.path, state = DownloadState.QUEUED, downloadedBytes = 7,
+            totalBytes = 15, acceptsRanges = true, etag = "\"same\"", createdAtEpochMillis = 1)
+        val repo = FakeDownloadRepository(listOf(download))
+        DownloadTransferEngine(requestContext = { com.espitman.sdm.network.ScopedRequestContext(url, cookie = "session=renewed") })
+            .executeTransfer(download.id, url, part, repo)
+        val request = server.takeRequest()
+        assertEquals("session=renewed", request.getHeader("Cookie"))
+        assertEquals("bytes=7-", request.getHeader("Range"))
+        assertEquals("partial-resumed", destination.readText())
+        assertEquals(DownloadState.COMPLETED, repo.get(download.id)!!.state)
+    }
+
+    @Test fun browserRedirectToLoginHtmlIsNotSavedAsTheBinaryFile() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", server.url("/login")))
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/html").setBody("<form>Sign in</form>"))
+        val url = server.url("/protected.bin").toString()
+        val destination = File(tempDir, "login-redirect.bin")
+        val download = Download(id = "login-redirect", url = url, fileName = destination.name,
+            destinationPath = destination.path, mimeType = "application/octet-stream", state = DownloadState.QUEUED, createdAtEpochMillis = 1)
+        val repo = FakeDownloadRepository(listOf(download))
+        DownloadTransferEngine(requestContext = { com.espitman.sdm.network.ScopedRequestContext(url, cookie = "session=old") })
+            .executeTransfer(download.id, url, DownloadPartFile.forDestination(destination), repo)
+        assertEquals(DownloadFailure.BROWSER_SESSION_EXPIRED, DownloadFailure.classify(repo.get(download.id)!!.error))
+        assertFalse(destination.exists())
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var tempDir: File
 

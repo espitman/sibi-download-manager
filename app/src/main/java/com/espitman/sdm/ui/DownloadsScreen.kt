@@ -216,6 +216,7 @@ internal fun InteractiveDownloadsScreen(
     onToast: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onRevealFileInFiles: (String) -> Unit = {},
+    onBrowserSignIn: (com.espitman.sdm.domain.Download) -> Unit = {},
 ) {
     val context = LocalContext.current
     val repository = AppRepositories.downloads(context)
@@ -390,6 +391,8 @@ internal fun InteractiveDownloadsScreen(
         DownloadTransferService.pauseTransfer(context, id)
     }
     fun resumeOrShowNetworkNotice(id: String) {
+        val authFailed = records.firstOrNull { it.id == id && com.espitman.sdm.domain.DownloadFailure.classify(it.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED }
+        if (authFailed != null) { onBrowserSignIn(authFailed); return }
         if (records.firstOrNull { it.id == id }?.schedule?.isOpen(System.currentTimeMillis()) == false) {
             onToast("Waiting for scheduled time")
             return
@@ -453,6 +456,7 @@ internal fun InteractiveDownloadsScreen(
         if (selectedRecord != null) {
             DownloadDetailsScreen(
                 download = selectedRecord,
+                onBrowserSignIn = { onBrowserSignIn(selectedRecord) },
                 nowEpochMillis = nowEpochMillis,
                 priorityActive = DownloadPriorityMutation.isHigh(selectedRecord.priority),
                 actionScope = overlayScope,
@@ -783,6 +787,11 @@ internal fun InteractiveDownloadsScreen(
                         onAction = {
                             if (reorderMode) return@DownloadCard
                             val record = records.firstOrNull { it.id == item.id }
+                            if (record?.state == DownloadState.FAILED &&
+                                com.espitman.sdm.domain.DownloadFailure.classify(record.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) {
+                                onBrowserSignIn(record)
+                                return@DownloadCard
+                            }
                             if (record?.state == DownloadState.FAILED &&
                                 com.espitman.sdm.domain.DownloadFailure.classify(record.error) == com.espitman.sdm.domain.DownloadFailure.EXPIRED_LINK) {
                                 refreshIds = setOf(record.id)
@@ -1461,7 +1470,7 @@ private fun DownloadCard(
                     ) {
                         Icon(
                             if (reorderEnabled) SdmIcons.Sort else if (item.metadataValue == "Error · Link expired") SdmIcons.Link else if (item.showPlayAction) SdmIcons.Play else SdmIcons.Pause,
-                            if (reorderEnabled) "Drag to reorder" else if (item.metadataValue == "Error · Link expired") "Refresh link" else if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
+                            if (reorderEnabled) "Drag to reorder" else if (item.metadataValue == "Error · Link expired") "Refresh link" else if (item.trailing == "Sign in again") "Sign in again" else if (item.trailing == "Retry") "Retry" else if (item.showPlayAction) "Start" else "Pause",
                             tint = SdmGoldHigh,
                             modifier = Modifier.size(19.dp),
                         )
@@ -1614,6 +1623,7 @@ private fun SheetActionButton(label: String, primary: Boolean, modifier: Modifie
 @Composable
 private fun DownloadDetailsScreen(
     download: Download,
+    onBrowserSignIn: () -> Unit,
     nowEpochMillis: Long,
     priorityActive: Boolean,
     actionScope: CoroutineScope,
@@ -1660,13 +1670,14 @@ private fun DownloadDetailsScreen(
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         (listOf("Rename", "Verify checksum", "Move to top") +
-                            (if (download.state != DownloadState.COMPLETED) listOf("Refresh link") else emptyList()) +
+                            (if (com.espitman.sdm.domain.DownloadFailure.classify(download.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) listOf("Sign in again") else if (download.state != DownloadState.COMPLETED) listOf("Refresh link") else emptyList()) +
                             if (download.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELLED)) listOf("Schedule") else emptyList()).forEach { label ->
                             Box(
                                 Modifier.fillMaxWidth().height(54.dp).clickable {
                                     menuOpen = false
                                     when (label) {
-                                        "Refresh link" -> refreshOpen = true
+                                        "Sign in again" -> onBrowserSignIn()
+                                        "Refresh link" -> if (com.espitman.sdm.domain.DownloadFailure.classify(download.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) onBrowserSignIn() else { refreshOpen = true }
                                         "Rename" -> renameOpen = true
                                         "Verify checksum" -> {
                                             if (verifying) return@clickable

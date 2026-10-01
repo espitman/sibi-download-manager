@@ -103,6 +103,11 @@ class DownloadTransferEngine(
             nowEpochMillis = validTimestamp(existingDownload.updatedAtEpochMillis),
         )
 
+        if (scopedRequestContext?.requiresSignIn == true) {
+            reportFailure(repository, downloadId, "Browser session expired. Sign in again to continue.")
+            return@withContext
+        }
+
         val destinationPath = existingDownload.destinationPath
         if (destinationPath.isNullOrBlank() || DownloadDestinationRef.isContentUri(destinationPath)) {
             reportFailure(repository, downloadId, "Destination path is missing")
@@ -266,6 +271,13 @@ class DownloadTransferEngine(
         try {
             while (true) {
                 activeCall.execute().use { response ->
+                    val redirectedToLoginPage = response.priorResponse != null &&
+                        response.header("Content-Type")?.substringBefore(';')?.trim()?.equals("text/html", ignoreCase = true) == true &&
+                        existingDownload.mimeType?.let { !it.equals("text/html", ignoreCase = true) && !it.equals("application/xhtml+xml", ignoreCase = true) } == true
+                    if (scopedRequestContext != null && (response.code in setOf(401, 403) || redirectedToLoginPage)) {
+                        reportFailure(repository, downloadId, "Browser session expired. Sign in again to continue.")
+                        return@withContext
+                    }
                     var expectedTotal = existingDownload.totalBytes
                     var resumeContentRange: HttpRangeResume.ContentRange? = null
                     var treatAsFreshRestart = fallbackUsed && !sendRange

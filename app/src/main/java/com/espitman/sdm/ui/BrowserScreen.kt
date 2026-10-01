@@ -116,6 +116,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Composable
 internal fun BrowserScreen(
     showHeader: Boolean = true,
+    requestedUrl: String? = null,
     onDownloadRequested: (BrowserDownloadRequest) -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     onActivePrivacyChange: (Boolean) -> Unit = {},
@@ -225,6 +226,10 @@ internal fun BrowserScreen(
         }
         hideAddressChrome()
     }
+    LaunchedEffect(requestedUrl, sessionReady) {
+        if (sessionReady && requestedUrl != null) navigate(requestedUrl, exactUrl = true)
+    }
+
 
     fun selectAddressSuggestion(entry: BrowserHistoryEntry) {
         val url = browserAddressSuggestionDestination(entry)
@@ -484,6 +489,7 @@ internal fun BrowserScreen(
                                             cookie = CookieManager.getInstance().getCookie(url),
                                             userAgent = userAgent,
                                             referer = sourceUrl,
+                                            isPrivate = tabIsPrivate,
                                         ),
                                     ),
                                 )

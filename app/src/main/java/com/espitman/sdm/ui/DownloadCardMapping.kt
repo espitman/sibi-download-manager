@@ -71,7 +71,7 @@ internal fun mapDownloadToCard(
         }
         DownloadState.FAILED -> {
             metadataValue = if(retryAt != null) "Retry ${download.automaticRetryCount + 1}/${retrySettings.maxRetries}" else "Error · ${failedDownloadCardLabel(download.error)}"
-            trailing = if(retryAt != null) automaticRetryLabel(retryAt, nowEpochMillis) else "Retry"
+            trailing = if(retryAt != null) automaticRetryLabel(retryAt, nowEpochMillis) else if (com.espitman.sdm.domain.DownloadFailure.classify(download.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) "Sign in again" else "Retry"
         }
         DownloadState.CANCELLED -> {
             metadataValue = "Cancelled"

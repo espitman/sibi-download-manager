@@ -31,11 +31,14 @@ import kotlinx.coroutines.withTimeout
 private data class RefreshCandidate(val metadata: DownloadMetadata, val targetId: String?)
 
 @Composable
-internal fun RefreshDownloadLinksSheet(downloads: List<Download>, onDismiss: () -> Unit, onToast: (String) -> Unit) {
+internal fun RefreshDownloadLinksSheet(downloads: List<Download>, onDismiss: () -> Unit, onToast: (String) -> Unit, initialUrl: String = "", browserContext: com.espitman.sdm.network.ScopedRequestContext? = null) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    var text by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(initialUrl) }
+    var useSession by remember { mutableStateOf(true) }
+    var retainSession by remember { mutableStateOf(true) }
+    val selectedContext = browserContext?.takeIf { useSession }?.copy(retainSession = retainSession)
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var candidates by remember { mutableStateOf<List<RefreshCandidate>>(emptyList()) }
@@ -50,7 +53,7 @@ internal fun RefreshDownloadLinksSheet(downloads: List<Download>, onDismiss: () 
         val download = checkedDownloads.first { it.id == row.targetId }
         DownloadLinkRefresh.canPreserve(download, row.metadata) || download.id in restartConfirmed
     }
-    SettingsSheet(SdmIcons.Link, "DOWNLOAD LINK", if (single) "Refresh download link" else "Refresh selected links",
+    SettingsSheet(SdmIcons.Link, "DOWNLOAD LINK", if (browserContext != null) "Update browser session" else if (single) "Refresh download link" else "Refresh selected links",
         if (single) "Active downloads pause while checking the new link." else "${downloads.size} downloads selected. Active downloads pause while checking.",
         onDismiss, true) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
@@ -108,6 +111,7 @@ internal fun RefreshDownloadLinksSheet(downloads: List<Download>, onDismiss: () 
                     }
                 }
             }
+            if (browserContext != null) BrowserSessionConsent(useSession, retainSession, browserContext.isPrivate, !busy, { useSession = it }, { retainSession = it })
             error?.let { Text(it, color = SdmDanger, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp)) }
             Button(enabled = !busy && text.isNotBlank(), onClick = {
                 busy = true; error = null
@@ -129,7 +133,7 @@ internal fun RefreshDownloadLinksSheet(downloads: List<Download>, onDismiss: () 
                         checkedDownloads = downloads.map { repository.get(it.id) ?: error("Download no longer exists") }
                         val checked = mutableListOf<RefreshCandidate>()
                         for (url in parsed.urls) {
-                            when (val result = AppRepositories.metadataRetriever().retrieve(url)) {
+                            when (val result = AppRepositories.metadataRetriever().retrieve(url, if (browserContext != null) selectedContext else if (single) com.espitman.sdm.network.BrowserRequestContextRegistry.get(downloads.first().id) else null)) {
                                 is DownloadMetadataResult.Success -> {
                                     val target = if (single) checkedDownloads.first() else checkedDownloads.singleOrNull {
                                         it.fileName.equals(result.metadata.suggestedFilename, ignoreCase = true)
@@ -155,7 +159,14 @@ internal fun RefreshDownloadLinksSheet(downloads: List<Download>, onDismiss: () 
                     try {
                         for (row in applicable) {
                             val target = checkedDownloads.first { it.id == row.targetId }
-                            repository.refreshLink(target.id, target, row.metadata, target.id in restartConfirmed, System.currentTimeMillis())
+                            val previousContext = com.espitman.sdm.network.BrowserRequestContextRegistry.get(target.id)
+                            if (browserContext != null) com.espitman.sdm.network.BrowserRequestContextRegistry.put(target.id, selectedContext)
+                            try {
+                                repository.refreshLink(target.id, target, row.metadata, target.id in restartConfirmed, System.currentTimeMillis())
+                            } catch (failure: Exception) {
+                                if (browserContext != null) com.espitman.sdm.network.BrowserRequestContextRegistry.put(target.id, previousContext)
+                                throw failure
+                            }
                             replaced++
                             candidates = candidates.filter { it != row }
                             AppRepositories.queueScheduler(context).resume(target.id)

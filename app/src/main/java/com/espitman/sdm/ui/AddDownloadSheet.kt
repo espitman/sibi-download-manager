@@ -53,6 +53,9 @@ internal fun AddDownloadSheet(
     onToast: (String) -> Unit = {},
     coordinator: DownloadSubmissionCoordinator = AppRepositories.submissionCoordinator(LocalContext.current),
 ) {
+    var useBrowserSession by remember { mutableStateOf(true) }
+    var retainBrowserSession by remember { mutableStateOf(true) }
+    val selectedContext = requestContext?.takeIf { useBrowserSession }?.copy(retainSession = retainBrowserSession)
     val clipboard = LocalClipboardManager.current
     var url by remember(initialUrl) {
         mutableStateOf(initialDownloadUrl(initialUrl, clipboard.getText()?.text))
@@ -102,7 +105,7 @@ internal fun AddDownloadSheet(
         submittingTotal = links.urls.size
         submittedCount = 0
         val outcome = submitDownloadLinks(links.urls, onProgress = { done, _ -> submittedCount = done }) { link ->
-            coordinator.submit(link, startNow, if (links.urls.size == 1) requestContext else null, schedule)
+            coordinator.submit(link, startNow, if (links.urls.size == 1) selectedContext else null, schedule)
         }
         val remaining = links.invalidLines + outcome.failedUrls
         isSubmitting = false
@@ -198,7 +201,7 @@ internal fun AddDownloadSheet(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 9.dp, bottom = 2.dp).size(width = 42.dp, height = 4.dp).background(Color(0xFF514F48), RoundedCornerShape(99.dp)))
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 16.dp, top = 7.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("New download", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(if (requestContext != null) "Confirm download" else "New download", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         IconButton(onClick = dismissAnimated, modifier = Modifier.size(44.dp).background(sdmColor(0xFF222326, 0xFFECE8DF), RoundedCornerShape(12.dp))) {
                             Icon(SdmIcons.Close, "Close add download", tint = SdmMuted, modifier = Modifier.size(18.dp))
                         }
@@ -262,6 +265,7 @@ internal fun AddDownloadSheet(
                             )
                         }
                     }
+                    if (requestContext != null) BrowserSessionConsent(useBrowserSession, retainBrowserSession, requestContext.isPrivate, !isSubmitting, { useBrowserSession = it }, { retainBrowserSession = it })
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(contentPadding = PaddingValues(horizontal = 8.dp), onClick = { submit(startNow = false) }, enabled = !isSubmitting, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = SdmMuted), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.weight(.58f).height(48.dp)) {
                             Text(if (isSubmitting) "$submittedCount/$submittingTotal" else if (parsedLinks.urls.size > 1) "Queue ${parsedLinks.urls.size}" else "Queue", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
