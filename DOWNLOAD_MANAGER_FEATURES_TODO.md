@@ -51,17 +51,9 @@ Verification: [Physical-device and automated validation](docs/automatic-folders-
 ## 6. Configurable automatic retry
 
 - [x] 22. DMF-022 — Add settings for retry count and delay while retaining safe defaults.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 23. DMF-023 — Apply the retry policy only to transient failures; never auto-retry manual pauses or permanent errors.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 24. DMF-024 — Show the next retry clearly and let the user pause or cancel during the delay.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 25. DMF-025 — Test exhausted retries, connectivity loss, process restart, and settings changes during a retry cycle.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 
 Verification: [Configurable automatic retry validation](docs/automatic-retry-validation.md).
 
@@ -111,13 +103,7 @@ Verification: [Browser session validation](docs/browser-session-validation.md).
 ## 10. Rename the save folder safely
 
 - [x] 47. DMF-047 — Add a Rename save folder action in SDM's existing sheet style; rename the selected folder and preserve access to existing files.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 48. DMF-048 — Update affected default/category folder references and download destinations safely, including queued and active downloads; preserve progress and prevent stale destinations.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 49. DMF-049 — Handle unsupported providers, permission loss and name collisions without changing or losing data; test existing files, queued downloads and active transfers on the connected device.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 
 Verification: [Safe folder rename validation](docs/folder-rename-validation.md).
