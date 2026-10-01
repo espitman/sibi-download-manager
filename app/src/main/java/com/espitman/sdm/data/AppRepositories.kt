@@ -116,6 +116,7 @@ object AppRepositories {
                 segmentCount = { SettingsRepository.get(appContext).settings.value.connections },
                 requestContext = BrowserRequestContextRegistry::get,
                 networkUnavailable = { isNetworkOffline(appContext) },
+                preserveSegmentsOnPause = { com.espitman.sdm.storage.FolderRenameCoordinator.isPending(appContext) },
             ).also { transferEngine = it }
         }
     }
@@ -196,6 +197,7 @@ object AppRepositories {
                     transferAllowance = allowance,
                 )
             }
+            queueScheduler!!.folderMutationBlocked = com.espitman.sdm.storage.FolderRenameCoordinator.isPending(appContext)
             if (scheduleCoordinator == null) {
                 scheduleCoordinator = DownloadScheduleCoordinator(
                     context = appContext,

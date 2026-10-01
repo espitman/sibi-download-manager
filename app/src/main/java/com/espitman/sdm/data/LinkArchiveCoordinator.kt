@@ -22,7 +22,8 @@ class LinkArchiveCoordinator(
 ) {
     private val mutex = Mutex()
     data class ImportResult(val added: Int, val skipped: Int, val failed: List<String>)
-    suspend fun importLinks(urls: List<String>, startNow: Boolean, onProgress: (Int,Int)->Unit): ImportResult = mutex.withLock {
+    suspend fun importLinks(urls: List<String>, startNow: Boolean, onProgress: (Int,Int)->Unit): ImportResult = mutex.withLock { FolderMutationGate.mutex.withLock {
+        check(!FolderRenameCoordinator.operationPending) { "Finish folder access in Settings first." }
         require(urls.size <= LinkArchive.MAX_LINKS)
         var added=0; var skipped=0; val failed=mutableListOf<String>()
         urls.forEachIndexed { index,url ->
@@ -53,8 +54,9 @@ class LinkArchiveCoordinator(
         }
         if(startNow && added>0) scheduler.schedule()
         ImportResult(added,skipped,failed)
-    }
-    suspend fun restore(downloads: List<Download>): Int = mutex.withLock {
+    } }
+    suspend fun restore(downloads: List<Download>): Int = mutex.withLock { FolderMutationGate.mutex.withLock {
+        check(!FolderRenameCoordinator.operationPending) { "Finish folder access in Settings first." }
         val existing=repository.schedulingSnapshot().map { it.url }.toMutableSet()
         val candidates=downloads.filter { existing.add(it.url) }
         val reserved=mutableListOf<AllocatedDownloadDestination>(); var inserted=setOf<String>()
@@ -76,5 +78,5 @@ class LinkArchiveCoordinator(
         } finally {
             reserved.forEachIndexed { i,target -> if(prepared.getOrNull(i)?.id !in inserted) target.partFile.delete() }
         }
-    }
+    } }
 }

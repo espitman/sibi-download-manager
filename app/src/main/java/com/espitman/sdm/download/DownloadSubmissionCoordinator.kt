@@ -132,78 +132,81 @@ class DownloadSubmissionCoordinator(
             }
         }
 
-        // 2. Determine target directory and atomically reserve .part file
-        var reservedTempFile: File? = null
-        var persistedDownloadId: String? = null
-        try {
-            val allocated = withContext(Dispatchers.IO) {
-                destinationAllocator.allocate(metadata.suggestedFilename, metadata.contentType)
-            }
-            reservedTempFile = allocated.partFile
-
-            val now = clock.currentTimeMillis()
-            val downloadId = idFactory.createId()
-
-            val download = Download(
-                id = downloadId,
-                url = metadata.url,
-                fileName = allocated.fileName,
-                mimeType = metadata.contentType,
-                etag = metadata.etag,
-                lastModified = metadata.lastModified,
-                destinationPath = allocated.destinationPath,
-                totalBytes = metadata.contentLength,
-                downloadedBytes = 0L,
-                state = DownloadState.QUEUED,
-                error = null,
-                priority = 0,
-                sortOrder = now,
-                createdAtEpochMillis = now,
-                updatedAtEpochMillis = now,
-                startedAtEpochMillis = null,
-                completedAtEpochMillis = null,
-                acceptsRanges = metadata.acceptsRanges,
-                referenceSha256 = metadata.referenceSha256,
-                destinationTreeUri = allocated.destinationTreeUri,
-                destinationDisplayLabel = allocated.destinationDisplayLabel,
-                schedule = schedule,
-            )
-
-            // 3. Persist exactly one QUEUED download
-            repository.insert(download)
-            persistedDownloadId = downloadId
-            BrowserRequestContextRegistry.put(downloadId, requestContext)
-
-            queueScheduler.schedule()
-
-            return SubmissionResult.Success(download)
-        } catch (cancellation: CancellationException) {
-            // If cancelled, rollback database insertion and clean up temp file
-            if (persistedDownloadId != null) {
-                BrowserRequestContextRegistry.remove(persistedDownloadId)
-                try {
-                    repository.delete(persistedDownloadId)
-                } catch (_: Throwable) {
-                    // Ignore rollback failure
+        return com.espitman.sdm.storage.FolderMutationGate.mutex.withLock {
+            if (com.espitman.sdm.storage.FolderRenameCoordinator.operationPending) return@withLock SubmissionResult.Failure("Finish folder access in Settings before adding downloads.")
+            // 2. Determine target directory and atomically reserve .part file
+            var reservedTempFile: File? = null
+            var persistedDownloadId: String? = null
+            try {
+                val allocated = withContext(Dispatchers.IO) {
+                    destinationAllocator.allocate(metadata.suggestedFilename, metadata.contentType)
                 }
-            }
-            cleanupTempFile(reservedTempFile)
-            throw cancellation
-        } catch (e: Throwable) {
-            // On pre-insert, insert, or transfer starter errors, clean up inserted record and temp file
-            if (persistedDownloadId != null) {
-                BrowserRequestContextRegistry.remove(persistedDownloadId)
-                try {
-                    repository.delete(persistedDownloadId)
-                } catch (_: Throwable) {
-                    // Ignore rollback failure
+                reservedTempFile = allocated.partFile
+
+                val now = clock.currentTimeMillis()
+                val downloadId = idFactory.createId()
+
+                val download = Download(
+                    id = downloadId,
+                    url = metadata.url,
+                    fileName = allocated.fileName,
+                    mimeType = metadata.contentType,
+                    etag = metadata.etag,
+                    lastModified = metadata.lastModified,
+                    destinationPath = allocated.destinationPath,
+                    totalBytes = metadata.contentLength,
+                    downloadedBytes = 0L,
+                    state = DownloadState.QUEUED,
+                    error = null,
+                    priority = 0,
+                    sortOrder = now,
+                    createdAtEpochMillis = now,
+                    updatedAtEpochMillis = now,
+                    startedAtEpochMillis = null,
+                    completedAtEpochMillis = null,
+                    acceptsRanges = metadata.acceptsRanges,
+                    referenceSha256 = metadata.referenceSha256,
+                    destinationTreeUri = allocated.destinationTreeUri,
+                    destinationDisplayLabel = allocated.destinationDisplayLabel,
+                    schedule = schedule,
+                )
+
+                // 3. Persist exactly one QUEUED download
+                repository.insert(download)
+                persistedDownloadId = downloadId
+                BrowserRequestContextRegistry.put(downloadId, requestContext)
+
+                queueScheduler.schedule()
+
+                return@withLock SubmissionResult.Success(download)
+            } catch (cancellation: CancellationException) {
+                // If cancelled, rollback database insertion and clean up temp file
+                if (persistedDownloadId != null) {
+                    BrowserRequestContextRegistry.remove(persistedDownloadId)
+                    try {
+                        repository.delete(persistedDownloadId)
+                    } catch (_: Throwable) {
+                        // Ignore rollback failure
+                    }
                 }
+                cleanupTempFile(reservedTempFile)
+                throw cancellation
+            } catch (e: Throwable) {
+                // On pre-insert, insert, or transfer starter errors, clean up inserted record and temp file
+                if (persistedDownloadId != null) {
+                    BrowserRequestContextRegistry.remove(persistedDownloadId)
+                    try {
+                        repository.delete(persistedDownloadId)
+                    } catch (_: Throwable) {
+                        // Ignore rollback failure
+                    }
+                }
+                cleanupTempFile(reservedTempFile)
+                val msg = ErrorReportSanitizer.sanitize(
+                    e.message?.takeIf { it.isNotBlank() } ?: "Failed to submit download",
+                ).ifBlank { "Failed to submit download" }
+                return@withLock SubmissionResult.Failure(msg, e)
             }
-            cleanupTempFile(reservedTempFile)
-            val msg = ErrorReportSanitizer.sanitize(
-                e.message?.takeIf { it.isNotBlank() } ?: "Failed to submit download",
-            ).ifBlank { "Failed to submit download" }
-            return SubmissionResult.Failure(msg, e)
         }
     }
 

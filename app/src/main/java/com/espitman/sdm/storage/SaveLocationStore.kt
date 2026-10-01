@@ -26,7 +26,7 @@ class SaveLocationStore internal constructor(private val preferences: SharedPref
             ?: SaveLocationLabels.DEFAULT
         return PersistedSaveLocation(
             treeUri = treeUri,
-            displayLabel = if (treeUri == null) SaveLocationLabels.DEFAULT else label,
+            displayLabel = if (treeUri == null) preferences.getString("app_download_folder_name", null)?.let { "App / $it" } ?: SaveLocationLabels.DEFAULT else label,
         )
     }
 
@@ -38,7 +38,7 @@ class SaveLocationStore internal constructor(private val preferences: SharedPref
         preferences.edit()
             .putString(KEY_TREE_URI, valid.uriString)
             .putString(KEY_LABEL, label)
-            .apply()
+            .commit().also { check(it) { "Could not save folder settings" } }
         mutableLocation.value = PersistedSaveLocation(valid.uriString, label)
     }
 
@@ -47,8 +47,8 @@ class SaveLocationStore internal constructor(private val preferences: SharedPref
         preferences.edit()
             .remove(KEY_TREE_URI)
             .putString(KEY_LABEL, SaveLocationLabels.DEFAULT)
-            .apply()
-        mutableLocation.value = PersistedSaveLocation.DEFAULT
+            .commit().also { check(it) { "Could not save folder settings" } }
+        mutableLocation.value = read()
     }
 
     companion object {

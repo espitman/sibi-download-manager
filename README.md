@@ -17,6 +17,8 @@ HTTP links without TLS are intentionally supported. SDM does not automatically d
 
 Completed files appear in Files when their storage entry is readable. Files supports search, type filters, sorting, secure Open/Share intents, Rename, and Delete. The default save location is app-specific storage; a user-selected folder uses Android's system folder picker and persisted Storage Access Framework grant. If a folder or grant disappears, SDM reports the loss and falls back safely for future downloads.
 
+Settings → Rename save folder renames the app folder or an Android External Storage folder while preserving existing files, category references, queued downloads and every partial segment of active downloads. Transfers pause during migration; when Android invalidates the old grant, Grant access opens the renamed folder in the system picker. The migration is saved until access and destination updates finish, including after app restart. Unsupported providers and existing names are rejected safely.
+
 The in-app private Browser supports address entry, navigation, reload, tabs, and explicit download-link handoff to Add. A selected link can carry same-origin cookies and headers into its download; redirecting to another origin strips those credentials. Browser session data is cleared on exit. JavaScript and DOM storage remain enabled for ordinary pages, while file/content access is disabled.
 
 ## Build and test
@@ -29,7 +31,7 @@ Use JDK 17 and an Android SDK with API 35 installed. From the repository root:
 
 For connected-device tests, build the test APK and run the required instrumentation classes with `adb shell am instrument`; avoid a blanket run because several suites deliberately manipulate storage and app state. The [release validation report](docs/release-validation.md) lists the devices and suites used. The Open Design prototype is the source for visual and interaction checks.
 
-The release variant is `0.2.69` (`versionCode=71`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
+The release variant is `0.2.70` (`versionCode=72`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
 
 ## Current limits
 

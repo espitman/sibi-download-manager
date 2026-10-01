@@ -56,7 +56,7 @@ class SettingsSearchTest {
         assertRows("threads", SettingsSearchRow.Connections)
         assertRows("concurrent", SettingsSearchRow.Simultaneous)
         assertRows("throttle", SettingsSearchRow.SpeedLimit)
-        assertRows("folder", SettingsSearchRow.SaveLocation, SettingsSearchRow.AutomaticFolders)
+        assertRows("folder", SettingsSearchRow.SaveLocation, SettingsSearchRow.RenameFolder, SettingsSearchRow.AutomaticFolders)
         assertRows("stall", SettingsSearchRow.SpeedAlerts)
         assertRows("english", SettingsSearchRow.Language)
         assertRows("defaults", SettingsSearchRow.Reset)

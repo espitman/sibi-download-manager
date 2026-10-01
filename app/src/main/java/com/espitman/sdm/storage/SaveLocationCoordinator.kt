@@ -95,7 +95,7 @@ class SaveLocationCoordinator(
         reason: SaveLocationRecovery,
         persistRecovery: Boolean,
     ): ResolvedSaveLocation {
-        if (persistRecovery) {
+        if (persistRecovery && !FolderRenameCoordinator.operationPending) {
             val previous = store.read().treeUri
             if (!previous.isNullOrBlank()) {
                 grants.releaseReadWrite(previous)

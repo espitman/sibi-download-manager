@@ -19,15 +19,18 @@ object AppSpecificDownloadsDirectory {
     fun from(context: Context): File {
         val appContext = context.applicationContext
         return resolve(
-            externalDownloadsDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+            externalDownloadsDir = appContext.getExternalFilesDir(null)?.let { File(it, folderName(appContext)) },
             internalFilesDir = appContext.filesDir,
+            fallbackName = folderName(appContext),
         )
     }
 
-    fun resolve(externalDownloadsDir: File?, internalFilesDir: File): File {
+    fun folderName(context: Context): String = context.getSharedPreferences("sdm_settings", Context.MODE_PRIVATE).getString("app_download_folder_name", INTERNAL_FALLBACK_NAME) ?: INTERNAL_FALLBACK_NAME
+
+    fun resolve(externalDownloadsDir: File?, internalFilesDir: File, fallbackName: String = INTERNAL_FALLBACK_NAME): File {
         val external = usableDirectory(externalDownloadsDir)
         if (external != null) return external
-        val fallback = File(internalFilesDir, INTERNAL_FALLBACK_NAME)
+        val fallback = File(internalFilesDir, fallbackName)
         if (!fallback.exists()) fallback.mkdirs()
         if (!fallback.exists() || !fallback.isDirectory) {
             throw IOException("Failed to create or access downloads directory: ${fallback.absolutePath}")

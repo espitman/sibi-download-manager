@@ -544,6 +544,20 @@ class SqliteDownloadRepository(
         )
     }
 
+    /** Remap every affected destination in one transaction; transfer state/offset/order stay intact. */
+    suspend fun remapFolderDestinations(map: (Download) -> Download) = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            database.writableDatabase.inTransaction { db ->
+                downloads.value.forEach { current ->
+                    val next = map(current)
+                    if (next != current) persistDownloadMutation(db, current.id, current, next)
+                }
+            }
+            refreshLocked(database.readableDatabase)
+        }
+    }
+
     override suspend fun updateDestination(
         id: String,
         destinationPath: String,

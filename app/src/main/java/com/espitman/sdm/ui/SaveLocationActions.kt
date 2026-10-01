@@ -42,12 +42,16 @@ internal fun rememberSaveLocationActions(onToast: (String) -> Unit): SaveLocatio
         }
     }
     LaunchedEffect(coordinator) {
-        coordinator.validatePersisted()?.let { onToast(it.message) }
+        if (!com.espitman.sdm.storage.FolderRenameCoordinator.isPending(context)) coordinator.validatePersisted()?.let { onToast(it.message) }
     }
     return SaveLocationActions(
         label = location.displayLabel,
-        openPicker = {
-            coordinator.validatePersisted()?.let { onToast(it.message) }
+        openPicker = pickerAction@{
+            if (!com.espitman.sdm.storage.FolderRenameCoordinator.isPending(context)) coordinator.validatePersisted()?.let { onToast(it.message) }
+            if (com.espitman.sdm.storage.FolderRenameCoordinator.isPending(context)) {
+                onToast("Finish folder access in Rename save folder first.")
+                return@pickerAction
+            }
             val initial = store.read().treeUri
             launcher.launch(OpenDocumentTreeAccess.createPickerIntent(initial))
         },

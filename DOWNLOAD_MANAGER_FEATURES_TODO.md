@@ -96,6 +96,14 @@ Verification: [Physical-device and automated validation](docs/automatic-folders-
 
 ## 10. Rename the save folder safely
 
-- [ ] 47. DMF-047 — Add a Rename save folder action in SDM's existing sheet style; rename the selected folder and preserve access to existing files.
-- [ ] 48. DMF-048 — Update affected default/category folder references and download destinations safely, including queued and active downloads; preserve progress and prevent stale destinations.
-- [ ] 49. DMF-049 — Handle unsupported providers, permission loss and name collisions without changing or losing data; test existing files, queued downloads and active transfers on the connected device.
+- [x] 47. DMF-047 — Add a Rename save folder action in SDM's existing sheet style; rename the selected folder and preserve access to existing files.
+  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
+  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
+- [x] 48. DMF-048 — Update affected default/category folder references and download destinations safely, including queued and active downloads; preserve progress and prevent stale destinations.
+  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
+  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
+- [x] 49. DMF-049 — Handle unsupported providers, permission loss and name collisions without changing or losing data; test existing files, queued downloads and active transfers on the connected device.
+  - Model: نامشخص — the runtime does not expose the actual model identifier; tool: Codex / exec_command (no delegated or CLI model work).
+  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
+
+Verification: [Safe folder rename validation](docs/folder-rename-validation.md).

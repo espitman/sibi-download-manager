@@ -144,6 +144,34 @@ class DownloadTransferEngineSegmentedTest {
     }
 
     @Test
+    fun folderCheckpointResumesEverySegmentWithoutDiscardingNonContiguousBytes() = runBlocking {
+        server.dispatcher=rangeDispatcher(ignoreRanges=false)
+        val (repo,destination,part)=fixture("folder-checkpoint")
+        val download=repo.get("folder-checkpoint")!!
+        val ranges=SegmentedTransferPolicy.plan(download,0)!!
+        val lengths=listOf(17,31)
+        ranges.forEachIndexed { i,r -> FolderSegmentCheckpoint.file(part,r).writeBytes(payload.copyOfRange(r.start.toInt(),r.start.toInt()+lengths[i])) }
+        FolderSegmentCheckpoint.save(part,ranges,download)
+        engine().executeTransfer(download.id,download.url,part,repo)
+        assertArrayEquals(payload,destination.readBytes())
+        assertEquals(setOf("bytes=17-524296","bytes=524328-1048592"),requests.filterNotNull().toSet())
+        assertFalse(FolderSegmentCheckpoint.marker(part).exists())
+    }
+
+    @Test
+    fun fullySavedFolderCheckpointRevalidatesCompletedSegmentsBeforeMerging() = runBlocking {
+        server.dispatcher=rangeDispatcher(ignoreRanges=false)
+        val (repo,destination,part)=fixture("folder-complete-segments")
+        val download=repo.get("folder-complete-segments")!!
+        val ranges=SegmentedTransferPolicy.plan(download,0)!!
+        ranges.forEach { r->FolderSegmentCheckpoint.file(part,r).writeBytes(payload.copyOfRange(r.start.toInt(),r.endInclusive.toInt()+1)) }
+        FolderSegmentCheckpoint.save(part,ranges,download)
+        engine().executeTransfer(download.id,download.url,part,repo)
+        assertArrayEquals(payload,destination.readBytes())
+        assertEquals(setOf("bytes=524296-524296","bytes=1048592-1048592"),requests.filterNotNull().toSet())
+    }
+
+    @Test
     fun segmentedPeakStorageBudgetRejectsBeforeOpeningConnections() = runBlocking {
         val (repo, destination, part) = fixture("space")
         server.dispatcher = rangeDispatcher(ignoreRanges = false)

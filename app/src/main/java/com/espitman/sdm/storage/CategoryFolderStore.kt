@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class CategoryFolderStore private constructor(private val prefs:SharedPreferences) {
+class CategoryFolderStore internal constructor(private val prefs:SharedPreferences) {
     private val mutable=MutableStateFlow(read())
     val settings:StateFlow<CategoryFolderSettings> = mutable.asStateFlow()
     private val unavailableMutable=MutableStateFlow<Set<FileCategory>>(emptySet())

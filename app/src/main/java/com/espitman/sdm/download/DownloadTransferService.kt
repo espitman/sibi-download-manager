@@ -127,6 +127,7 @@ class DownloadTransferService : Service() {
         }
         when (val result = session.handleCommand(startId, command)) {
             is SessionCommandResult.StartJob -> {
+                com.espitman.sdm.storage.FolderMutationGate.workerStarted()
                 val transferJob = serviceScope.launch {
                     try {
                         when (val transferCommand = result.command) {
@@ -171,6 +172,7 @@ class DownloadTransferService : Service() {
                         }
                     }
                 }
+                transferJob.invokeOnCompletion { com.espitman.sdm.storage.FolderMutationGate.workerFinished() }
                 if (session.attachJob(result.command.downloadId, transferJob)) {
                     transferJob.cancel()
                 }
@@ -355,6 +357,7 @@ class DownloadTransferService : Service() {
     private fun onDiskPartLength(download: Download, tempFilePath: String?): Long {
         val tempFile = tempFilePath?.let(::File)
         if (tempFile != null) {
+            FolderSegmentCheckpoint.load(tempFile, download)?.let { return FolderSegmentCheckpoint.bytes(tempFile, it) }
             return if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
         }
         val destinationPath = download.destinationPath ?: return 0L
@@ -364,6 +367,7 @@ class DownloadTransferService : Service() {
         } catch (_: IllegalArgumentException) {
             return 0L
         }
+        FolderSegmentCheckpoint.load(partFile, download)?.let { return FolderSegmentCheckpoint.bytes(partFile, it) }
         return if (partFile.exists()) partFile.length().coerceAtLeast(0L) else 0L
     }
 
@@ -391,14 +395,17 @@ class DownloadTransferService : Service() {
     }
 
     private suspend fun executeTransfer(command: StartTransferCommand) {
+        if (com.espitman.sdm.storage.FolderRenameCoordinator.isPending(applicationContext)) return
         val repository = AppRepositories.downloads(applicationContext)
         val download = repository.get(command.downloadId) ?: return
+        val effectiveTempFilePath = download.destinationPath?.takeUnless { com.espitman.sdm.storage.DownloadDestinationRef.isContentUri(it) }
+            ?.let { com.espitman.sdm.download.DownloadPartFile.forDestination(File(it)).absolutePath } ?: command.tempFilePath
         val downloadId = download.id
         if (download.schedule?.isOpen(System.currentTimeMillis()) == false) {
             if (download.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) {
                 repository.pauseAtExactOffset(
                     id = downloadId,
-                    fileLengthBytes = onDiskPartLength(download, command.tempFilePath),
+                    fileLengthBytes = onDiskPartLength(download, effectiveTempFilePath),
                     nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
                     pauseCause = DownloadPauseCause.SCHEDULE,
                 )
@@ -406,12 +413,12 @@ class DownloadTransferService : Service() {
             return
         }
         val url = download.url
-        val tempFile = File(command.tempFilePath)
+        val tempFile = File(effectiveTempFilePath)
         val blocked = NetworkRestrictionStartGuard.blockStartIfDisallowed(
             allowed = AppRepositories.transferAllowance(applicationContext).isAllowed(),
             repository = repository,
             downloadId = downloadId,
-            fileLengthBytes = onDiskPartLength(download, command.tempFilePath),
+            fileLengthBytes = onDiskPartLength(download, effectiveTempFilePath),
             nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
         )
         if (blocked) return

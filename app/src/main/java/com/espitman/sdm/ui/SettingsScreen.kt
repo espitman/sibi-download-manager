@@ -63,6 +63,8 @@ internal fun SettingsScreen(
     val speedAlerts = settings.speedAlerts
     val appliedTheme = settings.theme
     val themeLabel = if (appliedTheme == "light") "Light & Gold" else "Black & Gold"
+    var renameFolderOpen by remember { mutableStateOf(com.espitman.sdm.storage.FolderRenameCoordinator.isPending(context)) }
+    if (renameFolderOpen) RenameSaveFolderSheet({ renameFolderOpen = false }, onToast)
     var automaticFoldersOpen by remember { mutableStateOf(false) }
     if (automaticFoldersOpen) AutomaticFoldersSheet({ automaticFoldersOpen = false }, onToast)
     var backupOpen by remember { mutableStateOf(false) }
@@ -141,6 +143,9 @@ internal fun SettingsScreen(
                             ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() }
                         }
 
+                        add(SettingsSearchRow.RenameFolder) {
+                            ValueRow(SdmIcons.Folder, "Rename save folder", "Keep files, queue and download progress", chevron = true) { renameFolderOpen = true }
+                        }
                         add(SettingsSearchRow.AutomaticFolders) {
                             ValueRow(SdmIcons.FolderPlain, "Automatic folders", "Save each file type in its own folder", chevron = true) { automaticFoldersOpen = true }
                         }

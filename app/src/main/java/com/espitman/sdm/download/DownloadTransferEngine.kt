@@ -70,6 +70,7 @@ class DownloadTransferEngine(
     private val segmentCount: () -> Int = { SegmentedTransferPolicy.INITIAL_SEGMENT_COUNT },
     private val requestContext: (String) -> ScopedRequestContext? = { null },
     private val networkUnavailable: () -> Boolean = { false },
+    private val preserveSegmentsOnPause: () -> Boolean = { false },
 ) {
     private val okHttpClient = okHttpClient.newBuilder()
         .addNetworkInterceptor(ScopedRequestContextInterceptor())
@@ -114,11 +115,23 @@ class DownloadTransferEngine(
             return@withContext
         }
 
-        recoverSegmentArtifacts(tempFile)
+        if (FolderSegmentCheckpoint.marker(tempFile).exists() && tempFile.exists() && tempFile.length() == existingDownload.totalBytes) {
+            deleteQuietly(FolderSegmentCheckpoint.marker(tempFile))
+            tempFile.parentFile?.listFiles()?.filter { it.name.startsWith(tempFile.name + ".segment-") }?.forEach(::deleteQuietly)
+        }
+        val preservedSegments = FolderSegmentCheckpoint.load(tempFile, existingDownload)
+        if (preservedSegments == null) {
+            if (FolderSegmentCheckpoint.marker(tempFile).exists()) {
+                // A deliberate restart or changed identity must not reuse old range data.
+                deleteQuietly(FolderSegmentCheckpoint.marker(tempFile))
+                tempFile.parentFile?.listFiles()?.filter { it.name.startsWith(tempFile.name + ".segment-") }?.forEach(::deleteQuietly)
+            }
+            recoverSegmentArtifacts(tempFile)
+        }
         val resumeOffset = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
         existingDownload = repository.alignDownloadedBytes(
             downloadId,
-            resumeOffset,
+            preservedSegments?.let { FolderSegmentCheckpoint.bytes(tempFile, it) } ?: resumeOffset,
             validTimestamp(existingDownload.updatedAtEpochMillis),
         )
         if (
@@ -161,7 +174,7 @@ class DownloadTransferEngine(
             return@withContext
         }
 
-        val segmentPlan = SegmentedTransferPolicy.plan(
+        val segmentPlan = preservedSegments ?: SegmentedTransferPolicy.plan(
             download = existingDownload,
             resumeOffset = resumeOffset,
             segmentCount = segmentCount(),
@@ -666,11 +679,14 @@ class DownloadTransferEngine(
         requestContext: ScopedRequestContext?,
     ): Boolean {
         val segmentFiles = ranges.map { segmentFile(tempFile, it) }
-        segmentFiles.forEach(::deleteQuietly)
+        val current = repository.get(downloadId) ?: error("Download not found")
+        val resuming = FolderSegmentCheckpoint.load(tempFile, current) == ranges
+        if (!resuming) segmentFiles.forEach(::deleteQuietly)
         deleteQuietly(tempFile)
-        val progress = LongArray(ranges.size)
+        val progress = LongArray(ranges.size) { if (resuming) segmentFiles[it].length() else 0L }
         val progressMutex = Mutex()
-        var lastReportedBytes = 0L
+        var lastReportedBytes = progress.sum()
+        if (resuming) updateProgress(repository, downloadId, lastReportedBytes)
         var lastReportedAt = clock.currentTimeMillis()
         return try {
             coroutineScope {
@@ -682,6 +698,7 @@ class DownloadTransferEngine(
                             totalBytes = totalBytes,
                             validators = validators,
                             output = segmentFiles[index],
+                            existingBytes = if (resuming) progress[index] else 0L,
                             individualLimiter = individualSpeedLimiter(downloadId),
                             requestContext = requestContext,
                         ) { written ->
@@ -705,15 +722,17 @@ class DownloadTransferEngine(
             FileOutputStream(tempFile, false).use { merged ->
                 segmentFiles.forEach { segment ->
                     segment.inputStream().use { it.copyTo(merged, bufferSizeBytes) }
-                    deleteQuietly(segment)
                 }
                 merged.flush()
             }
             if (tempFile.length() != totalBytes) {
                 throw IOException("Segment merge length mismatch: expected $totalBytes, received ${tempFile.length()}")
             }
+            segmentFiles.forEach(::deleteQuietly)
+            deleteQuietly(FolderSegmentCheckpoint.marker(tempFile))
             true
         } catch (_: SegmentFallbackException) {
+            deleteQuietly(FolderSegmentCheckpoint.marker(tempFile))
             segmentFiles.forEach(::deleteQuietly)
             deleteQuietly(tempFile)
             val current = repository.get(downloadId)
@@ -727,7 +746,9 @@ class DownloadTransferEngine(
             )
             false
         } catch (cancellation: CancellationException) {
-            recoverSegmentArtifacts(tempFile)
+            if (preserveSegmentsOnPause() || resuming) {
+                FolderSegmentCheckpoint.save(tempFile, ranges, current)
+            } else recoverSegmentArtifacts(tempFile)
             throw cancellation
         } catch (error: Throwable) {
             throw error
@@ -791,16 +812,21 @@ class DownloadTransferEngine(
         totalBytes: Long,
         validators: HttpRangeResume.ResumeValidators,
         output: File,
+        existingBytes: Long = 0L,
         individualLimiter: SpeedLimiter,
         requestContext: ScopedRequestContext?,
         onBytesWritten: suspend (Long) -> Unit,
     ) {
         val validator = HttpRangeResume.ifRangeHeaderValue(validators)
             ?: throw SegmentFallbackException()
+        // Revalidate even a finished segment by requesting its last byte; retain its full file.
+        val skip = existingBytes.coerceIn(0L, range.length)
+        val requestStart = range.start + min(skip, range.length - 1)
+        val requestRange = TransferByteRange(requestStart, range.endInclusive)
         val requestBuilder = Request.Builder()
             .url(url)
             .get()
-            .header(HttpRangeResume.HEADER_RANGE, range.headerValue())
+            .header(HttpRangeResume.HEADER_RANGE, requestRange.headerValue())
             .header(HttpRangeResume.HEADER_IF_RANGE, validator)
         requestContext?.let { requestBuilder.tag(ScopedRequestContext::class.java, it) }
         val request = requestBuilder.build()
@@ -816,7 +842,7 @@ class DownloadTransferEngine(
                 val parsed = try {
                     HttpRangeResume.validateContentRange(
                         response.header(HttpRangeResume.HEADER_CONTENT_RANGE),
-                        range.start,
+                        requestStart,
                         totalBytes,
                     )
                 } catch (_: IllegalArgumentException) {
@@ -834,13 +860,19 @@ class DownloadTransferEngine(
                 }
                 val body = response.body ?: throw SegmentFallbackException()
                 try {
-                    HttpRangeResume.validateDeclaredBodyLength(range.length, body.contentLength())
+                    HttpRangeResume.validateDeclaredBodyLength(requestRange.length, body.contentLength())
                 } catch (_: IllegalArgumentException) {
                     throw SegmentFallbackException()
                 }
+                if (skip == range.length) {
+                    val remote = body.byteStream().use { it.read() }
+                    val local = java.io.RandomAccessFile(output, "r").use { it.seek(skip - 1); it.read() }
+                    if (remote != local) throw SegmentFallbackException()
+                    return
+                }
                 output.parentFile?.mkdirs()
-                var received = 0L
-                FileOutputStream(output, false).use { stream ->
+                var received = skip
+                FileOutputStream(output, skip > 0L).use { stream ->
                     body.byteStream().use { input ->
                         val buffer = ByteArray(bufferSizeBytes)
                         while (true) {
@@ -975,8 +1007,10 @@ class DownloadTransferEngine(
     ) {
         if (!pauseRequested()) return
         withContext(NonCancellable) {
-            val fileLength = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
             val current = repository.get(downloadId) ?: return@withContext
+            val ranges = FolderSegmentCheckpoint.load(tempFile, current)
+            val fileLength = ranges?.let { FolderSegmentCheckpoint.bytes(tempFile, it) }
+                ?: if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
             repository.pauseAtExactOffset(
                 id = downloadId,
                 fileLengthBytes = fileLength,
