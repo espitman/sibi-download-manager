@@ -64,13 +64,13 @@ object DownloadBackupCodec {
         }
         val settings = if (root.has("settings")) root.getJSONObject("settings").let { s ->
             SdmSettings(retryCount=if(s.has("retryCount")) s.strictInt("retryCount") else 2,
-                retryDelaySeconds=if(s.has("retryDelaySeconds")) s.strictInt("retryDelaySeconds") else 2,
+                retryDelaySeconds=AutomaticRetrySettings.normalizeDelay(if(s.has("retryDelaySeconds")) s.strictInt("retryDelaySeconds").also { require(it in 1..300) } else 2),
                 connections=s.strictInt("connections"), simultaneous=s.strictInt("simultaneous"),
                 autoResume=s.getBoolean("autoResume"),wifiOnly=s.getBoolean("wifiOnly"),downloadComplete=s.getBoolean("downloadComplete"),
                 speedAlerts=s.getBoolean("speedAlerts"),theme=s.getString("theme"),unlimitedSpeed=s.getBoolean("unlimitedSpeed"),
                 speedLimitMbps=s.getDouble("speedLimitMbps").toFloat(),speedLimitWifiOnly=s.getBoolean("speedLimitWifiOnly"),
                 dailyBulkScheduleEnabled=s.getBoolean("dailyBulkScheduleEnabled"),dailyResumeMinute=s.strictInt("dailyResumeMinute"),dailyPauseMinute=s.strictInt("dailyPauseMinute")).also {
-                require(it.retryCount in 0..10 && it.retryDelaySeconds in 1..300) { "Invalid retry settings." }
+                require(it.retryCount in 0..10 && it.retryDelaySeconds in AutomaticRetrySettings.DELAYS) { "Invalid retry settings." }
                 require(it.connections in listOf(8,16,24,32) && it.simultaneous in 1..10 && it.theme in listOf("dark","light")) { "Invalid settings in backup." }
                 require(it.speedLimitMbps.isFinite() && it.speedLimitMbps in 1f..30f && it.dailyResumeMinute in 0..1439 && it.dailyPauseMinute in 0..1439 && it.dailyResumeMinute != it.dailyPauseMinute) { "Invalid speed or schedule settings." }
             }

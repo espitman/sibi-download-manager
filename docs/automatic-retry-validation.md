@@ -14,7 +14,7 @@ The application collector handles awake timers and an Android alarm covers proce
 
 ## Verification
 
-- 820 JVM tests passed with zero failures/errors/skips. Added policy coverage for exact budgets, disable, transient/permanent classification, changing delay after edits, manual Pause and bounds; card countdown/Pause rendering; old/new backup compatibility and invalid retry preferences.
+- 821 JVM tests passed with zero failures/errors/skips. Added policy coverage for exact budgets, disable, transient/permanent classification, changing delay after edits, manual Pause and bounds; card countdown/Pause rendering; old/new backup compatibility and invalid retry preferences.
 - Offline release build, debug/test APK build and lint passed. Final wheel change reused the shared TimeWheel and keeps the latest selection callback so hour/minute and retry values do not capture stale state.
 - 34 physical-device instrumentation tests passed: 5 automatic retry tests, 2 isolated settings tests and 27 SQLite repository regressions. Database migration suites ran against the matching debug variant because Kotlin internal helper names differ between debug and release; the final installed APK is release.
 - A real local HTTP server returned two 503 responses, then a 4096-byte payload. The engine made exactly three requests, consumed two retries, and produced a byte-identical file through the normal queue.

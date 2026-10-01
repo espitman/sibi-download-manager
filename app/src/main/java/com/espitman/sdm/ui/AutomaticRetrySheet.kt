@@ -15,10 +15,11 @@ import com.espitman.sdm.ui.theme.*
 @Composable internal fun AutomaticRetrySheet(settings: SdmSettings, visible: Boolean, onDismiss: () -> Unit, onSave: (Int, Int) -> Unit) {
     var count by remember { mutableIntStateOf(settings.retryCount) }
     var seconds by remember { mutableIntStateOf(settings.retryDelaySeconds) }
+    val delays = com.espitman.sdm.domain.AutomaticRetrySettings.DELAYS
     SettingsSheet(SdmIcons.Refresh, "DOWNLOAD BEHAVIOR", "Automatic retry", "Try again after temporary connection or server errors.", onDismiss, visible) {
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             TimeWheel("Retries", 11, count, Modifier.weight(1f)) { count = it }
-            TimeWheel("Seconds", 300, seconds - 1, Modifier.weight(1f), valueOffset = 1) { seconds = it + 1 }
+            TimeWheel("Seconds", delays.size, delays.indexOf(seconds), Modifier.weight(1f), valueLabel = { delays[it].toString() }) { seconds = delays[it] }
         }
         Text("Set retries to 0 to turn this off. Manual pauses and permanent errors are never retried.", color = SdmMuted, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 14.dp))
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -69,9 +69,9 @@ class AutomaticRetryDeviceTest {
         }
         val prefs=context.getSharedPreferences("retry-settings-qa",0)
         try {
-            val settings=SettingsRepository(prefs);settings.update {it.copy(retryCount=7,retryDelaySeconds=45)}
+            val settings=SettingsRepository(prefs);settings.update {it.copy(retryCount=7,retryDelaySeconds=50)}
             prefs.edit().commit()
-            assertEquals(AutomaticRetrySettings(7,45),SettingsRepository(prefs).settings.value.automaticRetry())
+            assertEquals(AutomaticRetrySettings(7,50),SettingsRepository(prefs).settings.value.automaticRetry())
             settings.reset();assertEquals(AutomaticRetrySettings(),settings.settings.value.automaticRetry())
         } finally {prefs.edit().clear().commit()}
     }}

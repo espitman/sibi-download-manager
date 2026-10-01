@@ -25,6 +25,13 @@ class AutomaticRetrySettingsTest {
         assertEquals(DownloadState.PAUSED,paused.state);assertEquals(23L,paused.downloadedBytes)
         assertNull(paused.error);assertNull(AutomaticRetrySettings().dueAt(paused))
     }
+    @Test fun delayChoicesMatchRequestedStepsAndLegacyValuesNormalize() {
+        assertEquals((1..9).toList()+(10..180 step 10).toList(),AutomaticRetrySettings.DELAYS)
+        assertEquals(150,AutomaticRetrySettings.normalizeDelay(147))
+        assertEquals(180,AutomaticRetrySettings.normalizeDelay(300))
+        assertThrows(IllegalArgumentException::class.java) { AutomaticRetrySettings(2,147) }
+        assertThrows(IllegalArgumentException::class.java) { AutomaticRetrySettings(2,190) }
+    }
     @Test fun boundsRejectInvalidValues() {
         assertThrows(IllegalArgumentException::class.java) { AutomaticRetrySettings(11,1) }
         assertThrows(IllegalArgumentException::class.java) { AutomaticRetrySettings(2,0) }

@@ -26,7 +26,7 @@ class AutomaticRetryUiDeviceTest {
                 "stage" -> {
                     check(!prefs.contains("count"))
                     prefs.edit().putInt("count",settings.settings.value.retryCount).putInt("delay",settings.settings.value.retryDelaySeconds).commit()
-                    settings.update {it.copy(retryCount=3,retryDelaySeconds=300)}
+                    settings.update {it.copy(retryCount=3,retryDelaySeconds=180)}
                     context.getSharedPreferences("sdm_settings",0).edit().commit()
                     val dir=java.io.File(context.cacheDir,"retry-ui-qa").apply {mkdirs()}
                     val target=java.io.File(dir,"Automatic retry QA.bin")

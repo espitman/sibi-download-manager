@@ -12,7 +12,7 @@ class DownloadBackupCodecTest {
         downloadedBytes=400,totalBytes=1000,state=DownloadState.PAUSED,createdAtEpochMillis=1,speedLimitBytesPerSecond=500_000,
         schedule=DownloadSchedule(DownloadSchedule.Kind.DAILY,startMinuteOfDay=90,endMinuteOfDay=400,zoneId="Asia/Tehran"),sortOrder=7,priority=1)
     @Test fun roundTripIncludesPortableFieldsAndExcludesFilePathsProgressAndSecrets() {
-        val settings=SdmSettings(theme="light",connections=32,retryCount=7,retryDelaySeconds=45)
+        val settings=SdmSettings(theme="light",connections=32,retryCount=7,retryDelaySeconds=50)
         val rules=CategoryFolderSettings(true,mapOf(FileCategory.VIDEO to CategoryFolderRule("content://com.android.externalstorage.documents/tree/primary%3AMovies","Movies")))
         val text=DownloadBackupCodec.encode(listOf(record),settings,1,rules)
         assertFalse(text.contains("private/never-export"));assertFalse(text.contains("downloadedBytes"));assertFalse(text.contains("headers"));assertFalse(text.contains("cookies"))

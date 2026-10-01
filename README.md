@@ -13,7 +13,7 @@ SDM is a native Android download manager built with Kotlin, Jetpack Compose, OkH
 
 HTTP links without TLS are intentionally supported. SDM does not automatically discover or download media, and has no YouTube-specific handling.
 
-Settings → Automatic retry configures 0–10 automatic retries and a fixed delay of 1–300 seconds (defaults: two retries, two seconds). Only temporary network, timeout and HTTP failures are eligible. The retry countdown appears on the download card and details; Pause or Cancel stops it. Failure timestamps and consumed attempts persist across restart, and retry settings are included in backups. Automatic retries enter the shared queue and respect network restrictions, schedules and folder migration.
+Settings → Automatic retry configures 0–10 automatic retries and a fixed delay of 1–9 seconds, then 10-second steps up to 180 seconds (defaults: two retries, two seconds). Only temporary network, timeout and HTTP failures are eligible. The retry countdown appears on the download card and details; Pause or Cancel stops it. Failure timestamps and consumed attempts persist across restart, and retry settings are included in backups. Automatic retries enter the shared queue and respect network restrictions, schedules and folder migration.
 
 ## Files and Browser
 

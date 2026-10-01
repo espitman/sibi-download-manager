@@ -43,7 +43,7 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
     @Synchronized
     fun update(transform: (SdmSettings) -> SdmSettings) {
         val value = transform(read())
-        require(value.retryCount in 0..10 && value.retryDelaySeconds in 1..300)
+        require(value.retryCount in 0..10 && value.retryDelaySeconds in com.espitman.sdm.domain.AutomaticRetrySettings.DELAYS)
         require(value.connections in listOf(8, 16, 24, 32))
         require(value.simultaneous in 1..10)
         require(value.theme in listOf("dark", "light"))
@@ -79,7 +79,7 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
 
     private fun read() = SdmSettings(
         retryCount = preferences.getInt("retry_count", 2).coerceIn(0,10),
-        retryDelaySeconds = preferences.getInt("retry_delay_seconds", 2).coerceIn(1,300),
+        retryDelaySeconds = com.espitman.sdm.domain.AutomaticRetrySettings.normalizeDelay(preferences.getInt("retry_delay_seconds", 2)),
         connections = preferences.getInt("connections", 16),
         simultaneous = preferences.getInt("simultaneous", 3),
         autoResume = preferences.getBoolean("auto_resume", true),
