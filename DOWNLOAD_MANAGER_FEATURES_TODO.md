@@ -70,17 +70,9 @@ Verification: [Configurable automatic retry validation](docs/automatic-retry-val
 HTTP Basic authentication is excluded from the plan at the user’s request.
 
 - [x] 26. DMF-026 — Let users explicitly choose whether to use and retain the browser session for a download.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tools: Codex / exec_command, Android device tooling and local Graphify AST update (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 27. DMF-027 — Preserve necessary authenticated browser request context for eligible downloads across pause/resume and app restart, with explicit privacy controls.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tools: Codex / exec_command, Android device tooling and local Graphify AST update (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 28. DMF-028 — Handle authentication failure and expired sessions with a clear reauthentication path.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tools: Codex / exec_command, Android device tooling and local Graphify AST update (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 - [x] 29. DMF-029 — Test redirects, credential scope, private browsing, restart, and accidental credential disclosure.
-  - Model: نامشخص — the runtime does not expose the actual model identifier; tools: Codex / exec_command, Android device tooling and local Graphify AST update (no delegated or CLI model work).
-  - Tokens: نامشخص — measured per-task input/output usage is unavailable; no session usage was attributed to this item.
 
 Verification: [Browser session validation](docs/browser-session-validation.md).
 

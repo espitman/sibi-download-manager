@@ -4,27 +4,9 @@
 - Prefer Sol and the `agy` CLI much more frequently for everyday work, when available and suitable for the task.
 - Apply this preference when choosing models or execution tools. Do not claim to have switched the active conversation's model unless it has actually changed.
 
-# Completed task accounting in Markdown
+# Task reporting
 
-- For every task tracked as a Markdown checklist item, when marking it complete (`[x]`), add an indented accounting entry directly beneath that same item in the same file.
-- Record every model that contributed to the task and the token usage attributable to that task for each model separately, including delegated or CLI work when used. Identify the CLI/tool separately from the actual model; a CLI name is not a model name.
-- Use actual model identifiers and measured usage reported by the runtime, API, or CLI. Include input and output token counts separately when available, with a total and the measurement source. Do not treat account usage percentages or whole-session totals as per-task token counts, and do not double-count usage across tasks.
-- If the model identity, token counts, or per-task attribution are unavailable, explicitly record `نامشخص` and briefly explain why. Never invent or estimate counts as measured usage. Record available models/counts even when other entries are unknown.
-- Add or update the accounting entry in the same edit that checks off the task. Only check off work that is actually complete. Match the document's language.
-
-Example for a Persian checklist (repeat the model entry for each contributing model):
-
-```markdown
-- [x] عنوان تسک تکمیل‌شده
-  - مدل: `<actual-model-id>`؛ ابزار: `<tool-if-used>`
-  - توکن: ورودی `<measured-input>`، خروجی `<measured-output>`، مجموع `<measured-total>`؛ منبع: `<usage-source>`
-```
-
-When precise usage is unavailable, replace the token entry with:
-
-```markdown
-  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
-```
+- Do not record model names or token usage under completed tasks or in task reports. The user has revoked the previous accounting requirement.
 
 --- project-doc ---
 
