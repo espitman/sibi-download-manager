@@ -25,6 +25,7 @@ class DownloadRecoveryBootReceiver : BroadcastReceiver() {
                     autoResume = SettingsRepository.get(context).settings.value.autoResume,
                     armTick = { next -> armScheduleTick(context, next) },
                 )
+                com.espitman.sdm.data.AppRepositories.automaticRetry(context).apply()
                 DailyBulkSchedule.arm(context)
             } finally {
                 repository?.close()

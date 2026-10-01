@@ -26,6 +26,7 @@ object DownloadStateMachine {
             DownloadState.CANCELLED,
         ),
         DownloadState.FAILED to setOf(
+            DownloadState.PAUSED,
             DownloadState.QUEUED,
             DownloadState.CANCELLED,
         ),
@@ -57,6 +58,7 @@ object DownloadStateMachine {
 
         return download.copy(
             state = to,
+            failedAtEpochMillis = if (to == DownloadState.FAILED) nowEpochMillis else null,
             error = error,
             pauseCause = if (to == DownloadState.PAUSED) download.pauseCause else null,
             updatedAtEpochMillis = nowEpochMillis,

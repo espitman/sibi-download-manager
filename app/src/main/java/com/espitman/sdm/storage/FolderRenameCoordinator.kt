@@ -95,7 +95,7 @@ class FolderRenameCoordinator(
             save(plan) // blocks new transfer starts even if the process is killed
             scheduler.folderMutationBlocked = true
             try {
-                scheduler.pauseAll { id -> pauseActive?.invoke(id) ?: DownloadTransferService.pauseTransfer(app, id) }
+                scheduler.pauseAll(includeRetries = false) { id -> pauseActive?.invoke(id) ?: DownloadTransferService.pauseTransfer(app, id) }
                 withTimeout(30_000) {
                     while (workersAlive() || repository.schedulingSnapshot().any { it.state in ACTIVE }) delay(50)
                 }
@@ -142,7 +142,7 @@ class FolderRenameCoordinator(
                     repository.requeueInterruptedActive(it.id, maxOf(System.currentTimeMillis(), it.updatedAtEpochMillis))
                 }
             }
-            scheduler.pauseAll { id -> pauseActive?.invoke(id) ?: DownloadTransferService.pauseTransfer(app, id) }
+            scheduler.pauseAll(includeRetries = false) { id -> pauseActive?.invoke(id) ?: DownloadTransferService.pauseTransfer(app, id) }
             withTimeout(30_000) {
                 while (workersAlive() || repository.schedulingSnapshot().any { it.state in ACTIVE }) delay(50)
             }

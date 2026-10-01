@@ -13,6 +13,8 @@ SDM is a native Android download manager built with Kotlin, Jetpack Compose, OkH
 
 HTTP links without TLS are intentionally supported. SDM does not automatically discover or download media, and has no YouTube-specific handling.
 
+Settings → Automatic retry configures 0–10 automatic retries and a fixed delay of 1–300 seconds (defaults: two retries, two seconds). Only temporary network, timeout and HTTP failures are eligible. The retry countdown appears on the download card and details; Pause or Cancel stops it. Failure timestamps and consumed attempts persist across restart, and retry settings are included in backups. Automatic retries enter the shared queue and respect network restrictions, schedules and folder migration.
+
 ## Files and Browser
 
 Completed files appear in Files when their storage entry is readable. Files supports search, type filters, sorting, secure Open/Share intents, Rename, and Delete. The default save location is app-specific storage; a user-selected folder uses Android's system folder picker and persisted Storage Access Framework grant. If a folder or grant disappears, SDM reports the loss and falls back safely for future downloads.
@@ -31,7 +33,7 @@ Use JDK 17 and an Android SDK with API 35 installed. From the repository root:
 
 For connected-device tests, build the test APK and run the required instrumentation classes with `adb shell am instrument`; avoid a blanket run because several suites deliberately manipulate storage and app state. The [release validation report](docs/release-validation.md) lists the devices and suites used. The Open Design prototype is the source for visual and interaction checks.
 
-The release variant is `0.2.70` (`versionCode=72`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
+The release variant is `0.2.71` (`versionCode=73`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
 
 ## Current limits
 

@@ -32,7 +32,9 @@ internal fun mapDownloadToCard(
     download: Download,
     nowEpochMillis: Long,
     recentBytesPerSecond: Long = 0L,
+    retrySettings: com.espitman.sdm.domain.AutomaticRetrySettings? = null,
 ): DownloadCardModel {
+    val retryAt = retrySettings?.dueAt(download)
     val metrics = calculateDownloadProgressMetrics(download, nowEpochMillis, recentBytesPerSecond)
     val category = when (download.state) {
         DownloadState.COMPLETED -> DownloadCategory.Completed
@@ -68,8 +70,8 @@ internal fun mapDownloadToCard(
             trailing = "Completed"
         }
         DownloadState.FAILED -> {
-            metadataValue = "Error · ${failedDownloadCardLabel(download.error)}"
-            trailing = "Retry"
+            metadataValue = if(retryAt != null) "Retry ${download.automaticRetryCount + 1}/${retrySettings.maxRetries}" else "Error · ${failedDownloadCardLabel(download.error)}"
+            trailing = if(retryAt != null) automaticRetryLabel(retryAt, nowEpochMillis) else "Retry"
         }
         DownloadState.CANCELLED -> {
             metadataValue = "Cancelled"
@@ -90,7 +92,7 @@ internal fun mapDownloadToCard(
         },
         trailing = trailing,
         category = category,
-        showPlayAction = (download.schedule?.isOpen(nowEpochMillis) != false) && download.state in setOf(
+        showPlayAction = retryAt == null && (download.schedule?.isOpen(nowEpochMillis) != false) && download.state in setOf(
             DownloadState.QUEUED,
             DownloadState.PAUSED,
             DownloadState.FAILED,
@@ -168,4 +170,9 @@ internal fun formatClockEta(seconds: Long?): String {
 internal fun formatCardSpeed(bytesPerSecond: Long): String {
     if (bytesPerSecond <= 0L) return "—"
     return decimalSpeedDisplay(bytesPerSecond).formatted
+}
+
+internal fun automaticRetryLabel(retryAt: Long, now: Long): String {
+    val seconds = ((retryAt - now).coerceAtLeast(0L) + 999L) / 1_000L
+    return if(seconds == 0L) "Waiting to retry" else "Retry in ${seconds}s"
 }

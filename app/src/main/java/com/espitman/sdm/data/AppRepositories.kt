@@ -40,9 +40,19 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import com.espitman.sdm.data.settings.automaticRetry
 
 /** Application-owned dependencies; never retain an Activity. */
 object AppRepositories {
+    @Volatile private var retryCoordinator: com.espitman.sdm.download.AutomaticRetryCoordinator? = null
+    @Volatile private var retryCollectorStarted = false
+
+    fun automaticRetry(context: Context): com.espitman.sdm.download.AutomaticRetryCoordinator {
+        ensureNetworkRestriction(context)
+        return retryCoordinator!!
+    }
     @Volatile private var downloadRepository: DownloadRepository? = null
     @Volatile private var metadataRetriever: DownloadMetadataRetriever? = null
     @Volatile private var transferEngine: DownloadTransferEngine? = null
@@ -194,6 +204,7 @@ object AppRepositories {
                             DownloadPartFile.forDestination(File(destination)).absolutePath,
                         )
                     },
+                    retryPending = { SettingsRepository.get(appContext).settings.value.automaticRetry().dueAt(it) != null },
                     transferAllowance = allowance,
                 )
             }
@@ -239,6 +250,32 @@ object AppRepositories {
                     },
                     autoResume = { SettingsRepository.get(appContext).settings.value.autoResume },
                 ).also { it.syncAllowanceFromSnapshot() }
+            }
+            if (retryCoordinator == null) {
+                retryCoordinator = com.espitman.sdm.download.AutomaticRetryCoordinator(
+                    repository = downloads(appContext),
+                    settings = { SettingsRepository.get(appContext).settings.value.automaticRetry() },
+                    scheduler = { queueScheduler!!.schedule() },
+                    allowed = { networkRestriction!!.allowsTransfers() },
+                    blocked = { com.espitman.sdm.storage.FolderRenameCoordinator.isPending(appContext) },
+                    arm = { com.espitman.sdm.download.armRetryTick(appContext, it) },
+                )
+            }
+            if (!retryCollectorStarted) {
+                retryCollectorStarted = true
+                val coordinator = retryCoordinator!!
+                restrictionScope.launch {
+                    combine(
+                        downloads(appContext).downloads.map { rows -> rows.filter { it.state == com.espitman.sdm.domain.DownloadState.FAILED } }.distinctUntilChanged(),
+                        SettingsRepository.get(appContext).settings.map { it.automaticRetry() to it.wifiOnly }.distinctUntilChanged(),
+                        connectivityMonitor!!.connectivity,
+                    ) { _, _, _ -> Unit }.collectLatest {
+                        while (true) {
+                            val next = coordinator.apply() ?: break
+                            delay((next - System.currentTimeMillis()).coerceAtLeast(100L))
+                        }
+                    }
+                }
             }
             if (!restrictionCollectorStarted) {
                 restrictionCollectorStarted = true

@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.app.ServiceCompat
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.data.settings.automaticRetry
 import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPauseCause
 import com.espitman.sdm.domain.DownloadState
@@ -82,7 +83,7 @@ class DownloadTransferService : Service() {
                     val snapshot = AppRepositories.downloads(applicationContext).schedulingSnapshot()
                     when (command) {
                         is PauseAllCommand -> {
-                            if (snapshot.none { it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED) }) {
+                            if (snapshot.none { it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED) || SettingsRepository.get(applicationContext).settings.value.automaticRetry().dueAt(it) != null }) {
                                 notifications.showControlFeedback("Nothing active to pause", snapshot)
                             } else {
                                 notifications.showControlFeedback("Pausing all downloads…", snapshot)
@@ -345,7 +346,7 @@ class DownloadTransferService : Service() {
     private suspend fun persistPausedNow(downloadId: String, cause: DownloadPauseCause?) = withContext(NonCancellable) {
         val repository = AppRepositories.downloads(applicationContext)
         val download = repository.get(downloadId) ?: return@withContext
-        if (download.state !in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) return@withContext
+        if (download.state !in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.FAILED)) return@withContext
         repository.pauseAtExactOffset(
             id = download.id,
             fileLengthBytes = onDiskPartLength(download, session.tempFilePath(downloadId)),
@@ -424,7 +425,7 @@ class DownloadTransferService : Service() {
         if (blocked) return
         while (true) {
             try {
-                DownloadAutoRetryRunner(repository).run(downloadId) {
+                run {
                     AppRepositories.transferEngine(applicationContext).executeTransfer(
                         downloadId = downloadId,
                         url = url,

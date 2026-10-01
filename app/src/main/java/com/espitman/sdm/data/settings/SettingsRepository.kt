@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** Persisted preferences shared by Settings, quick preferences, and the transfer engine. */
 data class SdmSettings(
+    val retryCount: Int = 2,
+    val retryDelaySeconds: Int = 2,
     val connections: Int = 16,
     val simultaneous: Int = 3,
     val autoResume: Boolean = true,
@@ -25,6 +27,8 @@ data class SdmSettings(
     val dailyPauseMinute: Int = 420,
 )
 
+fun SdmSettings.automaticRetry() = com.espitman.sdm.domain.AutomaticRetrySettings(retryCount, retryDelaySeconds)
+
 /** Retains the original preference file and keys, so no destructive migration is needed. */
 class SettingsRepository internal constructor(private val preferences: SharedPreferences) {
     private val mutableSettings = MutableStateFlow(read())
@@ -39,6 +43,7 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
     @Synchronized
     fun update(transform: (SdmSettings) -> SdmSettings) {
         val value = transform(read())
+        require(value.retryCount in 0..10 && value.retryDelaySeconds in 1..300)
         require(value.connections in listOf(8, 16, 24, 32))
         require(value.simultaneous in 1..10)
         require(value.theme in listOf("dark", "light"))
@@ -47,6 +52,8 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
         require(value.dailyResumeMinute in 0..1439 && value.dailyPauseMinute in 0..1439)
         require(value.dailyResumeMinute != value.dailyPauseMinute)
         preferences.edit()
+            .putInt("retry_count", value.retryCount)
+            .putInt("retry_delay_seconds", value.retryDelaySeconds)
             .putInt("connections", value.connections)
             .putInt("simultaneous", value.simultaneous)
             .putBoolean("auto_resume", value.autoResume)
@@ -71,6 +78,8 @@ class SettingsRepository internal constructor(private val preferences: SharedPre
     fun reset() = update { SdmSettings() }
 
     private fun read() = SdmSettings(
+        retryCount = preferences.getInt("retry_count", 2).coerceIn(0,10),
+        retryDelaySeconds = preferences.getInt("retry_delay_seconds", 2).coerceIn(1,300),
         connections = preferences.getInt("connections", 16),
         simultaneous = preferences.getInt("simultaneous", 3),
         autoResume = preferences.getBoolean("auto_resume", true),

@@ -9,6 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DownloadCardMappingTest {
+    @Test fun pendingRetryShowsCountdownAndPauseThenRevertsToManualRetryWhenDisabled() {
+        val d=Download(url="https://example.com/f",fileName="f",createdAtEpochMillis=1000,state=DownloadState.FAILED,error="HTTP 503",failedAtEpochMillis=1000)
+        val card=mapDownloadToCard(d,1500,retrySettings=com.espitman.sdm.domain.AutomaticRetrySettings(3,10))
+        assertEquals("Retry 1/3",card.metadataValue);assertEquals("Retry in 10s",card.trailing);assertFalse(card.showPlayAction)
+        assertEquals("Waiting to retry",mapDownloadToCard(d,12000,retrySettings=com.espitman.sdm.domain.AutomaticRetrySettings(3,10)).trailing)
+        assertTrue(mapDownloadToCard(d,1500,retrySettings=com.espitman.sdm.domain.AutomaticRetrySettings(0,10)).showPlayAction)
+    }
     private fun record(
         id: String = "download-id",
         state: DownloadState,

@@ -46,7 +46,7 @@ class SettingsSearchTest {
     @Test
     fun groupTitlesAndUsefulSynonymsMatchWithoutDuplicatingRows() {
         assertEquals(
-            listOf(SettingsSearchRow.Connections, SettingsSearchRow.Simultaneous, SettingsSearchRow.AutoResume, SettingsSearchRow.DailySchedule),
+            listOf(SettingsSearchRow.Connections, SettingsSearchRow.Simultaneous, SettingsSearchRow.AutoResume, SettingsSearchRow.AutomaticRetry, SettingsSearchRow.DailySchedule),
             filterSettingsRows(catalog, "DOWNLOAD BEHAVIOR"),
         )
         assertEquals(

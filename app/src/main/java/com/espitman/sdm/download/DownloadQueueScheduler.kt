@@ -21,6 +21,7 @@ class DownloadQueueScheduler(
     private val starter: QueuedTransferStarter,
     private val clock: Clock = Clock.SystemClock,
     private val transferAllowance: TransferAllowance = TransferAllowance { true },
+    private val retryPending: (Download) -> Boolean = { false },
 ) {
     @Volatile var folderMutationBlocked: Boolean = false
     private val mutex = Mutex()
@@ -55,7 +56,7 @@ class DownloadQueueScheduler(
         }
     }
 
-    suspend fun pauseAll(pauseActive: (String) -> Unit) {
+    suspend fun pauseAll(includeRetries: Boolean = true, pauseActive: (String) -> Unit) {
         bulkMutex.withLock {
             repository.awaitInitialized()
             val activeIds = mutex.withLock {
@@ -63,7 +64,7 @@ class DownloadQueueScheduler(
                 val snapshot = repository.schedulingSnapshot()
                 pruneLaunchingLocked(snapshot)
                 snapshot
-                    .filter { it.state in DownloadQueuePolicy.OCCUPYING_STATES }
+                    .filter { it.state in DownloadQueuePolicy.OCCUPYING_STATES || (includeRetries && retryPending(it)) }
                     .map { it.id }
             }
             for (id in activeIds) {

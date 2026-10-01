@@ -21,7 +21,7 @@ object DownloadLinkRefresh {
             lastModified = metadata.lastModified, totalBytes = metadata.contentLength,
             acceptsRanges = metadata.acceptsRanges, referenceSha256 = metadata.referenceSha256,
             downloadedBytes = if (restart) 0 else download.downloadedBytes, state = DownloadState.PAUSED,
-            error = null, automaticRetryCount = 0, pauseCause = null, completedAtEpochMillis = null,
+            error = null, failedAtEpochMillis = null, automaticRetryCount = 0, pauseCause = null, completedAtEpochMillis = null,
             updatedAtEpochMillis = now)
     }
 }

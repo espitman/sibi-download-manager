@@ -12,6 +12,10 @@ object DownloadPauseMutation {
         nowEpochMillis: Long,
         pauseCause: DownloadPauseCause? = null,
     ): Download {
+        if (current.state == DownloadState.FAILED && pauseCause == null &&
+            DownloadAutoRetryPolicy.isAutomaticallyRetryable(DownloadFailure.classify(current.error))) return DownloadStateMachine.transition(
+            current, DownloadState.PAUSED, max(nowEpochMillis, current.updatedAtEpochMillis),
+        ).copy(pauseCause = pauseCause)
         if (current.state !in ACTIVE) return current
         require(fileLengthBytes >= 0L) { "Paused offset cannot be negative" }
         val boundedOffset = current.totalBytes?.let { min(fileLengthBytes, it) } ?: fileLengthBytes

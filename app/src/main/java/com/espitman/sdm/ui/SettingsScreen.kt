@@ -42,7 +42,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.espitman.sdm.ui.theme.*
 
-private enum class SettingsOverlay { Connections, Simultaneous, DailySchedule, SpeedLimit, Theme, Reset }
+private enum class SettingsOverlay { Connections, Simultaneous, DailySchedule, AutomaticRetry, SpeedLimit, Theme, Reset }
 
 @Composable
 internal fun SettingsScreen(
@@ -121,6 +121,9 @@ internal fun SettingsScreen(
                         }
                         add(SettingsSearchRow.AutoResume) {
                             ToggleRow(SdmIcons.Refresh, "Auto-resume", "Continue interrupted downloads", autoResume) { repository.update { current -> current.copy(autoResume = it) }; toast(if (it) "Auto-resume enabled" else "Auto-resume disabled") }
+                        }
+                        add(SettingsSearchRow.AutomaticRetry) {
+                            ValueRow(SdmIcons.Refresh, "Automatic retry", "Retry temporary download failures", if(settings.retryCount == 0) "Off" else "${settings.retryCount} · ${settings.retryDelaySeconds}s", chevron = true) { overlay = SettingsOverlay.AutomaticRetry }
                         }
                         add(SettingsSearchRow.DailySchedule) {
                             ValueRow(SdmIcons.Schedule, "Scheduled downloads", "Daily resume all and pause all", if (settings.dailyBulkScheduleEnabled) "On" else "Off", chevron = true) { overlay = SettingsOverlay.DailySchedule }
@@ -202,6 +205,11 @@ internal fun SettingsScreen(
             NumberGrid((1..10).toList(), simultaneous, 5) {
                 repository.update { current -> current.copy(simultaneous = it) }; overlay = null; toast("$it simultaneous downloads")
             }
+        }
+        SettingsOverlay.AutomaticRetry -> AutomaticRetrySheet(settings, overlay != null, { overlay = null }) { count, seconds ->
+            repository.update { it.copy(retryCount = count, retryDelaySeconds = seconds) }
+            overlay = null
+            toast(if(count == 0) "Automatic retry disabled" else "Automatic retry saved")
         }
         SettingsOverlay.DailySchedule -> DailyBulkScheduleSheet(
             settings = settings,

@@ -50,8 +50,9 @@ internal fun removeActedOnDownloadsSelection(
 internal fun downloadsSelectionPauseIds(
     records: List<Download>,
     selectedIds: Set<String>,
+    retrySettings: com.espitman.sdm.domain.AutomaticRetrySettings? = null,
 ): List<String> = records
-    .filter { it.id in selectedIds && downloadsSelectionPauseEligible(it.state) }
+    .filter { it.id in selectedIds && (downloadsSelectionPauseEligible(it.state) || retrySettings?.dueAt(it) != null) }
     .map { it.id }
 
 internal fun downloadsSelectionStartQueuedIds(

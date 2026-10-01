@@ -73,21 +73,26 @@ class DownloadScheduleCoordinator(
     companion object { const val ACTION_TICK = "com.espitman.sdm.SCHEDULE_TICK" }
 }
 
-internal fun armScheduleTick(context: Context, next: Long?) {
+internal fun armScheduleTick(
+    context: Context, next: Long?,
+    receiver: Class<out BroadcastReceiver> = DownloadScheduleAlarmReceiver::class.java,
+    tickAction: String = DownloadScheduleCoordinator.ACTION_TICK,
+    requestCode: Int = 317,
+) {
     val alarm = context.getSystemService(AlarmManager::class.java) ?: return
     val normalPending = PendingIntent.getBroadcast(
         context,
-        317,
-        Intent(context, DownloadScheduleAlarmReceiver::class.java).apply {
-            action = DownloadScheduleCoordinator.ACTION_TICK
+        requestCode,
+        Intent(context, receiver).apply {
+            action = tickAction
         },
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
     val idlePending = PendingIntent.getBroadcast(
         context,
-        318,
-        Intent(context, DownloadScheduleAlarmReceiver::class.java).apply {
-            action = DownloadScheduleCoordinator.ACTION_TICK
+        requestCode + 1,
+        Intent(context, receiver).apply {
+            action = tickAction
         },
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
@@ -127,6 +132,7 @@ class DownloadScheduleAlarmReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 AppRepositories.scheduleCoordinator(context).apply()
+                AppRepositories.automaticRetry(context).apply()
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {

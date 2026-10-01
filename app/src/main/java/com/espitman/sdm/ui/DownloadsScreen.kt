@@ -85,6 +85,7 @@ import com.espitman.sdm.domain.Download
 import com.espitman.sdm.domain.DownloadPriorityMutation
 import com.espitman.sdm.domain.DownloadState
 import com.espitman.sdm.data.settings.SettingsRepository
+import com.espitman.sdm.data.settings.automaticRetry
 import com.espitman.sdm.download.Clock
 import com.espitman.sdm.download.DownloadChecksumVerifier
 import com.espitman.sdm.download.CompletedFileDeleteCoordinator
@@ -229,14 +230,15 @@ internal fun InteractiveDownloadsScreen(
     val downloadingIds = remember(records) {
         records.filter { it.state == DownloadState.DOWNLOADING }.mapTo(HashSet()) { it.id }
     }
-    LaunchedEffect(hasActive) {
+    val hasRetryWait = records.any { it.state == DownloadState.FAILED }
+    LaunchedEffect(hasActive, hasRetryWait) {
         while (true) {
             nowEpochMillis = System.currentTimeMillis()
             delay(
                 nextDownloadsStatusRefreshDelayMillis(
                     nowEpochMillis = nowEpochMillis,
                     zoneId = ZoneId.systemDefault(),
-                    hasActiveTransfers = hasActive,
+                    hasActiveTransfers = hasActive || hasRetryWait,
                 ),
             )
         }
@@ -270,12 +272,15 @@ internal fun InteractiveDownloadsScreen(
     val displayedBytesPerSecond = displayedRates
         .filterKeys { it in downloadingIds }
         .values.fold(0L, ::saturatingAdd)
+    val retryPreferences by SettingsRepository.get(LocalContext.current).settings.collectAsState()
+    val retrySettings = retryPreferences.automaticRetry()
     val downloads = orderDownloadCards(visibleDownloadCards(
         records.map { record ->
             mapDownloadToCard(
                 record,
                 nowEpochMillis,
                 if (record.id in downloadingIds) displayedRates[record.id] ?: 0L else 0L,
+                retrySettings,
             )
         },
         hiddenCompletedIds,
@@ -481,7 +486,7 @@ internal fun InteractiveDownloadsScreen(
                 },
                 onPause = {
                     dispatchTransferCardAction(
-                        action = transferCardAction(selectedRecord.state),
+                        action = if(retrySettings.dueAt(selectedRecord) != null) TransferCardAction.Pause else transferCardAction(selectedRecord.state),
                         start = {
                             if (selectedRecord.schedule?.isOpen(System.currentTimeMillis()) == false) {
                                 onToast("Waiting for scheduled time")
@@ -548,7 +553,7 @@ internal fun InteractiveDownloadsScreen(
     }
     val onPauseAllAction: () -> Unit = {
         val pauseable = records.filter {
-            it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED)
+            it.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING, DownloadState.QUEUED) || retrySettings.dueAt(it) != null
         }
         if (pauseable.isEmpty()) {
             actionNotice = "Nothing to pause" to "There are no active or queued downloads."
@@ -583,7 +588,7 @@ internal fun InteractiveDownloadsScreen(
                     } else if (selectionMode) {
                         DownloadSelectionToolbar(
                         count = selectedIds.size,
-                        canPause = downloadsSelectionPauseIds(records, selectedIds).isNotEmpty(),
+                        canPause = downloadsSelectionPauseIds(records, selectedIds, retrySettings).isNotEmpty(),
                         canResume = downloadsSelectionStartQueuedIds(records, selectedIds).isNotEmpty() ||
                             downloadsSelectionResumeOrRetryIds(records, selectedIds).isNotEmpty(),
                         canReorder = uiState.category != DownloadCategory.Completed && uiState.query.isBlank() &&
@@ -601,7 +606,7 @@ internal fun InteractiveDownloadsScreen(
                             selectionActing = true
                             overlayScope.launch {
                                 try {
-                                    val pauseIds = downloadsSelectionPauseIds(records, selectedIds)
+                                    val pauseIds = downloadsSelectionPauseIds(records, selectedIds, retrySettings)
                                     val succeeded = mutableSetOf<String>()
                                     pauseIds.forEach { id ->
                                         try {
@@ -783,7 +788,7 @@ internal fun InteractiveDownloadsScreen(
                                 refreshIds = setOf(record.id)
                                 return@DownloadCard
                             }
-                            val action = record?.let { transferCardAction(it.state) }
+                            val action = record?.let { if(retrySettings.dueAt(it) != null) TransferCardAction.Pause else transferCardAction(it.state) }
                             if (action == null || action == TransferCardAction.None) {
                                 Unit
                             } else {
@@ -1634,7 +1639,11 @@ private fun DownloadDetailsScreen(
     var renaming by remember { mutableStateOf(false) }
     var verifying by remember { mutableStateOf(false) }
     val speedTracker = remember(download.id) { DownloadDetailsSpeedTracker() }
-    val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis)
+    val retryPreferences by SettingsRepository.get(LocalContext.current).settings.collectAsState()
+    val retryAt = retryPreferences.automaticRetry().dueAt(download)
+    val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis).let {
+        if(retryAt == null) it else it.copy(stateLabel = automaticRetryLabel(retryAt, nowEpochMillis).uppercase(), stateTone = DownloadDetailsStateTone.Muted)
+    }
     val telemetry = remember(download, nowEpochMillis) {
         mapDownloadDetailsTelemetry(download, speedTracker.observe(download, nowEpochMillis))
     }
@@ -1727,7 +1736,7 @@ private fun DownloadDetailsScreen(
                 }
                 item { MetricsGrid(telemetry.metrics) }
                 item { SpeedChart(telemetry) }
-                item { DetailsActions(detailsPrimaryAction(download.state), priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString(hero.sourceUrl)); onToast("Source URL copied") }) }
+                item { DetailsActions(if(retryAt != null) TransferCardAction.Pause else detailsPrimaryAction(download.state), priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString(hero.sourceUrl)); onToast("Source URL copied") }) }
                 item { TechnicalInfo(telemetry.technical) }
                 item {
                     DisclosureInfo(

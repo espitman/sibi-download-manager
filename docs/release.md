@@ -1,6 +1,6 @@
 # Release preparation
 
-The current release candidate uses application ID `com.espitman.sdm`, `versionName=0.2.70`, and `versionCode=72`. The declared minimum is Android 8.0 (API 26), with target SDK 35. The release build is non-debuggable and currently keeps code shrinking off; it has no configured distribution signing identity.
+The current release candidate uses application ID `com.espitman.sdm`, `versionName=0.2.71`, and `versionCode=73`. The declared minimum is Android 8.0 (API 26), with target SDK 35. The release build is non-debuggable and currently keeps code shrinking off; it has no configured distribution signing identity.
 
 ## Build
 
@@ -21,3 +21,7 @@ The exact QA package commands, devices, checksums, and remaining validation limi
 ## 0.2.70 safe folder rename
 
 Adds Settings → Rename save folder, durable permission recovery, transactional destination remapping and preservation of every active download segment. See [device and automated validation](folder-rename-validation.md).
+
+## 0.2.71 configurable automatic retry
+
+Adds retry count/delay wheels in Settings, visible retry countdowns, cancellation while waiting, queue integration and persisted failure deadlines. See [validation](automatic-retry-validation.md).

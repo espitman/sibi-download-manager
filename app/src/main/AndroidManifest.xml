@@ -64,6 +64,7 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".download.AutomaticRetryAlarmReceiver" android:exported="false" />
         <receiver android:name=".download.DailyBulkScheduleReceiver" android:exported="false" />
         <provider
             android:name="androidx.core.content.FileProvider"

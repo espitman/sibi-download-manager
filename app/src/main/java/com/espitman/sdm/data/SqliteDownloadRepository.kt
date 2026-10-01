@@ -708,7 +708,7 @@ class SqliteDownloadRepository(
         val COLUMNS = arrayOf(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
-            "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count",
+            "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count", "failed_at",
             "destination_tree_uri", "destination_display_label", "pause_cause",
             "schedule_kind", "schedule_start_epoch", "schedule_end_epoch",
             "schedule_start_minute", "schedule_end_minute", "schedule_zone_id", "speed_limit_bytes_per_second",
@@ -746,6 +746,7 @@ private fun Download.toValues() = ContentValues().apply {
     putNullable("accepts_ranges", acceptsRanges)
     putNullable("reference_sha256", referenceSha256)
     put("automatic_retry_count", automaticRetryCount)
+    putNullable("failed_at", failedAtEpochMillis)
     putNullable("destination_tree_uri", destinationTreeUri)
     putNullable("destination_display_label", destinationDisplayLabel)
     putNullable("pause_cause", pauseCause?.name)
@@ -795,6 +796,7 @@ private fun Cursor.toDownload() = Download(
     completedAtEpochMillis = nullableLong("completed_at"),
     acceptsRanges = nullableBoolean("accepts_ranges"),
     referenceSha256 = nullableString("reference_sha256"),
+    failedAtEpochMillis = getColumnIndexOrThrow("failed_at").let { if (isNull(it)) null else getLong(it) },
     automaticRetryCount = getInt(getColumnIndexOrThrow("automatic_retry_count")),
     destinationTreeUri = nullableString("destination_tree_uri"),
     destinationDisplayLabel = nullableString("destination_display_label"),

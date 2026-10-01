@@ -24,6 +24,7 @@ object DownloadBackupCodec {
                 }) }
         }) }
         settings?.let { s -> root.put("settings", JSONObject()
+            .put("retryCount",s.retryCount).put("retryDelaySeconds",s.retryDelaySeconds)
             .put("connections",s.connections).put("simultaneous",s.simultaneous).put("autoResume",s.autoResume)
             .put("wifiOnly",s.wifiOnly).put("downloadComplete",s.downloadComplete).put("speedAlerts",s.speedAlerts)
             .put("theme",s.theme).put("unlimitedSpeed",s.unlimitedSpeed).put("speedLimitMbps",s.speedLimitMbps)
@@ -62,11 +63,14 @@ object DownloadBackupCodec {
                 state=DownloadState.PAUSED, createdAtEpochMillis=0)
         }
         val settings = if (root.has("settings")) root.getJSONObject("settings").let { s ->
-            SdmSettings(connections=s.strictInt("connections"), simultaneous=s.strictInt("simultaneous"),
+            SdmSettings(retryCount=if(s.has("retryCount")) s.strictInt("retryCount") else 2,
+                retryDelaySeconds=if(s.has("retryDelaySeconds")) s.strictInt("retryDelaySeconds") else 2,
+                connections=s.strictInt("connections"), simultaneous=s.strictInt("simultaneous"),
                 autoResume=s.getBoolean("autoResume"),wifiOnly=s.getBoolean("wifiOnly"),downloadComplete=s.getBoolean("downloadComplete"),
                 speedAlerts=s.getBoolean("speedAlerts"),theme=s.getString("theme"),unlimitedSpeed=s.getBoolean("unlimitedSpeed"),
                 speedLimitMbps=s.getDouble("speedLimitMbps").toFloat(),speedLimitWifiOnly=s.getBoolean("speedLimitWifiOnly"),
                 dailyBulkScheduleEnabled=s.getBoolean("dailyBulkScheduleEnabled"),dailyResumeMinute=s.strictInt("dailyResumeMinute"),dailyPauseMinute=s.strictInt("dailyPauseMinute")).also {
+                require(it.retryCount in 0..10 && it.retryDelaySeconds in 1..300) { "Invalid retry settings." }
                 require(it.connections in listOf(8,16,24,32) && it.simultaneous in 1..10 && it.theme in listOf("dark","light")) { "Invalid settings in backup." }
                 require(it.speedLimitMbps.isFinite() && it.speedLimitMbps in 1f..30f && it.dailyResumeMinute in 0..1439 && it.dailyPauseMinute in 0..1439 && it.dailyResumeMinute != it.dailyPauseMinute) { "Invalid speed or schedule settings." }
             }

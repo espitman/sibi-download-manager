@@ -43,6 +43,8 @@ data class Download(
     val referenceSha256: String? = null,
     /** Consecutive automatic requeues after failure; manual retry resets this to 0. */
     val automaticRetryCount: Int = 0,
+    /** Stable failure timestamp for retry deadlines, independent of later edits. */
+    val failedAtEpochMillis: Long? = null,
     /**
      * OpenDocumentTree URI captured at submission when the active save location is a
      * user-selected folder. `null` means the destination is an app-private file path.

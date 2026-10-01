@@ -129,13 +129,14 @@ internal fun TimeChoice(minute: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun TimeWheel(label: String, count: Int, selected: Int, modifier: Modifier, onSelect: (Int) -> Unit) {
+internal fun TimeWheel(label: String, count: Int, selected: Int, modifier: Modifier, valueOffset: Int = 0, onSelect: (Int) -> Unit) {
     val state = rememberLazyListState(initialFirstVisibleItemIndex = selected)
+    val latestOnSelect by androidx.compose.runtime.rememberUpdatedState(onSelect)
     val fling = rememberSnapFlingBehavior(lazyListState = state)
     LaunchedEffect(state, count) {
         snapshotFlow { state.firstVisibleItemIndex.coerceIn(0, count - 1) }
             .distinctUntilChanged()
-            .collect { onSelect(it) }
+            .collect { latestOnSelect(it) }
     }
     Column(modifier) {
         Text(label, color = SdmMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 6.dp))
@@ -151,7 +152,7 @@ private fun TimeWheel(label: String, count: Int, selected: Int, modifier: Modifi
             ) {
                 items((0 until count).toList()) { value ->
                     Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.Center) {
-                        Text("%02d".format(value), color = if (value == selected) SdmGoldHigh else SdmMuted,
+                        Text("%02d".format(value + valueOffset), color = if (value == selected) SdmGoldHigh else SdmMuted,
                             fontSize = if (value == selected) 19.sp else 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
