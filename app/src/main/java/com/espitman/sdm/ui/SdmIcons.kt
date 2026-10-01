@@ -12,6 +12,11 @@ import androidx.compose.ui.unit.dp
 internal object SdmIcons {
     val Download = outline("Download", "M12 3v12m0 0 5-5m-5 5-5-5M5 20h14")
     val Browser = outline("Browser", "M20 12a8 8 0 1 1-16 0a8 8 0 1 1 16 0M15 9l-2 4-4 2 2-4z")
+    val Video = outline("Video", "M3 5h18v14H3zM10 8l6 4-6 4z")
+    val Audio = outline("Audio", "M9 18V5l10-2v13M9 18a3 3 0 1 1-3-3h3M19 16a3 3 0 1 1-3-3h3M9 8l10-2")
+    val Image = outline("Image", "M3 3h18v18H3zM3 17l5-5 4 4 4-6 5 7M9 7h.01")
+    val Archive = outline("Archive", "M4 3h16v18H4zM11 3v3h2v3h-2v3h2v3h-2M10 16h4v3h-4z")
+    val File = outline("File", "M6 3h8l4 4v14H6zM14 3v5h4")
     val Folder = outline("Folder", "M3 7h7l2 2h9v10H3zM3 7V5h7l2 2")
     val Settings = outline("Settings", "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0M5 12a7 7 0 1 1 14 0a7 7 0 1 1-14 0M12 2v3M12 19v3M2 12h3M19 12h3")
     val Add = outline("Add", "M12 5v14M5 12h14")

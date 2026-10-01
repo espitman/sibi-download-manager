@@ -285,6 +285,10 @@ internal fun InteractiveDownloadsScreen(
     var overlayClosing by remember { mutableStateOf(false) }
     val overlayScope = rememberCoroutineScope()
     var networkNoticeOpen by remember { mutableStateOf(false) }
+    var importLinksOpen by remember { mutableStateOf(false) }
+    var exportLinksIds by remember { mutableStateOf<Set<String>?>(null) }
+    if (importLinksOpen) ImportLinksSheet({ importLinksOpen = false }, onToast)
+    exportLinksIds?.let { ids -> ExportLinksSheet(records, ids, { exportLinksIds = null }, onToast) }
     var refreshIds by remember { mutableStateOf<Set<String>?>(null) }
     refreshIds?.let { ids ->
         val targets = records.filter { it.id in ids && it.state != DownloadState.COMPLETED }
@@ -587,6 +591,7 @@ internal fun InteractiveDownloadsScreen(
                         onReorder = onReorderAction,
                         canRefresh = records.any { it.id in selectedIds && it.state != DownloadState.COMPLETED },
                         onRefresh = { refreshIds = selectedIds },
+                        onExport = { exportLinksIds = selectedIds },
                         onClose = {
                             selectedIds = emptySet()
                             selectionDeleteOpen = false
@@ -659,6 +664,8 @@ internal fun InteractiveDownloadsScreen(
                             onDownloadAll = onDownloadAllAction,
                             onPauseAll = onPauseAllAction,
                             onClearCompleted = onClearCompletedAction,
+                            onImport = { importLinksOpen = true },
+                            onExport = { exportLinksIds = emptySet() },
                         )
                     }
                     Spacer(Modifier.height(12.dp))
@@ -1126,6 +1133,7 @@ private fun DownloadSelectionToolbar(
     onReorder: () -> Unit,
     canRefresh: Boolean,
     onRefresh: () -> Unit,
+    onExport: () -> Unit,
     onClose: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -1159,6 +1167,7 @@ private fun DownloadSelectionToolbar(
                 SelectionActionButton("Reorder", SdmIcons.Reorder, Modifier.width(actionWidth), canReorder, onReorder)
                 SelectionActionButton("Delete", SdmIcons.Delete, Modifier.width(actionWidth), true, onDelete, danger = true)
                 SelectionActionButton("Refresh links", SdmIcons.Link, Modifier.width(actionWidth), canRefresh, onRefresh)
+                SelectionActionButton("Export links", SdmIcons.Share, Modifier.width(actionWidth), true, onExport)
             }
             if (actionScroll.canScrollForward) Box(Modifier.align(Alignment.CenterEnd).width(12.dp).height(28.dp)
                 .background(Brush.horizontalGradient(listOf(Color.Transparent, SdmGold))))
@@ -1199,6 +1208,8 @@ private fun DownloadTabs(
     onDownloadAll: () -> Unit,
     onPauseAll: () -> Unit,
     onClearCompleted: () -> Unit,
+    onImport: () -> Unit,
+    onExport: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -1253,7 +1264,7 @@ private fun DownloadTabs(
                                     Triple("Pause All", SdmIcons.Pause, onPauseAll),
                                 )
                             }
-                            actions.forEach { (label, icon, action) ->
+                            (actions + listOf(Triple("Import links", SdmIcons.File, onImport), Triple("Export links", SdmIcons.Share, onExport))).forEach { (label, icon, action) ->
                                 Row(
                                     Modifier.fillMaxWidth().height(48.dp).clickable {
                                         menuOpen = false

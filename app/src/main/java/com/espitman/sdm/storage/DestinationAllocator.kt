@@ -15,6 +15,7 @@ data class AllocatedDownloadDestination(
 
 fun interface DestinationAllocator {
     fun allocate(candidateFileName: String): AllocatedDownloadDestination
+    fun allocate(candidateFileName: String, mimeType: String?): AllocatedDownloadDestination = allocate(candidateFileName)
 }
 
 class AppPrivateDestinationAllocator(

@@ -8,4 +8,5 @@
     <files-path
         name="internal_downloads"
         path="Downloads/" />
+    <cache-path name="link_exports" path="link-exports/" />
 </paths>

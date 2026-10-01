@@ -86,6 +86,25 @@ class SqliteDownloadRepository(
         }
     }
 
+    /** The whole restore is serialized with transfer writes and committed once. Existing URLs win. */
+    override suspend fun insertUniqueBatch(downloads: List<Download>): List<String> = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            val seen = this.downloads.value.map { it.url }.toMutableSet()
+            val added = mutableListOf<String>()
+            database.writableDatabase.inTransaction { db ->
+                downloads.forEach { download ->
+                    if (seen.add(download.url)) {
+                        db.insertOrThrow("downloads", null, download.toValues())
+                        added += download.id
+                    }
+                }
+            }
+            refreshLocked(database.readableDatabase)
+            added
+        }
+    }
+
     override suspend fun delete(id: String): Boolean = onIo {
         awaitInitialized()
         mutex.withLock {

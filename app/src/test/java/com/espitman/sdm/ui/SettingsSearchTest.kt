@@ -33,6 +33,7 @@ class SettingsSearchTest {
         assertRows("wifi", SettingsSearchRow.WifiOnly)
         assertRows("speed limit", SettingsSearchRow.SpeedLimit)
         assertRows("save location", SettingsSearchRow.SaveLocation)
+        assertRows("backup", SettingsSearchRow.Backup)
         assertRows("download-complete", SettingsSearchRow.DownloadComplete)
         assertRows("speed alerts", SettingsSearchRow.SpeedAlerts)
         assertRows("theme", SettingsSearchRow.Theme)

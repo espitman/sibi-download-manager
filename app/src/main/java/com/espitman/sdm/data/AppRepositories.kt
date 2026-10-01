@@ -299,6 +299,14 @@ object AppRepositories {
         return limiter
     }
 
+    fun destinationAllocator(context: Context): com.espitman.sdm.storage.DestinationAllocator {
+        val app = context.applicationContext
+        val directory = { AppSpecificDownloadsDirectory.from(app) }
+        val trees = DocumentsContractTreeAccess(app.contentResolver)
+        val fallback = SaveLocationDestinationAllocator(saveLocation(app), directory, trees)
+        return fallback
+    }
+
     fun submissionCoordinator(context: Context): DownloadSubmissionCoordinator = submissionCoordinator ?: synchronized(this) {
         submissionCoordinator ?: run {
             val appContext = context.applicationContext
@@ -310,11 +318,7 @@ object AppRepositories {
                 repository = repo,
                 directoryProvider = directoryProvider,
                 queueScheduler = queueScheduler(appContext),
-                destinationAllocator = SaveLocationDestinationAllocator(
-                    coordinator = saveLocation(appContext),
-                    appSpecificDirectory = directoryProvider,
-                    trees = DocumentsContractTreeAccess(appContext.contentResolver),
-                ),
+                destinationAllocator = destinationAllocator(appContext),
             ).also { submissionCoordinator = it }
         }
     }

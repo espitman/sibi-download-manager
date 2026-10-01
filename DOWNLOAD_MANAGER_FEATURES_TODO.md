@@ -32,10 +32,12 @@ Verification: Added single and selected-download refresh sheets, newline import,
 
 ## 4. Link import/export and backup
 
-- [ ] 14. DMF-014 — Import newline-separated HTTP/HTTPS links from a user-selected text file, with duplicate and invalid-line feedback.
-- [ ] 15. DMF-015 — Export selected or all download links to a user-selected file without leaking private request headers or cookies.
-- [ ] 16. DMF-016 — Export and restore the download list and settings with a versioned backup format and conflict handling.
-- [ ] 17. DMF-017 — Test malformed files, large lists, partial failures, duplicate entries, and backup compatibility.
+- [x] 14. DMF-014 — Import newline-separated HTTP/HTTPS links from a user-selected text file, with duplicate and invalid-line feedback.
+- [x] 15. DMF-015 — Export selected or all download links to a user-selected file without leaking private request headers or cookies.
+- [x] 16. DMF-016 — Export and restore the download list and settings with a versioned backup format and conflict handling.
+- [x] 17. DMF-017 — Test malformed files, large lists, partial failures, duplicate entries, and backup compatibility.
+
+Verification: [Physical-device and automated validation](docs/import-export-backup-validation.md). Release 0.2.69 installed and tested; malformed restore, duplicate handling, real document export/import, share chooser and isolated SQLite rollback passed.
 
 ## 5. Automatic folders by file type
 
@@ -89,3 +91,9 @@ Verification: Added single and selected-download refresh sheets, newline import,
 - [ ] 44. DMF-044 — Use isolated sample downloads and tutorial state for hands-on steps; never start real downloads, modify existing files or settings, open external file managers, or request permissions without a clear user action. Restore the user's view when the tour ends.
 - [ ] 45. DMF-045 — Make highlights follow their actual controls while navigating and scrolling; support small screens, keyboard visibility, accessibility, interruption/relaunch, and missing or disabled controls. Keep one shared tutorial behavior across screens and sheets.
 - [ ] 46. DMF-046 — Audit coverage against every shipped feature and interactive control; test the full tour, skip/restart, sample-state cleanup, accessibility, and existing-app regressions on the connected device before release.
+
+## 10. Rename the save folder safely
+
+- [ ] 47. DMF-047 — Add a Rename save folder action in SDM's existing sheet style; rename the selected folder and preserve access to existing files.
+- [ ] 48. DMF-048 — Update affected default/category folder references and download destinations safely, including queued and active downloads; preserve progress and prevent stale destinations.
+- [ ] 49. DMF-049 — Handle unsupported providers, permission loss and name collisions without changing or losing data; test existing files, queued downloads and active transfers on the connected device.

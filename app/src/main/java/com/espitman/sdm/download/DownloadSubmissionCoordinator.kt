@@ -137,7 +137,7 @@ class DownloadSubmissionCoordinator(
         var persistedDownloadId: String? = null
         try {
             val allocated = withContext(Dispatchers.IO) {
-                destinationAllocator.allocate(metadata.suggestedFilename)
+                destinationAllocator.allocate(metadata.suggestedFilename, metadata.contentType)
             }
             reservedTempFile = allocated.partFile
 

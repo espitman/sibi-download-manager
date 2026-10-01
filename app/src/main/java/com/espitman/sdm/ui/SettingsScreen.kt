@@ -37,6 +37,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import com.espitman.sdm.ui.theme.*
 
 private enum class SettingsOverlay { Connections, Simultaneous, DailySchedule, SpeedLimit, Theme, Reset }
@@ -48,6 +51,7 @@ internal fun SettingsScreen(
     onToast: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val repository = remember(context) { SettingsRepository.get(context) }
     val settings by repository.settings.collectAsState()
     val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.1.0" }
@@ -59,6 +63,8 @@ internal fun SettingsScreen(
     val speedAlerts = settings.speedAlerts
     val appliedTheme = settings.theme
     val themeLabel = if (appliedTheme == "light") "Light & Gold" else "Black & Gold"
+    var backupOpen by remember { mutableStateOf(false) }
+    if (backupOpen) BackupRestoreSheet({ backupOpen = false }, onToast)
     var pendingTheme by remember { mutableStateOf(appliedTheme) }
     var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     var renderedOverlay by remember { mutableStateOf<SettingsOverlay?>(null) }
@@ -131,6 +137,10 @@ internal fun SettingsScreen(
                     FilteredSettingsGroup("STORAGE", visibleRows) {
                         add(SettingsSearchRow.SaveLocation) {
                             ValueRow(SdmIcons.Folder, "Save location", saveLocation.label, chevron = true) { saveLocation.openPicker() }
+                        }
+
+                        add(SettingsSearchRow.Backup) {
+                            ValueRow(SdmIcons.Folder, "Backup & restore", "Download list and app settings", chevron = true) { backupOpen = true }
                         }
                     }
                 }
@@ -221,7 +231,12 @@ internal fun SettingsScreen(
             visible = overlay != null,
             onDismiss = { overlay = null },
             onReset = {
-                repository.reset(); com.espitman.sdm.download.DailyBulkSchedule.arm(context); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { com.espitman.sdm.storage.CategoryFolderStore.get(context).replace(com.espitman.sdm.storage.CategoryFolderSettings()) }
+                        repository.reset(); com.espitman.sdm.download.DailyBulkSchedule.arm(context); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
+                    } catch (_: Exception) { toast("Could not reset settings") }
+                }
             },
         )
         null -> Unit
@@ -392,4 +407,4 @@ private fun ValueRow(icon: ImageVector, title: String, subtitle: String, value: 
     }
 }
 
-@Composable private fun ToggleRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { SettingIcon(icon); SettingCopy(title, subtitle); Box(Modifier.size(width = 48.dp, height = 28.dp).toggleable(checked, indication = null, interactionSource = remember { MutableInteractionSource() }, role = Role.Switch, onValueChange = onCheckedChange).background(if (checked) sdmColor(0xFF332E15, 0xFFE8DCAE) else sdmColor(0xFF242528, 0xFFECE8DF), CircleShape).border(1.dp, if (checked) Color(0xFFD4AF37).copy(alpha = .7f) else Color(0xFF474641), CircleShape).padding(4.dp)) { Box(Modifier.align(if (checked) Alignment.CenterEnd else Alignment.CenterStart).size(20.dp).background(if (checked) SdmGoldHigh else SdmMuted, CircleShape)) } } }
+@Composable internal fun ToggleRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { SettingIcon(icon); SettingCopy(title, subtitle); Box(Modifier.size(width = 48.dp, height = 28.dp).toggleable(checked, indication = null, interactionSource = remember { MutableInteractionSource() }, role = Role.Switch, onValueChange = onCheckedChange).background(if (checked) sdmColor(0xFF332E15, 0xFFE8DCAE) else sdmColor(0xFF242528, 0xFFECE8DF), CircleShape).border(1.dp, if (checked) Color(0xFFD4AF37).copy(alpha = .7f) else Color(0xFF474641), CircleShape).padding(4.dp)) { Box(Modifier.align(if (checked) Alignment.CenterEnd else Alignment.CenterStart).size(20.dp).background(if (checked) SdmGoldHigh else SdmMuted, CircleShape)) } } }
