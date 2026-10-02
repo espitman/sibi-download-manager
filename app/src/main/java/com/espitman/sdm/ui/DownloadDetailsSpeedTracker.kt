@@ -11,10 +11,9 @@ internal data class DownloadDetailsSpeedSnapshot(
 /**
  * Recent per-interval B/s for one selected download.
  *
- * Every positive elapsed-time observation while [DownloadState.DOWNLOADING] appends a
+ * Every full one-second observation while [DownloadState.DOWNLOADING] appends a
  * sample, including 0 B/s when no bytes arrived, so older rates age out within
- * [DEFAULT_MAX_SAMPLES] ticks. Zero elapsed time is not a measurement interval and
- * does not append. The first observation, rewinds, and selection or state changes
+ * [DEFAULT_MAX_SAMPLES] ticks. Sub-second observations hold the last measurement and do not append. The first observation, rewinds, and selection or state changes
  * yield zero and never a lifetime average.
  */
 internal class DownloadDetailsSpeedTracker(
@@ -52,11 +51,13 @@ internal class DownloadDetailsSpeedTracker(
         if (byteDelta < 0L || timeDelta < 0L) {
             return beginSession(download, nowEpochMillis)
         }
+        // Repository and connection updates can recompose several times in one tick.
+        // Preserve the byte baseline and last rate until a full sampling interval elapses.
+        if (timeDelta < 1_000L) {
+            return snapshot(currentBytesPerSecond = samples.lastOrNull() ?: 0L)
+        }
         lastDownloadedBytes = download.downloadedBytes
         lastObservedAtEpochMillis = nowEpochMillis
-        if (timeDelta == 0L) {
-            return snapshot(currentBytesPerSecond = 0L)
-        }
         val rate = overflowSafeBytesPerSecond(byteDelta, timeDelta)
         appendSample(rate)
         return snapshot(currentBytesPerSecond = rate)

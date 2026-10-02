@@ -23,7 +23,8 @@ class SegmentedTransferPolicyTest {
         assertNull(SegmentedTransferPolicy.plan(download(minimum).copy(acceptsRanges = false), 0))
         assertNull(SegmentedTransferPolicy.plan(download(minimum).copy(totalBytes = null), 0))
         assertNull(SegmentedTransferPolicy.plan(download(minimum - 1), 0))
-        assertNull(SegmentedTransferPolicy.plan(download(minimum), 1))
+        assertEquals(2, SegmentedTransferPolicy.plan(download(minimum), 1)!!.size)
+        assertNull(SegmentedTransferPolicy.plan(download(minimum), minimum))
         assertNull(SegmentedTransferPolicy.plan(download(minimum).copy(etag = null), 0))
     }
 

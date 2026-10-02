@@ -66,7 +66,7 @@ class DownloadTransferEngineSegmentedTest {
 
     private lateinit var server: MockWebServer
     private lateinit var directory: File
-    private val payload = ByteArray((1024 * 1024) + 17) { (it % 251).toByte() }
+    private var payload = ByteArray((1024 * 1024) + 17) { (it % 251).toByte() }
     private val requests = CopyOnWriteArrayList<String?>()
 
     @Before
@@ -100,6 +100,54 @@ class DownloadTransferEngineSegmentedTest {
     }
 
     @Test
+    fun existingSingleStreamPrefixIsReusedAcrossParallelRanges() = runBlocking {
+        server.dispatcher = rangeDispatcher(ignoreRanges = false)
+        val (repo, destination, part) = fixture("converted")
+        val prefix = 600_000
+        part.writeBytes(payload.copyOfRange(0, prefix))
+        engine().executeTransfer("converted", server.url("/file").toString(), part, repo)
+        assertEquals(DownloadState.COMPLETED, repo.get("converted")!!.state)
+        assertArrayEquals(payload, destination.readBytes())
+        assertEquals(setOf("bytes=524296-524296", "bytes=600000-1048592"), requests.toSet())
+        assertFalse(FolderSegmentCheckpoint.marker(part).exists())
+    }
+
+    @Test
+    fun resumedDownloadOpensThirtyTwoStreamsAndRetainsItsPrefix() = runBlocking {
+        payload = ByteArray(8 * 1024 * 1024 + 17) { (it % 251).toByte() }
+        server.dispatcher = rangeDispatcher(ignoreRanges = false)
+        val (repo, destination, part) = fixture("resume-32")
+        part.writeBytes(payload.copyOfRange(0, 100))
+        val readers = java.util.concurrent.CountDownLatch(32)
+        val peak = java.util.concurrent.atomic.AtomicInteger()
+        DownloadTransferEngine(
+            ioDispatcher = Dispatchers.IO,
+            segmentCount = { 32 },
+            onChunkRead = {
+                peak.accumulateAndGet(HttpConnectionTelemetry.active.value["resume-32"] ?: 0, ::maxOf)
+                readers.countDown()
+                assertTrue("All configured streams must start", readers.await(5, TimeUnit.SECONDS))
+            },
+        ).executeTransfer("resume-32", server.url("/file").toString(), part, repo)
+        assertEquals(32, peak.get())
+        assertEquals(DownloadState.COMPLETED, repo.get("resume-32")!!.state)
+        assertArrayEquals(payload, destination.readBytes())
+        assertEquals(32, requests.size)
+        org.junit.Assert.assertNull(HttpConnectionTelemetry.active.value["resume-32"])
+    }
+
+    @Test
+    fun convertedPrefixFallsBackSafelyWhenServerRefusesRanges() = runBlocking {
+        server.dispatcher = rangeDispatcher(ignoreRanges = true)
+        val (repo, destination, part) = fixture("converted-fallback")
+        part.writeBytes(payload.copyOfRange(0, 600_000))
+        engine().executeTransfer("converted-fallback", server.url("/file").toString(), part, repo)
+        assertEquals(DownloadState.COMPLETED, repo.get("converted-fallback")!!.state)
+        assertArrayEquals(payload, destination.readBytes())
+        assertTrue(requests.any { it == null })
+    }
+
+    @Test
     fun ignoredRangesFallBackToOneFreshGetWithoutCorruptingOutput() = runBlocking {
         server.dispatcher = rangeDispatcher(ignoreRanges = true)
         val (repo, destination, part) = fixture("fallback")
@@ -123,22 +171,12 @@ class DownloadTransferEngineSegmentedTest {
             payload.copyOfRange(secondStart, secondStart + 113),
         )
         val expectedOffset = secondStart + 113
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                val range = request.getHeader("Range")
-                requests += range
-                assertEquals("bytes=$expectedOffset-", range)
-                return MockResponse()
-                    .setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $expectedOffset-${payload.lastIndex}/${payload.size}")
-                    .setHeader("ETag", "\"v1\"")
-                    .setBody(Buffer().write(payload.copyOfRange(expectedOffset, payload.size)))
-            }
-        }
+        server.dispatcher = rangeDispatcher(ignoreRanges = false)
 
         engine().executeTransfer("recover", server.url("/file").toString(), part, repo)
 
         assertEquals(DownloadState.COMPLETED, repo.get("recover")!!.state)
+        assertTrue(requests.contains("bytes=$expectedOffset-524296"))
         assertArrayEquals(payload, destination.readBytes())
         assertTrue(directory.listFiles().orEmpty().none { ".segment-" in it.name })
     }

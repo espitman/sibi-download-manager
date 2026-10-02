@@ -23,9 +23,9 @@ object SegmentedTransferPolicy {
         resumeOffset: Long,
         segmentCount: Int = INITIAL_SEGMENT_COUNT,
     ): List<TransferByteRange>? {
-        if (resumeOffset != 0L || download.acceptsRanges != true) return null
+        if (resumeOffset < 0L || download.acceptsRanges != true) return null
         val total = download.totalBytes ?: return null
-        if (total < MIN_SEGMENTED_SIZE_BYTES || segmentCount < 2) return null
+        if (resumeOffset >= total || total < MIN_SEGMENTED_SIZE_BYTES || segmentCount < 2) return null
         val validators = HttpRangeResume.ResumeValidators(download.etag, download.lastModified)
         if (HttpRangeResume.ifRangeHeaderValue(validators) == null) return null
 

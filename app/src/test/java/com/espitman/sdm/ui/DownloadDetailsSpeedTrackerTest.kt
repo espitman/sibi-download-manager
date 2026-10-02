@@ -136,7 +136,8 @@ class DownloadDetailsSpeedTrackerTest {
         assertEquals(listOf(0L, 1_000L), moving.samples)
 
         val sameInstant = tracker.observe(live.copy(downloadedBytes = 2_100L), 2_000L)
-        assertEquals(0L, sameInstant.currentBytesPerSecond)
+        assertEquals(1_000L, sameInstant.currentBytesPerSecond)
+        assertEquals(2_000L, tracker.observe(live.copy(downloadedBytes = 3_100L), 3_000L).currentBytesPerSecond)
         assertEquals(listOf(0L, 1_000L), sameInstant.samples)
     }
 
@@ -214,13 +215,17 @@ class DownloadDetailsSpeedTrackerTest {
     }
 
     @Test
-    fun subSecondPositiveElapsedStillRecordsInstantaneousRateWithoutAssumingOneSecond() {
+    fun subSecondUpdatesAccumulateUntilOneSecondWithoutArtificialPeaks() {
         val tracker = DownloadDetailsSpeedTracker()
         val live = record(downloadedBytes = 0L)
         tracker.observe(live, 1_000L)
         val halfSecond = tracker.observe(live.copy(downloadedBytes = 500L), 1_500L)
-        assertEquals(1_000L, halfSecond.currentBytesPerSecond)
-        assertEquals(listOf(0L, 1_000L), halfSecond.samples)
+        assertEquals(0L, halfSecond.currentBytesPerSecond)
+        assertEquals(listOf(0L), halfSecond.samples)
+        val full = tracker.observe(live.copy(downloadedBytes = 300_000L), 2_000L)
+        assertEquals(300_000L, full.currentBytesPerSecond)
+        assertEquals("300", decimalSpeedDisplay(full.currentBytesPerSecond).value)
+        assertEquals("KB/s", decimalSpeedDisplay(full.currentBytesPerSecond).unit)
     }
 
     @Test
@@ -238,7 +243,7 @@ class DownloadDetailsSpeedTrackerTest {
         val tracker = DownloadDetailsSpeedTracker()
         val huge = record(downloadedBytes = 0L, totalBytes = Long.MAX_VALUE)
         tracker.observe(huge, 1_000L)
-        val overflow = tracker.observe(huge.copy(downloadedBytes = Long.MAX_VALUE), 1_001L)
+        val overflow = tracker.observe(huge.copy(downloadedBytes = Long.MAX_VALUE), 2_000L)
         assertEquals(Long.MAX_VALUE, overflow.currentBytesPerSecond)
         assertEquals(listOf(0L, Long.MAX_VALUE), overflow.samples)
         assertTrue(overflow.samples.size <= DownloadDetailsSpeedTracker.DEFAULT_MAX_SAMPLES)

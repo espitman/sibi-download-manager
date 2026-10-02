@@ -11,8 +11,8 @@ android {
         applicationId = "com.espitman.sdm"
         minSdk = 26
         targetSdk = 35
-        versionCode = 76
-        versionName = "0.2.74"
+        versionCode = 77
+        versionName = "0.2.75"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

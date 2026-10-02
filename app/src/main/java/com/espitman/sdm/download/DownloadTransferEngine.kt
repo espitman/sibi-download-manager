@@ -133,7 +133,7 @@ class DownloadTransferEngine(
             }
             recoverSegmentArtifacts(tempFile)
         }
-        val resumeOffset = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
+        var resumeOffset = if (tempFile.exists()) tempFile.length().coerceAtLeast(0L) else 0L
         existingDownload = repository.alignDownloadedBytes(
             downloadId,
             preservedSegments?.let { FolderSegmentCheckpoint.bytes(tempFile, it) } ?: resumeOffset,
@@ -165,7 +165,7 @@ class DownloadTransferEngine(
             }
             return@withContext
         }
-        val isResume = resumeOffset > 0L
+        var isResume = resumeOffset > 0L
         val storedValidators = HttpRangeResume.ResumeValidators(
             etag = existingDownload.etag,
             lastModified = existingDownload.lastModified,
@@ -254,6 +254,11 @@ class DownloadTransferEngine(
             }
         }
 
+        if (segmentPlan != null) {
+            // Range refusal already reset the repository and removed segment data.
+            resumeOffset = 0L
+            isResume = false
+        }
         var writeFile = tempFile
         var appendToWriteFile = isResume
         var startOffset = resumeOffset
@@ -692,8 +697,34 @@ class DownloadTransferEngine(
     ): Boolean {
         val segmentFiles = ranges.map { segmentFile(tempFile, it) }
         val current = repository.get(downloadId) ?: error("Download not found")
-        val resuming = FolderSegmentCheckpoint.load(tempFile, current) == ranges
-        if (!resuming) segmentFiles.forEach(::deleteQuietly)
+        var resuming = FolderSegmentCheckpoint.load(tempFile, current) == ranges
+        if (!resuming) {
+            segmentFiles.forEach(::deleteQuietly)
+            if (tempFile.length() > 0L) {
+                // Keep the original contiguous part until every copied range is durable.
+                // A crash before the checkpoint therefore retains the original prefix.
+                tempFile.inputStream().use { input ->
+                    val buffer = ByteArray(bufferSizeBytes)
+                    var remainingPrefix = tempFile.length()
+                    ranges.forEachIndexed { index, range ->
+                        var remaining = minOf(remainingPrefix, range.length)
+                        FileOutputStream(segmentFiles[index]).use { output ->
+                            while (remaining > 0L) {
+                                currentCoroutineContext().ensureActive()
+                                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                                if (read < 0) throw IOException("Partial download ended during segment conversion")
+                                output.write(buffer, 0, read)
+                                remaining -= read
+                                remainingPrefix -= read
+                            }
+                            output.fd.sync()
+                        }
+                    }
+                }
+                FolderSegmentCheckpoint.save(tempFile, ranges, current)
+                resuming = true
+            }
+        }
         deleteQuietly(tempFile)
         val progress = LongArray(ranges.size) { if (resuming) segmentFiles[it].length() else 0L }
         val progressMutex = Mutex()
