@@ -15,6 +15,19 @@ class DocumentsContractContentDocuments(
         hasTreeWriteGrant = PersistableTreeUriGrants(context.applicationContext.contentResolver)::hasReadWrite,
     )
 
+    override fun directoryPresence(documentUri: String, treeUri: String?): CompletedDestinationPresence {
+        if (!hasWriteAccess(treeUri)) return CompletedDestinationPresence.AccessUnavailable
+        val uri = parseDocumentUri(documentUri) ?: return CompletedDestinationPresence.Missing
+        return try {
+            contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null).use { cursor ->
+                if (cursor != null && cursor.moveToFirst() && cursor.getString(0) == DocumentsContract.Document.MIME_TYPE_DIR)
+                    CompletedDestinationPresence.Readable else CompletedDestinationPresence.Missing
+            }
+        } catch (_: SecurityException) { CompletedDestinationPresence.AccessUnavailable }
+          catch (_: FileNotFoundException) { CompletedDestinationPresence.Missing }
+          catch (_: Exception) { CompletedDestinationPresence.AccessUnavailable }
+    }
+
     override fun presence(documentUri: String, treeUri: String?): CompletedDestinationPresence {
         if (!hasWriteAccess(treeUri)) {
             return CompletedDestinationPresence.AccessUnavailable

@@ -292,6 +292,8 @@ internal fun FilesScreen(
     val files = remember(completedRows, uiState.filter, uiState.query, uiState.sort) {
         filterAndSortFiles(completedRows, uiState.filter, uiState.query, uiState.sort)
     }
+    var torrentFile by remember { mutableStateOf<com.espitman.sdm.domain.Download?>(null) }
+    torrentFile?.let { current -> TorrentDetailsSheet(current, { torrentFile = null }) }
     val shareAccess = remember(context) { CompletedFileShareAccess(context) }
     val saveLocationStore = remember(context) { SaveLocationStore.get(context) }
     val saveLocation by saveLocationStore.location.collectAsState()
@@ -322,6 +324,8 @@ internal fun FilesScreen(
     }
     fun performFileAction(action: CompletedFileAction, identity: CompletedFileIdentity) {
         menuForId = null
+        val row = records.firstOrNull { it.id == identity.downloadId }
+        if (row?.isTorrent == true) { torrentFile = row; return }
         shareAccess.perform(action, identity).message?.let(onToast)
     }
     val storage by produceState(
@@ -396,7 +400,7 @@ internal fun FilesScreen(
                         onShare = { performFileAction(CompletedFileAction.Share, file.identity) },
                         onRename = {
                             menuForId = null
-                            renameFor = file
+                            if (records.any { it.id == file.id && it.isTorrent }) onToast("Torrent file names are fixed by their metadata") else renameFor = file
                         },
                         onDelete = {
                             menuForId = null

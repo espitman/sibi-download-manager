@@ -19,5 +19,5 @@ object LinkArchive {
         return Preview(urls, duplicates, invalid)
     }
     fun export(downloads: List<Download>): String = downloads.map { it.url }
-        .filter { DownloadUrl.validate(it) is DownloadUrlResult.Valid }.distinct().joinToString("\n", postfix = if (downloads.isEmpty()) "" else "\n")
+        .filter { DownloadUrl.validate(it) is DownloadUrlResult.Valid || com.espitman.sdm.torrent.TorrentMagnet.isValid(it) }.distinct().joinToString("\n", postfix = if (downloads.isEmpty()) "" else "\n")
 }

@@ -1,6 +1,7 @@
 package com.espitman.sdm.storage
 
 interface ContentDocumentStore {
+    fun directoryPresence(documentUri: String, treeUri: String?): CompletedDestinationPresence = presence(documentUri, treeUri)
     fun presence(documentUri: String, treeUri: String?): CompletedDestinationPresence
     fun rename(documentUri: String, treeUri: String?, displayName: String): ContentDocumentMutation
     fun delete(documentUri: String, treeUri: String?): ContentDocumentMutation

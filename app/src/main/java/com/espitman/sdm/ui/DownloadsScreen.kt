@@ -275,6 +275,7 @@ internal fun InteractiveDownloadsScreen(
         .values.fold(0L, ::saturatingAdd)
     val retryPreferences by SettingsRepository.get(LocalContext.current).settings.collectAsState()
     val retrySettings = retryPreferences.automaticRetry()
+    val torrentStats by com.espitman.sdm.torrent.TorrentRuntime.telemetry.collectAsState()
     val downloads = orderDownloadCards(visibleDownloadCards(
         records.map { record ->
             mapDownloadToCard(
@@ -282,7 +283,13 @@ internal fun InteractiveDownloadsScreen(
                 nowEpochMillis,
                 if (record.id in downloadingIds) displayedRates[record.id] ?: 0L else 0L,
                 retrySettings,
-            )
+            ).let { card ->
+                val stats = torrentStats[record.id]
+                if (stats == null) card else card.copy(
+                    metadataValue = "TORRENT · " + when { stats.checking -> "Checking pieces…"; stats.seeding -> "Seeding · ↑ ${formatBytes(stats.uploadRate.toLong())}/s"; else -> formatBytes(stats.downloadRate.toLong()) + "/s" },
+                    trailing = "${stats.peers} peers · ${stats.seeds} seeds",
+                )
+            }
         },
         hiddenCompletedIds,
     ))
@@ -297,7 +304,7 @@ internal fun InteractiveDownloadsScreen(
     exportLinksIds?.let { ids -> ExportLinksSheet(records, ids, { exportLinksIds = null }, onToast) }
     var refreshIds by remember { mutableStateOf<Set<String>?>(null) }
     refreshIds?.let { ids ->
-        val targets = records.filter { it.id in ids && it.state != DownloadState.COMPLETED }
+        val targets = records.filter { it.id in ids && !it.isTorrent && it.state != DownloadState.COMPLETED }
         if (targets.isNotEmpty()) RefreshDownloadLinksSheet(targets, { refreshIds = null }, onToast)
     }
     var actionNotice by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -1642,6 +1649,8 @@ private fun DownloadDetailsScreen(
     var segmentsOpen by remember(download.id) { mutableStateOf(false) }
     var cancelOpen by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
+    var torrentOpen by remember { mutableStateOf(false) }
+    if (torrentOpen) TorrentDetailsSheet(download, { torrentOpen = false }, onPause)
     var refreshOpen by remember { mutableStateOf(false) }
     if (refreshOpen) RefreshDownloadLinksSheet(listOf(download), { refreshOpen = false }, onToast)
     var scheduleOpen by remember { mutableStateOf(false) }
@@ -1657,6 +1666,7 @@ private fun DownloadDetailsScreen(
     val telemetry = remember(download, nowEpochMillis) {
         mapDownloadDetailsTelemetry(download, speedTracker.observe(download, nowEpochMillis))
     }
+    val nativeTorrentTelemetry by com.espitman.sdm.torrent.TorrentRuntime.telemetry.collectAsState()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val folderPicker = rememberFileManagerPickerController()
@@ -1669,13 +1679,14 @@ private fun DownloadDetailsScreen(
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        (listOf("Rename", "Verify checksum", "Move to top") +
-                            (if (com.espitman.sdm.domain.DownloadFailure.classify(download.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) listOf("Sign in again") else if (download.state != DownloadState.COMPLETED) listOf("Refresh link") else emptyList()) +
+                        ((if (download.isTorrent) listOf("Torrent info", "Move to top") else listOf("Rename", "Verify checksum", "Move to top")) +
+                            (if (com.espitman.sdm.domain.DownloadFailure.classify(download.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) listOf("Sign in again") else if (!download.isTorrent && download.state != DownloadState.COMPLETED) listOf("Refresh link") else emptyList()) +
                             if (download.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELLED)) listOf("Schedule") else emptyList()).forEach { label ->
                             Box(
                                 Modifier.fillMaxWidth().height(54.dp).clickable {
                                     menuOpen = false
                                     when (label) {
+                                        "Torrent info" -> torrentOpen = true
                                         "Sign in again" -> onBrowserSignIn()
                                         "Refresh link" -> if (com.espitman.sdm.domain.DownloadFailure.classify(download.error) == com.espitman.sdm.domain.DownloadFailure.BROWSER_SESSION_EXPIRED) onBrowserSignIn() else { refreshOpen = true }
                                         "Rename" -> renameOpen = true
@@ -1714,6 +1725,14 @@ private fun DownloadDetailsScreen(
         Box(Modifier.weight(1f)) {
             LazyColumn(Modifier.fillMaxSize().padding(bottom = 67.dp)) {
                 item { DetailsHero(hero) }
+                if (download.isTorrent) item {
+                    Surface(onClick = { torrentOpen = true }, color = SdmSurface, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, SdmLine), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Torrent info & files", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Icon(SdmIcons.Chevron, null, tint = SdmGoldHigh, modifier = Modifier.size(15.dp))
+                        }
+                    }
+                }
                 item {
                     Surface(
                         onClick = { scheduleOpen = true },
@@ -1745,11 +1764,11 @@ private fun DownloadDetailsScreen(
                         }
                     }
                 }
-                item { MetricsGrid(telemetry.metrics) }
+                item { MetricsGrid(telemetry.metrics, if (download.isTorrent) (nativeTorrentTelemetry[download.id]?.peers ?: 0).toString() to "Peers" else null) }
                 item { SpeedChart(telemetry) }
                 item { DetailsActions(if(retryAt != null) TransferCardAction.Pause else detailsPrimaryAction(download.state), priorityActive, onPause = onPause, onCancel = { cancelOpen = true }, onPriority = onPriority, onCopy = { clipboard.setText(AnnotatedString(hero.sourceUrl)); onToast("Source URL copied") }) }
-                item { TechnicalInfo(telemetry.technical) }
-                item {
+                if (!download.isTorrent) item { TechnicalInfo(telemetry.technical) }
+                if (!download.isTorrent) item {
                     DisclosureInfo(
                         headersOpen = headersOpen && telemetry.requestHeaders.available,
                         segmentsOpen = segmentsOpen && telemetry.segments.available,
@@ -1842,7 +1861,7 @@ private fun DetailsHero(hero: DownloadDetailsPresentation) {
 }
 
 @Composable
-private fun MetricsGrid(metrics: DownloadDetailsMetricValues) {
+private fun MetricsGrid(metrics: DownloadDetailsMetricValues, lastMetric: Pair<String, String>? = null) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val valueStyle = LocalTextStyle.current.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -1854,7 +1873,7 @@ private fun MetricsGrid(metrics: DownloadDetailsMetricValues) {
             metrics.speedValue to metrics.speedUnit,
             metrics.sizeValue to metrics.sizeUnit,
             metrics.remaining to "Remaining",
-            metrics.connections to "Connections",
+            lastMetric ?: (metrics.connections to "Connections"),
         ).forEach { (value, label) ->
             Column(
                 Modifier.weight(1f).heightIn(min = 62.dp)

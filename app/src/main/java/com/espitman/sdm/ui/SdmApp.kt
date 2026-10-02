@@ -103,6 +103,8 @@ private enum class Destination(val label: String, val icon: ImageVector) {
 
 @Composable
 fun SdmApp(
+    torrentRequest: String? = null,
+    onTorrentConsumed: () -> Unit = {},
     openDownloads: Boolean = false,
     openDownloadId: String? = null,
     onConsumed: () -> Unit = {},
@@ -113,6 +115,10 @@ fun SdmApp(
     val settingsUiState = rememberSettingsUiState()
     var destination by rememberSaveable { mutableStateOf(Destination.Downloads) }
     var showAddDownload by rememberSaveable { mutableStateOf(false) }
+    var torrentLink by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(torrentRequest) {
+        if (torrentRequest != null) { torrentLink = torrentRequest; showAddDownload = false; onTorrentConsumed() }
+    }
     var browserDownloadRequest by remember { mutableStateOf<BrowserDownloadRequest?>(null) }
     var browserRepairTarget by remember { mutableStateOf<com.espitman.sdm.domain.Download?>(null) }
     var browserSignInUrl by remember { mutableStateOf<String?>(null) }
@@ -208,6 +214,7 @@ fun SdmApp(
                                 requestedUrl = browserSignInUrl,
                                 onDownloadRequested = { request ->
                                     if (browserRepairTarget != null) browserRepairRequest = request
+                                    else if (request.url.startsWith("magnet:", true) || request.mimeType == "application/x-bittorrent" || android.net.Uri.parse(request.url).path?.endsWith(".torrent", true) == true) { browserDownloadRequest = request; torrentLink = request.url; showAddDownload = false }
                                     else { browserDownloadRequest = request; showAddDownload = true }
                                 },
                                 onOpenDownloads = { destination = Destination.Downloads },
@@ -263,6 +270,7 @@ fun SdmApp(
         RefreshDownloadLinksSheet(listOf(repairTarget), { browserRepairRequest = null; browserRepairTarget = null; browserSignInUrl = null },
             { toastMessage = it; toastSequence++ }, initialUrl = repairRequest.url, browserContext = repairRequest.requestContext)
     }
+    torrentLink?.let { initial -> TorrentAddSheet(initial, { torrentLink = null; browserDownloadRequest = null }, { toastMessage = it; toastSequence++ }, browserDownloadRequest?.requestContext) }
     if (showAddDownload) {
         AddDownloadSheet(
             onDismiss = {
@@ -270,6 +278,7 @@ fun SdmApp(
                 browserDownloadRequest = null
             },
             initialUrl = browserDownloadRequest?.url.orEmpty(),
+            onTorrentRequested = { torrentLink = it; showAddDownload = false; browserDownloadRequest = null },
             suggestedFileName = browserDownloadRequest?.suggestedFileName,
             requestContext = browserDownloadRequest?.requestContext,
             onToast = { toastMessage = it; toastSequence++ },

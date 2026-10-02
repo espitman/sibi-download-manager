@@ -50,6 +50,7 @@ internal fun AddDownloadSheet(
     initialUrl: String = "",
     suggestedFileName: String? = null,
     requestContext: ScopedRequestContext? = null,
+    onTorrentRequested: (String) -> Unit = {},
     onToast: (String) -> Unit = {},
     coordinator: DownloadSubmissionCoordinator = AppRepositories.submissionCoordinator(LocalContext.current),
 ) {
@@ -142,6 +143,7 @@ internal fun AddDownloadSheet(
     }
     fun submit(startNow: Boolean) {
         if (isSubmitting) return
+        if (url.trim().startsWith("magnet:", true) || android.net.Uri.parse(url.trim()).path?.endsWith(".torrent", true) == true) { onTorrentRequested(url.trim()); return }
         val links = parseDownloadLinks(url)
         if (links.urls.isEmpty()) {
             urlError = if (url.isBlank()) DownloadUrl.errorMessage(com.espitman.sdm.domain.DownloadUrlError.EMPTY)
@@ -207,7 +209,11 @@ internal fun AddDownloadSheet(
                         }
                     }
                     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp)) {
-                        Text("Download link", color = SdmMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = .4.sp)
+                        if (requestContext == null) Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Link / Magnet", color = SdmGold, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.weight(1f).border(1.dp, SdmGold, RoundedCornerShape(12.dp)).padding(12.dp))
+                            Text("Torrent file", color = SdmMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.weight(1f).border(1.dp, SdmLine, RoundedCornerShape(12.dp)).clickable { onTorrentRequested("") }.padding(12.dp))
+                        }
+                        Text("Download link or magnet URI", color = SdmMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = .4.sp)
                         Spacer(Modifier.height(8.dp))
                         BasicTextField(
                             value = url, onValueChange = ::applyUrl,

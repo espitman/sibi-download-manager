@@ -70,17 +70,21 @@ Verification: [Browser session validation](docs/browser-session-validation.md).
 
 ## 8. Torrent and Magnet downloads
 
-- [ ] 30. DMF-030 — Choose and integrate a maintained Android-compatible BitTorrent engine; document its license and storage implications.
-- [ ] 31. DMF-031 — Accept magnet links and `.torrent` files, show metadata, and allow selection of contained files before starting.
-- [ ] 32. DMF-032 — Implement torrent progress, pause/resume, queue integration, persistence, and safe cleanup.
-- [ ] 33. DMF-033 — Add torrent controls and states in SDM's visual style, with clear distinction from HTTP downloads.
-- [ ] 34. DMF-034 — Test magnet metadata resolution, multi-file torrents, connectivity changes, restart recovery, and storage exhaustion.
+- [x] 30. DMF-030 — Choose and integrate a maintained Android-compatible BitTorrent engine; document its license and storage implications.
+- [x] 31. DMF-031 — Accept magnet links and `.torrent` files, show metadata, and allow selection of contained files before starting.
+- [x] 32. DMF-032 — Implement torrent progress, pause/resume, queue integration, persistence, and safe cleanup.
+- [x] 33. DMF-033 — Add torrent controls and states in SDM's visual style, with clear distinction from HTTP downloads.
+- [x] 34. DMF-034 — Test magnet metadata resolution, multi-file torrents, connectivity changes, restart recovery, and storage exhaustion.
+
+Verification: [Torrent device, restart, storage and release validation](docs/torrent-validation.md). [Engine, storage and licensing](docs/torrent-downloads.md).
 
 ## Release verification
 
-- [ ] 35. DMF-035 — Run unit/integration tests and regression checks for existing HTTP downloads, browser handoff, queue actions, and storage.
-- [ ] 36. DMF-036 — Compare every new visible control and state against the Open Design reference and verify on a connected device.
-- [ ] 37. DMF-037 — Produce a release build and document remaining limitations only after the requested features are complete.
+- [x] 35. DMF-035 — Run unit/integration tests and regression checks for existing HTTP downloads, browser handoff, queue actions, and storage.
+- [x] 36. DMF-036 — Compare every new visible control and state against the Open Design reference and verify on a connected device.
+- [x] 37. DMF-037 — Produce a release build and document remaining limitations only after the requested features are complete.
+
+Verification: [0.2.73 validation and documented runtime limits](docs/torrent-validation.md). The separate removable-SD-card test in DMF-021 remains open.
 
 ## Product boundaries
 
@@ -88,7 +92,23 @@ Verification: [Browser session validation](docs/browser-session-validation.md).
 - Do not restore Always keep active, automatic media detection/downloading, or YouTube-specific access.
 - Keep the existing private-browser behavior unless a later request explicitly changes it.
 
-## 9. Interactive app tutorial
+## 9. Rename the save folder safely
+
+- [x] 47. DMF-047 — Add a Rename save folder action in SDM's existing sheet style; rename the selected folder and preserve access to existing files.
+- [x] 48. DMF-048 — Update affected default/category folder references and download destinations safely, including queued and active downloads; preserve progress and prevent stale destinations.
+- [x] 49. DMF-049 — Handle unsupported providers, permission loss and name collisions without changing or losing data; test existing files, queued downloads and active transfers on the connected device.
+
+Verification: [Safe folder rename validation](docs/folder-rename-validation.md).
+
+## 10. Local-network web panel
+
+- [ ] 50. DMF-050 — Design a complete web panel in SDM's visual style for accessing the phone over the local network; downloads and the BitTorrent engine must continue running on the phone.
+- [ ] 51. DMF-051 — Add an optional web server with a configurable port, a visible connection address, start/stop controls, and authenticated pairing or approval on the phone.
+- [ ] 52. DMF-052 — Connect the panel to the same download queue: add HTTP links, magnet links and `.torrent` files, select torrent contents, view live progress, pause/resume/cancel, reorder, and perform supported bulk actions.
+- [ ] 53. DMF-053 — Provide file management, download details, schedules, speed limits, retry controls, and supported settings through the shared app logic, preserving existing files, permissions, and active-download progress.
+- [ ] 54. DMF-054 — Test access control, simultaneous phone/web actions, reconnects, network changes, app restart, HTTP and torrent downloads, and safe file operations on the connected device.
+
+## 11. Interactive app tutorial
 
 - [ ] 38. DMF-038 — Design a complete guided tour in SDM's visual style, using highlighted controls and short explanations with Next, Back, Skip, and progress indicators; obtain approval for the visual design before implementation.
 - [ ] 39. DMF-039 — Introduce the tour on first launch, remember completion or dismissal, and provide a Restart tutorial entry in Settings.
@@ -99,11 +119,3 @@ Verification: [Browser session validation](docs/browser-session-validation.md).
 - [ ] 44. DMF-044 — Use isolated sample downloads and tutorial state for hands-on steps; never start real downloads, modify existing files or settings, open external file managers, or request permissions without a clear user action. Restore the user's view when the tour ends.
 - [ ] 45. DMF-045 — Make highlights follow their actual controls while navigating and scrolling; support small screens, keyboard visibility, accessibility, interruption/relaunch, and missing or disabled controls. Keep one shared tutorial behavior across screens and sheets.
 - [ ] 46. DMF-046 — Audit coverage against every shipped feature and interactive control; test the full tour, skip/restart, sample-state cleanup, accessibility, and existing-app regressions on the connected device before release.
-
-## 10. Rename the save folder safely
-
-- [x] 47. DMF-047 — Add a Rename save folder action in SDM's existing sheet style; rename the selected folder and preserve access to existing files.
-- [x] 48. DMF-048 — Update affected default/category folder references and download destinations safely, including queued and active downloads; preserve progress and prevent stale destinations.
-- [x] 49. DMF-049 — Handle unsupported providers, permission loss and name collisions without changing or losing data; test existing files, queued downloads and active transfers on the connected device.
-
-Verification: [Safe folder rename validation](docs/folder-rename-validation.md).

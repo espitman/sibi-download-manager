@@ -9,6 +9,17 @@ enum class CompletedDestinationPresence {
 }
 
 object CompletedDestinationAccess {
+    fun classifyDownload(download: com.espitman.sdm.domain.Download, documents: ContentDocumentStore? = null): CompletedDestinationPresence {
+        if (!download.isTorrent) return classify(download.destinationPath, download.destinationTreeUri, documents)
+        val path = download.destinationPath ?: return CompletedDestinationPresence.Missing
+        if (DownloadDestinationRef.isContentUri(path)) return documents?.directoryPresence(path, download.destinationTreeUri) ?: CompletedDestinationPresence.AccessUnavailable
+        return try {
+            val folder = File(path)
+            when { !folder.isDirectory -> CompletedDestinationPresence.Missing
+                folder.canRead() -> CompletedDestinationPresence.Readable
+                else -> CompletedDestinationPresence.AccessUnavailable }
+        } catch (_: SecurityException) { CompletedDestinationPresence.AccessUnavailable }
+    }
     fun classify(
         destinationPath: String?,
         treeUri: String? = null,

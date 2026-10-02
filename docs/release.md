@@ -1,6 +1,6 @@
 # Release preparation
 
-The current release candidate uses application ID `com.espitman.sdm`, `versionName=0.2.71`, and `versionCode=73`. The declared minimum is Android 8.0 (API 26), with target SDK 35. The release build is non-debuggable and currently keeps code shrinking off; it has no configured distribution signing identity.
+The current release candidate uses application ID `com.espitman.sdm`, `versionName=0.2.73`, and `versionCode=75`. The declared minimum is Android 8.0 (API 26), with target SDK 35. The release build is non-debuggable and currently keeps code shrinking off; it has no configured distribution signing identity.
 
 ## Build
 
@@ -25,3 +25,7 @@ Adds Settings → Rename save folder, durable permission recovery, transactional
 ## 0.2.71 configurable automatic retry
 
 Adds retry count/delay wheels in Settings, visible retry countdowns, cancellation while waiting, queue integration and persisted failure deadlines. See [validation](automatic-retry-validation.md).
+
+## 0.2.73 Torrent and Magnet downloads
+
+Adds an embedded BitTorrent engine, metadata resolution, selected-file downloads, queue and restart recovery, opt-in seeding, provider publication and portable torrent backups. See [behavior and licensing](torrent-downloads.md) and [validation](torrent-validation.md).

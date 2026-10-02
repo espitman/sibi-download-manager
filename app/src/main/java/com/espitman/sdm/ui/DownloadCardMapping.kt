@@ -81,11 +81,11 @@ internal fun mapDownloadToCard(
 
     return DownloadCardModel(
         id = download.id,
-        type = download.fileName.substringAfterLast('.', "FILE").uppercase().take(5),
+        type = if (download.isTorrent) "TOR" else download.fileName.substringAfterLast('.', "FILE").uppercase().take(5),
         name = download.fileName,
         size = download.totalBytes?.let(::formatBytes) ?: "Unknown size",
         progress = metrics.fraction ?: 0f,
-        metadataValue = metadataValue,
+        metadataValue = if (download.isTorrent) "TORRENT · $metadataValue" else metadataValue,
         progressLabel = when (download.state) {
             DownloadState.QUEUED -> if (download.schedule?.isOpen(nowEpochMillis) == false) "Waiting for schedule" else "Next in queue"
             else -> progressLabel

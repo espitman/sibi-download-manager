@@ -33,6 +33,11 @@ object IncompleteDownloadDeleteCoordinator {
             val destination = current.destinationPath ?: return@withContext repository.delete(downloadId)
             if (DownloadDestinationRef.isContentUri(destination)) return@withContext false
             val destinationFile = File(destination)
+            if (current.isTorrent) {
+                val owner = File(destinationFile, ".sdm-torrent-owner")
+                if (destinationFile.exists() && (!owner.isFile || owner.readText() != current.id || !destinationFile.deleteRecursively())) return@withContext false
+                return@withContext repository.delete(downloadId)
+            }
             val partials = listOf(
                 DownloadPartFile.forDestination(destinationFile),
                 DownloadPartFile.restartForDestination(destinationFile),

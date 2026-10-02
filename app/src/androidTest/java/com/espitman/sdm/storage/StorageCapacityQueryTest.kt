@@ -44,7 +44,7 @@ class StorageCapacityQueryTest {
         assertTrue(capacity.totalBytes!! > 0L)
         assertTrue(capacity.availableBytes!! >= 0L)
         assertTrue(capacity.availableBytes!! <= capacity.totalBytes!!)
-        val external = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        val external = context.getExternalFilesDir(null)?.let { File(it, AppSpecificDownloadsDirectory.folderName(context)) }
         if (external != null) {
             assertEquals(external.canonicalFile, directory.canonicalFile)
         }

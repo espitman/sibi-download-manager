@@ -46,10 +46,10 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         sortOrder: String?,
     ): Cursor {
         enforceAccess()
-        require(parentDocumentId == ROOT_DOC_ID) { "Unknown parent $parentDocumentId" }
+        require(requireDocument(parentDocumentId).mimeType == DocumentsContract.Document.MIME_TYPE_DIR) { "Unknown parent $parentDocumentId" }
         val columns = projection ?: DEFAULT_DOCUMENT_COLUMNS
         val cursor = MatrixCursor(columns)
-        for (document in catalog().values) {
+        for (document in catalog().values.filter { it.parentId == parentDocumentId }) {
             addDocument(cursor, document)
         }
         return cursor
@@ -62,26 +62,27 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
     ): ParcelFileDescriptor {
         enforceAccess()
         val document = requireDocument(documentId)
+        if (writeFailure && mode.contains('w')) throw java.io.IOException("No space left on device")
         val parsedMode = ParcelFileDescriptor.parseMode(mode)
         return ParcelFileDescriptor.open(document.file, parsedMode)
     }
 
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
         enforceAccess()
-        require(parentDocumentId == ROOT_DOC_ID) { "Unknown parent $parentDocumentId" }
-        if (catalog().values.any { it.displayName == displayName }) {
+        require(requireDocument(parentDocumentId).mimeType == DocumentsContract.Document.MIME_TYPE_DIR) { "Unknown parent $parentDocumentId" }
+        if (catalog().values.any { it.parentId == parentDocumentId && it.displayName == displayName }) {
             throw IllegalArgumentException("A file with that name already exists")
         }
         val id = "doc-${UUID.randomUUID()}"
-        val file = File(documentsDir(appContext()), id).apply { writeBytes(ByteArray(0)) }
-        catalog()[id] = TestDocument(id, displayName, mimeType.ifBlank { "application/octet-stream" }, file)
+        val file = File(documentsDir(appContext()), id).apply { if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) mkdirs() else writeBytes(ByteArray(0)) }
+        catalog()[id] = TestDocument(id, displayName, mimeType.ifBlank { "application/octet-stream" }, file, parentDocumentId)
         return id
     }
 
     override fun renameDocument(documentId: String, displayName: String): String {
         enforceAccess()
         val current = requireDocument(documentId)
-        if (catalog().values.any { it.id != documentId && it.displayName == displayName }) {
+        if (catalog().values.any { it.parentId == current.parentId && it.id != documentId && it.displayName == displayName }) {
             throw IllegalArgumentException("A file with that name already exists")
         }
         val renamedId = "doc-${UUID.randomUUID()}"
@@ -91,19 +92,25 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         }
         catalog().remove(documentId)
         catalog()[renamedId] = current.copy(id = renamedId, displayName = displayName, file = renamedFile)
+        catalog().values.filter { it.parentId == documentId }.forEach { catalog()[it.id] = it.copy(parentId = renamedId) }
         return renamedId
     }
 
     override fun deleteDocument(documentId: String) {
         enforceAccess()
         val current = catalog().remove(documentId) ?: throw java.io.FileNotFoundException(documentId)
-        current.file.delete()
+        catalog().values.filter { it.parentId == documentId }.forEach { deleteDocument(it.id) }
+        current.file.deleteRecursively()
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
         enforceAccess()
-        if (parentDocumentId != ROOT_DOC_ID) return false
-        return documentId == ROOT_DOC_ID || catalog().containsKey(documentId)
+        var current = documentId
+        while (current != ROOT_DOC_ID) {
+            if (current == parentDocumentId) return true
+            current = catalog()[current]?.parentId ?: return false
+        }
+        return parentDocumentId == ROOT_DOC_ID
     }
 
     private fun requireDocument(documentId: String): TestDocument {
@@ -120,8 +127,8 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
 
     private fun addDocument(cursor: MatrixCursor, document: TestDocument) {
         val row = cursor.newRow()
-        val flags = if (document.id == ROOT_DOC_ID) {
-            DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
+        val flags = if (document.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+            DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE or DocumentsContract.Document.FLAG_SUPPORTS_DELETE or DocumentsContract.Document.FLAG_SUPPORTS_RENAME
         } else {
             DocumentsContract.Document.FLAG_SUPPORTS_RENAME or
                 DocumentsContract.Document.FLAG_SUPPORTS_DELETE or
@@ -155,6 +162,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         val displayName: String,
         val mimeType: String,
         val file: File,
+        val parentId: String = ROOT_DOC_ID,
     )
 
     companion object {
@@ -166,6 +174,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
         @Volatile var rootCapacityBytes: Long? = null
         @Volatile var queryRootId: String = ROOT_ID
         @Volatile var queryRootDocumentId: String = ROOT_DOC_ID
+        @Volatile var writeFailure: Boolean = false
         @Volatile var accessRevoked: Boolean = false
         private val DEFAULT_ROOT_COLUMNS = arrayOf(
             DocumentsContract.Root.COLUMN_ROOT_ID,
@@ -204,6 +213,7 @@ class SdmTestDocumentsProvider : DocumentsProvider() {
             queryRootId = ROOT_ID
             queryRootDocumentId = ROOT_DOC_ID
             accessRevoked = false
+            writeFailure = false
         }
     }
 }

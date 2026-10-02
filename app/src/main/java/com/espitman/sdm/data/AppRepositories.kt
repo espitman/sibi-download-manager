@@ -300,6 +300,21 @@ object AppRepositories {
         }
     }
 
+    private fun effectiveRate(context: Context): Long? {
+        val settings = SettingsRepository.get(context).settings.value
+        return SpeedLimitPolicy.effectiveBytesPerSecond(settings.unlimitedSpeed, settings.speedLimitMbps,
+            settings.speedLimitWifiOnly, connectivityMonitor?.current()?.transport ?: com.espitman.sdm.download.ValidatedTransport.NONE)
+    }
+
+    fun torrentRateLimit(context: Context): Int {
+        val cap = effectiveRate(context) ?: return 0
+        val active = downloadRepository?.downloads?.value.orEmpty().filter {
+            it.state in setOf(com.espitman.sdm.domain.DownloadState.CONNECTING, com.espitman.sdm.domain.DownloadState.DOWNLOADING)
+        }
+        val torrents = active.count { it.isTorrent }.coerceAtLeast(1)
+        return (cap * torrents / active.size.coerceAtLeast(torrents)).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+    }
+
     private fun speedLimiterLocked(appContext: Context): AggregateSpeedLimiter {
         speedLimiter?.let { return it }
         if (connectivityMonitor == null) {
@@ -308,13 +323,13 @@ object AppRepositories {
         val monitor = connectivityMonitor!!
         val limiter = AggregateSpeedLimiter(
             effectiveBytesPerSecond = {
-                val settings = SettingsRepository.get(appContext).settings.value
-                SpeedLimitPolicy.effectiveBytesPerSecond(
-                    unlimitedSpeed = settings.unlimitedSpeed,
-                    speedLimitMbps = settings.speedLimitMbps,
-                    speedLimitWifiOnly = settings.speedLimitWifiOnly,
-                    transport = monitor.current().transport,
-                )
+                val cap = effectiveRate(appContext)
+                val active = downloadRepository?.downloads?.value.orEmpty().filter {
+                    it.state in setOf(com.espitman.sdm.domain.DownloadState.CONNECTING, com.espitman.sdm.domain.DownloadState.DOWNLOADING)
+                }
+                val torrents = active.count { it.isTorrent }
+                if (cap == null || torrents == 0) cap else
+                    (cap * (active.size - torrents).coerceAtLeast(1) / active.size.coerceAtLeast(1)).coerceAtLeast(1)
             },
         )
         speedLimiter = limiter

@@ -356,6 +356,7 @@ class DownloadTransferService : Service() {
     }
 
     private fun onDiskPartLength(download: Download, tempFilePath: String?): Long {
+        if (download.isTorrent) return download.downloadedBytes
         val tempFile = tempFilePath?.let(::File)
         if (tempFile != null) {
             FolderSegmentCheckpoint.load(tempFile, download)?.let { return FolderSegmentCheckpoint.bytes(tempFile, it) }
@@ -423,6 +424,11 @@ class DownloadTransferService : Service() {
             nowEpochMillis = max(System.currentTimeMillis(), download.updatedAtEpochMillis),
         )
         if (blocked) return
+        if (download.isTorrent) {
+            com.espitman.sdm.torrent.TorrentTransferEngine(applicationContext).execute(downloadId, repository,
+                pauseRequested = { session.isPauseRequested(downloadId) }, pauseCause = { session.pauseCause(downloadId) })
+            return
+        }
         while (true) {
             try {
                 run {

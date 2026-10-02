@@ -23,7 +23,7 @@ class StorageAccessFrameworkTest {
 
     @Test
     fun defaultDirectoryIsWritableAppSpecificDownloadsWithoutFallback() {
-        val external = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        val external = context.getExternalFilesDir(null)?.let { File(it, AppSpecificDownloadsDirectory.folderName(context)) }
         val resolved = AppSpecificDownloadsDirectory.from(context)
         assertTrue(resolved.isDirectory)
         assertTrue(resolved.canRead())
@@ -31,7 +31,7 @@ class StorageAccessFrameworkTest {
         if (external != null) {
             assertEquals(external.canonicalFile, resolved.canonicalFile)
             assertTrue(
-                resolved.absolutePath.contains("/Android/data/${context.packageName}/files/Download"),
+                resolved.absolutePath.contains("/Android/data/${context.packageName}/files/${AppSpecificDownloadsDirectory.folderName(context)}"),
             )
         }
         val probe = File(resolved, "sdm-039-probe.txt")

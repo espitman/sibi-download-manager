@@ -62,12 +62,14 @@ data class Download(
     val schedule: DownloadSchedule? = null,
     val speedLimitBytesPerSecond: Long? = null,
 ) {
+    val isTorrent: Boolean get() = url.startsWith("magnet:", ignoreCase = true)
+
     init {
         require(speedLimitBytesPerSecond == null || speedLimitBytesPerSecond > 0) { "Speed limit must be positive" }
         require(id.isNotBlank()) { "Download ID cannot be blank" }
         require(url.isNotBlank()) { "Download URL cannot be blank" }
-        require(DownloadUrl.validate(url) is DownloadUrlResult.Valid) {
-            "Download URL must use HTTP or HTTPS"
+        require(DownloadUrl.validate(url) is DownloadUrlResult.Valid || com.espitman.sdm.torrent.TorrentMagnet.isValid(url)) {
+            "Download URL must use HTTP, HTTPS or a valid magnet link"
         }
         require(fileName.isNotBlank()) { "Filename cannot be blank" }
         require('/' !in fileName && '\\' !in fileName) { "Filename cannot contain path separators" }

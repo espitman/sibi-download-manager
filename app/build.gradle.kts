@@ -11,8 +11,8 @@ android {
         applicationId = "com.espitman.sdm"
         minSdk = 26
         targetSdk = 35
-        versionCode = 74
-        versionName = "0.2.72"
+        versionCode = 75
+        versionName = "0.2.73"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -41,6 +41,11 @@ android {
 }
 
 dependencies {
+    val torrentVersion = "2.0.12.9"
+    implementation("com.frostwire:jlibtorrent:$torrentVersion")
+    listOf("arm", "arm64", "x86", "x86_64").forEach { abi ->
+        implementation("com.frostwire:jlibtorrent-android-$abi:$torrentVersion")
+    }
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")

@@ -19,6 +19,7 @@ class LinkArchiveCoordinator(
     private val allocator: DestinationAllocator,
     private val metadata: DownloadMetadataRetriever,
     private val scheduler: DownloadQueueScheduler,
+    private val torrentStore: com.espitman.sdm.torrent.TorrentStore? = null,
 ) {
     private val mutex = Mutex()
     data class ImportResult(val added: Int, val skipped: Int, val failed: List<String>)
@@ -55,28 +56,50 @@ class LinkArchiveCoordinator(
         if(startNow && added>0) scheduler.schedule()
         ImportResult(added,skipped,failed)
     } }
-    suspend fun restore(downloads: List<Download>): Int = mutex.withLock { FolderMutationGate.mutex.withLock {
+    suspend fun restore(downloads: List<Download>, torrents: Map<String, DownloadBackupCodec.TorrentSnapshot> = emptyMap()): Int = mutex.withLock { FolderMutationGate.mutex.withLock {
         check(!FolderRenameCoordinator.operationPending) { "Finish folder access in Settings first." }
         val existing=repository.schedulingSnapshot().map { it.url }.toMutableSet()
         val candidates=downloads.filter { existing.add(it.url) }
         val reserved=mutableListOf<AllocatedDownloadDestination>(); var inserted=setOf<String>()
         val prepared=mutableListOf<Download>()
+        val createdTorrentDirectories=mutableMapOf<String, java.io.File>()
         try {
             val now=System.currentTimeMillis()
             val lastOrder=repository.schedulingSnapshot().maxOfOrNull { it.sortOrder } ?: 0
             candidates.sortedBy { it.sortOrder }.forEachIndexed { i,d ->
                 val target=withContext(NonCancellable) { withContext(Dispatchers.IO) { allocator.allocate(d.fileName,d.mimeType) }.also {reserved+=it} }
                 currentCoroutineContext().ensureActive()
-                prepared+=d.copy(id=java.util.UUID.randomUUID().toString(),fileName=target.fileName,
+                val next=d.copy(id=java.util.UUID.randomUUID().toString(),fileName=target.fileName,
                     destinationPath=target.destinationPath,destinationTreeUri=target.destinationTreeUri,destinationDisplayLabel=target.destinationDisplayLabel,
                     downloadedBytes=0,state=DownloadState.PAUSED,createdAtEpochMillis=now,updatedAtEpochMillis=now,
                     sortOrder=maxOf(lastOrder.coerceAtMost(Long.MAX_VALUE-LinkArchive.MAX_LINKS-1),now)+i+1,error=null,startedAtEpochMillis=null,completedAtEpochMillis=null)
+                if (d.isTorrent) {
+                    val saved = torrents[d.url] ?: error("Missing torrent metadata")
+                    val contents = com.espitman.sdm.torrent.TorrentStore.inspect(saved.metadata)
+                    require(com.espitman.sdm.torrent.TorrentMagnet.identities(contents.magnet).intersect(com.espitman.sdm.torrent.TorrentMagnet.identities(d.url)).isNotEmpty()) { "Torrent identity does not match backup" }
+                    val selected=contents.files.filter { it.index in saved.selected }
+                    require(selected.size == saved.selected.size && selected.isNotEmpty())
+                    val directory=java.io.File(target.destinationPath)
+                    check(target.partFile.delete() && directory.mkdir())
+                    createdTorrentDirectories[next.id]=directory
+                    val store=torrentStore ?: error("Torrent restore is unavailable")
+                    store.create(next.id,contents,com.espitman.sdm.torrent.TorrentSelection(saved.selected,saved.seed),directory)
+                    prepared+=next.copy(totalBytes=selected.sumOf { it.size })
+                } else prepared+=next
             }
             // No suspension between commit return and tracking the committed IDs.
             inserted=withContext(NonCancellable) {repository.insertUniqueBatch(prepared)}.toSet()
             inserted.size
         } finally {
-            reserved.forEachIndexed { i,target -> if(prepared.getOrNull(i)?.id !in inserted) target.partFile.delete() }
+            createdTorrentDirectories.forEach { (id, directory) -> if (id !in inserted) {
+                torrentStore?.cleanupWorkingFiles(id)
+                torrentStore?.remove(id)
+                directory.deleteRecursively()
+            } }
+            reserved.forEachIndexed { i,target -> if(prepared.getOrNull(i)?.id !in inserted) {
+                target.partFile.delete()
+                prepared.getOrNull(i)?.takeIf { it.isTorrent }?.let { torrentStore?.cleanupWorkingFiles(it.id);torrentStore?.remove(it.id) }
+            } }
         }
     } }
 }

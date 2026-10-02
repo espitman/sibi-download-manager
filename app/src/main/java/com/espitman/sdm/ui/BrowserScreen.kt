@@ -205,6 +205,10 @@ internal fun BrowserScreen(
     }
 
     fun navigate(input: String, exactUrl: Boolean = false) {
+        if (input.trim().startsWith("magnet:", true)) {
+            onDownloadRequested(BrowserDownloadRequest(input.trim(), "Torrent", "application/x-bittorrent", null, null))
+            return
+        }
         val resolved = if (exactUrl && isRecordableBrowserHistoryUrl(input.trim())) {
             input.trim()
         } else {
@@ -495,11 +499,22 @@ internal fun BrowserScreen(
                                 )
                             }
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                    val link = request.url.toString()
+                                    if (request.isForMainFrame && link.startsWith("magnet:", true)) {
+                                        onDownloadRequested(BrowserDownloadRequest(link, "Torrent", "application/x-bittorrent", null, null))
+                                        return true
+                                    }
+                                    return false
+                                }
+
                                 override fun shouldInterceptRequest(
                                     view: WebView,
                                     request: WebResourceRequest,
                                 ): WebResourceResponse? {
-                                    if (!shouldBlockBrowserTracker(request.url.toString(), blockTrackers.get())) return null
+                                    if (!shouldBlockBrowserTracker(request.url.toString(), blockTrackers.get())) {
+                                        return null
+                                    }
                                     return WebResourceResponse(
                                         "text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)),
                                     )
@@ -562,7 +577,9 @@ internal fun BrowserScreen(
                                     request: WebResourceRequest,
                                     errorResponse: WebResourceResponse,
                                 ) {
-                                    if (errorResponse.statusCode < 400) return
+                                    if (errorResponse.statusCode < 400) {
+                                        return
+                                    }
                                     if (!BrowserWebViewCallbackPolicy.appliesToActiveLoadFailure(
                                             tabId,
                                             tabsRef[0].activeId,

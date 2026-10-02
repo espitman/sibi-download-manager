@@ -42,6 +42,8 @@ class SqliteDownloadRepository(
     databaseName: String = DownloadDatabase.DATABASE_NAME,
     private val localZoneId: ZoneId = ZoneId.systemDefault(),
 ) : DownloadRepository, AutoCloseable {
+    private val torrentDocuments = com.espitman.sdm.storage.DocumentsContractContentDocuments(context.applicationContext)
+    private val torrentStore = com.espitman.sdm.torrent.TorrentStore(context.applicationContext)
     private val database = DownloadDatabase(context, databaseName)
     private val mutex = Mutex()
     private val mutableDownloads = MutableStateFlow<List<Download>>(emptyList())
@@ -108,11 +110,21 @@ class SqliteDownloadRepository(
     override suspend fun delete(id: String): Boolean = onIo {
         awaitInitialized()
         mutex.withLock {
+            val removed = queryOne(database.readableDatabase, id)
+            if (removed?.isTorrent == true && removed.state != DownloadState.COMPLETED) {
+                val publishedRoot = runCatching { torrentStore.selection(id).rootDocument }.getOrNull()
+                if (publishedRoot != null && torrentDocuments.delete(publishedRoot, removed.destinationTreeUri) !is com.espitman.sdm.storage.ContentDocumentMutation.Success)
+                    return@withLock false
+            }
             val deleted = database.writableDatabase.inTransaction { db ->
                 db.delete("downloads", "id = ?", arrayOf(id)) > 0
             }
             if (deleted) {
                 com.espitman.sdm.network.BrowserRequestContextRegistry.remove(id)
+                if (removed?.isTorrent == true) {
+                    if (removed.state != DownloadState.COMPLETED || com.espitman.sdm.storage.DownloadDestinationRef.isContentUri(removed.destinationPath.orEmpty())) runCatching { torrentStore.cleanupWorkingFiles(id) }
+                    torrentStore.remove(id)
+                }
                 refreshLocked(database.readableDatabase)
             }
             deleted

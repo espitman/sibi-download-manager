@@ -36,7 +36,7 @@ import java.time.LocalDate
 
 private fun archiveCoordinator(context: android.content.Context) = LinkArchiveCoordinator(
     AppRepositories.downloads(context), AppRepositories.destinationAllocator(context),
-    AppRepositories.metadataRetriever(), AppRepositories.queueScheduler(context))
+    AppRepositories.metadataRetriever(), AppRepositories.queueScheduler(context), com.espitman.sdm.torrent.TorrentStore(context))
 
 private suspend fun readArchive(context: android.content.Context, uri: Uri): Pair<String,String> = withContext(Dispatchers.IO) {
     val name=context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use {
@@ -276,10 +276,17 @@ internal fun safeArchiveName(raw:String,fallback:String,extension:String):String
                 try {
                     if(!restore) {
                         val records=if(includeDownloads) repository.schedulingSnapshot() else null
-                        pending=withContext(Dispatchers.Default) {DownloadBackupCodec.encode(records,if(includeSettings) settings.settings.value else null,System.currentTimeMillis(),if(includeSettings) CategoryFolderStore.get(context).settings.value else null)}
+                        val torrents=withContext(Dispatchers.IO) {
+                            val store=com.espitman.sdm.torrent.TorrentStore(context)
+                            records.orEmpty().filter { it.isTorrent }.associate { row ->
+                                val selection=store.selection(row.id)
+                                row.url to DownloadBackupCodec.TorrentSnapshot(store.metadata(row.id),selection.selected,selection.seed)
+                            }
+                        }
+                        pending=withContext(Dispatchers.Default) {DownloadBackupCodec.encode(records,if(includeSettings) settings.settings.value else null,System.currentTimeMillis(),if(includeSettings) CategoryFolderStore.get(context).settings.value else null,torrents)}
                         save.launch(safeArchiveName(name,"sdm-backup.json","json"))
                     } else {
-                        val b=backup!!;val added=archiveCoordinator(context).restore(b.downloads);restoredCount=added
+                        val b=backup!!;val added=archiveCoordinator(context).restore(b.downloads,b.torrents);restoredCount=added
                         if(includeSettings && b.settings!=null) {
                             settings.update {b.settings}
                             b.categoryFolders?.let { folders-> withContext(Dispatchers.IO) {

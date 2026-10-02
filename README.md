@@ -1,6 +1,6 @@
 # Sibi Download Manager (SDM)
 
-SDM is a native Android download manager built with Kotlin, Jetpack Compose, OkHttp, and a versioned SQLite repository. It accepts direct HTTP and HTTPS links, saves real files, and keeps the approved Open Design interface for Downloads, Browser, Files, Settings, and Add. Android 8.0 (API 26) is the declared minimum; the target SDK is 35.
+SDM is a native Android download manager built with Kotlin, Jetpack Compose, OkHttp, and a versioned SQLite repository. It accepts direct HTTP/HTTPS links, magnet links and `.torrent` files, saves real files, and keeps the approved Open Design interface for Downloads, Browser, Files, Settings, and Add. Android 8.0 (API 26) is the declared minimum; the target SDK is 35.
 
 ## Downloads
 
@@ -33,7 +33,7 @@ Use JDK 17 and an Android SDK with API 35 installed. From the repository root:
 
 For connected-device tests, build the test APK and run the required instrumentation classes with `adb shell am instrument`; avoid a blanket run because several suites deliberately manipulate storage and app state. The [release validation report](docs/release-validation.md) lists the devices and suites used. The Open Design prototype is the source for visual and interaction checks.
 
-The release variant is `0.2.71` (`versionCode=73`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
+The release variant is `0.2.73` (`versionCode=75`). See [release preparation](docs/release.md) for unsigned artifacts, local QA signing, and distribution signing. No signing key belongs in this repository.
 
 ## Current limits
 
@@ -42,3 +42,5 @@ The minimum API 26 runtime has not yet been tested on a device because its emula
 The interface embeds IBM Plex Sans under its [SIL Open Font License](app/src/main/assets/licenses/ibm_plex_sans_ofl.txt). The reference uses Avenir Next for some display text; it is not bundled because no redistribution license is present.
 
 Implementation progress and per-task evidence are in [TODO.md](TODO.md).
+
+Torrent downloads use an embedded native engine, selected-file downloads and the existing queue. See [torrent behavior, storage and licenses](docs/torrent-downloads.md).

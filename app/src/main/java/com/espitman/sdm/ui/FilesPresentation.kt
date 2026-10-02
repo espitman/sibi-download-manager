@@ -96,7 +96,7 @@ internal fun mapCompletedFile(
     if (download.state != DownloadState.COMPLETED) return null
     val destination = download.destinationPath
     if (destination.isNullOrBlank()) return null
-    if (!probe.isReadableDocument(destination)) return null
+    if (!download.isTorrent && !probe.isReadableDocument(destination)) return null
     val completedAt = download.completedAtEpochMillis ?: download.updatedAtEpochMillis
     return FileRowModel(
         id = download.id,

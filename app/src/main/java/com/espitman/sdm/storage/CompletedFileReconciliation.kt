@@ -18,11 +18,7 @@ object CompletedFileReconciliation {
         repository: DownloadRepository,
         contentDocuments: ContentDocumentStore? = null,
         classify: (Download) -> CompletedDestinationPresence = { download ->
-            CompletedDestinationAccess.classify(
-                destinationPath = download.destinationPath,
-                treeUri = download.destinationTreeUri,
-                contentDocuments = contentDocuments,
-            )
+            CompletedDestinationAccess.classifyDownload(download, contentDocuments)
         },
     ): CompletedFileReconciliationResult = withContext(Dispatchers.IO) {
         val readable = LinkedHashSet<String>()

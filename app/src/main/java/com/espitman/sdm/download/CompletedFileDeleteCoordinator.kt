@@ -45,11 +45,7 @@ object CompletedFileDeleteCoordinator {
         if (destinationPath.isNullOrBlank()) {
             return@withContext removeStaleRecord(repository, downloadId)
         }
-        val presence = CompletedDestinationAccess.classify(
-            destinationPath = destinationPath,
-            treeUri = current.destinationTreeUri,
-            contentDocuments = contentDocuments,
-        )
+        val presence = CompletedDestinationAccess.classifyDownload(current, contentDocuments)
         when (presence) {
             CompletedDestinationPresence.AccessUnavailable ->
                 return@withContext CompletedFileDeleteResult.Failure(
@@ -59,7 +55,11 @@ object CompletedFileDeleteCoordinator {
                 return@withContext removeStaleRecord(repository, downloadId)
             CompletedDestinationPresence.Readable -> Unit
         }
-        val storage = deleteStorage(destinationPath, current.destinationTreeUri, contentDocuments)
+        if (current.isTorrent && !DownloadDestinationRef.isContentUri(destinationPath)) {
+            val owner = File(destinationPath, ".sdm-torrent-owner")
+            if (!owner.isFile || owner.readText() != current.id) return@withContext CompletedFileDeleteResult.Failure(CompletedFileUserMessages.DELETE_FAILED)
+        }
+        val storage = deleteStorage(destinationPath, current.destinationTreeUri, contentDocuments, current.isTorrent)
         when (storage) {
             is ContentDocumentMutation.Failure -> {
                 if (storage.reason == ContentDocumentMutation.Failure.Reason.Missing) {
@@ -103,6 +103,7 @@ object CompletedFileDeleteCoordinator {
         destinationPath: String,
         treeUri: String?,
         contentDocuments: ContentDocumentStore?,
+        directory: Boolean = false,
     ): ContentDocumentMutation {
         if (DownloadDestinationRef.isContentUri(destinationPath)) {
             val store = contentDocuments
@@ -115,17 +116,17 @@ object CompletedFileDeleteCoordinator {
         return try {
             if (!file.exists()) {
                 ContentDocumentMutation.Failure(ContentDocumentMutation.Failure.Reason.Missing)
-            } else if (!file.isFile) {
+            } else if (!file.isFile && !(directory && file.isDirectory)) {
                 ContentDocumentMutation.Failure(ContentDocumentMutation.Failure.Reason.Missing)
             } else if (!file.canWrite() && file.exists()) {
-                val deleted = file.delete()
+                val deleted = if (directory) file.deleteRecursively() else file.delete()
                 if (deleted || !file.exists()) {
                     ContentDocumentMutation.Success(destinationPath, file.name)
                 } else {
                     ContentDocumentMutation.Failure(ContentDocumentMutation.Failure.Reason.AccessUnavailable)
                 }
             } else {
-                val deleted = file.delete()
+                val deleted = if (directory) file.deleteRecursively() else file.delete()
                 if (deleted || !file.exists()) {
                     ContentDocumentMutation.Success(destinationPath, file.name)
                 } else {

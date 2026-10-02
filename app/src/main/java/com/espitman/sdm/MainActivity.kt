@@ -19,6 +19,7 @@ import com.espitman.sdm.ui.theme.SdmTheme
 import kotlinx.coroutines.runBlocking
 
 class MainActivity : ComponentActivity() {
+    private val pendingTorrent = mutableStateOf<String?>(null)
     private val pendingRequest = mutableStateOf<TransferNotificationRequest?>(null)
 
     companion object {
@@ -36,6 +37,7 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
+        pendingTorrent.value = parseTorrentIntent(intent)
         pendingRequest.value = if (savedInstanceState == null) parseTransferNotificationIntent(intent) else null
         runBlocking {
             AppRepositories.recoverInterruptedDownloads(
@@ -51,6 +53,8 @@ class MainActivity : ComponentActivity() {
             SdmTheme {
                 SdmLaunchLayer(showSplash = showSplash) {
                     SdmApp(
+                        torrentRequest = pendingTorrent.value,
+                        onTorrentConsumed = { pendingTorrent.value = null },
                         openDownloads = request?.openDownloads == true,
                         openDownloadId = request?.openDownloadId,
                         onConsumed = { pendingRequest.value = null },
@@ -64,6 +68,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingRequest.value = parseTransferNotificationIntent(intent)
+        pendingTorrent.value = parseTorrentIntent(intent)
     }
 }
 
@@ -87,6 +92,17 @@ private fun parseTransferNotificationIntent(intent: Intent?): TransferNotificati
                 openDownloadId = downloadId,
             )
         }
+        else -> null
+    }
+}
+
+private fun parseTorrentIntent(intent: Intent?): String? {
+    if (intent?.action != Intent.ACTION_VIEW) return null
+    val uri = intent.data ?: return null
+    return when {
+        uri.scheme.equals("magnet", true) -> uri.toString()
+        uri.scheme in setOf("http", "https") && (intent.type == "application/x-bittorrent" || uri.lastPathSegment?.endsWith(".torrent", true) == true) -> uri.toString()
+        uri.scheme == "content" && (intent.type == "application/x-bittorrent" || uri.lastPathSegment?.endsWith(".torrent", true) == true) -> uri.toString()
         else -> null
     }
 }

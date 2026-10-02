@@ -9,8 +9,9 @@ import org.json.JSONObject
 /** Portable whitelist, never serialize local paths, cookies, headers or browser/session data. */
 object DownloadBackupCodec {
     const val VERSION = 1
-    data class Backup(val downloads: List<Download>, val settings: SdmSettings?, val categoryFolders: CategoryFolderSettings? = null)
-    fun encode(downloads: List<Download>?, settings: SdmSettings?, now: Long, categoryFolders: CategoryFolderSettings? = null): String {
+    data class TorrentSnapshot(val metadata: ByteArray, val selected: Set<Int>, val seed: Boolean)
+    data class Backup(val downloads: List<Download>, val settings: SdmSettings?, val categoryFolders: CategoryFolderSettings? = null, val torrents: Map<String, TorrentSnapshot> = emptyMap())
+    fun encode(downloads: List<Download>?, settings: SdmSettings?, now: Long, categoryFolders: CategoryFolderSettings? = null, torrents: Map<String, TorrentSnapshot> = emptyMap()): String {
         require(downloads == null || downloads.size <= LinkArchive.MAX_LINKS)
         val root = JSONObject().put("format", "sdm-backup").put("version", VERSION).put("createdAt", now)
         downloads?.let { root.put("downloads", JSONArray().apply {
@@ -18,6 +19,11 @@ object DownloadBackupCodec {
                 .put("mimeType", d.mimeType).put("totalBytes", d.totalBytes)
                 .put("priority", d.priority).put("sortOrder", d.sortOrder)
                 .put("speedLimitBytesPerSecond", d.speedLimitBytesPerSecond).apply {
+                    if (d.isTorrent) {
+                        val torrent = torrents[d.url] ?: error("Torrent metadata is unavailable for backup")
+                        put("torrent", JSONObject().put("metadata", java.util.Base64.getEncoder().encodeToString(torrent.metadata))
+                            .put("selected", JSONArray(torrent.selected.sorted())).put("seed", torrent.seed))
+                    }
                     d.schedule?.let { s -> put("schedule", JSONObject().put("kind", s.kind.name)
                         .put("startEpochMillis", s.startEpochMillis).put("endEpochMillis", s.endEpochMillis)
                         .put("startMinuteOfDay", s.startMinuteOfDay).put("endMinuteOfDay", s.endMinuteOfDay).put("zoneId", s.zoneId)) }
@@ -47,9 +53,20 @@ object DownloadBackupCodec {
         require(root.has("downloads") || root.has("settings")) { "Backup contains no app data." }
         val array = if (root.has("downloads")) root.getJSONArray("downloads") else JSONArray()
         require(array.length() <= LinkArchive.MAX_LINKS) { "Too many downloads in backup." }
+        val torrents = mutableMapOf<String, TorrentSnapshot>()
         val downloads = (0 until array.length()).map { index ->
             val d = array.getJSONObject(index)
-            val valid = DownloadUrl.validate(d.getString("url")) as? DownloadUrlResult.Valid
+            val raw = d.getString("url")
+            val valid = if (com.espitman.sdm.torrent.TorrentMagnet.isValid(raw)) {
+                val json = d.getJSONObject("torrent")
+                val bytes = java.util.Base64.getDecoder().decode(json.getString("metadata"))
+                require(bytes.size in 1..com.espitman.sdm.torrent.TorrentStore.MAX_METADATA_BYTES)
+                val ids = json.getJSONArray("selected")
+                require(ids.length() in 1..5000)
+                val selected = (0 until ids.length()).map { ids.getInt(it).also { require(it in 0..4999) } }.toSet()
+                torrents[raw] = TorrentSnapshot(bytes, selected, json.optBoolean("seed"))
+                DownloadUrlResult.Valid(raw)
+            } else DownloadUrl.validate(raw) as? DownloadUrlResult.Valid
                 ?: error("Invalid URL at download ${index + 1}.")
             val name = d.getString("fileName")
             require(name.isNotBlank() && name.length <= 255 && !name.contains('/') && !name.contains('\\') && name !in setOf(".","..") && name.none { it.code < 32 }) { "Invalid file name at download ${index+1}." }
@@ -88,7 +105,7 @@ object DownloadBackupCodec {
             }
             CategoryFolderSettings(config.getBoolean("enabled"),mapped)
         } else null
-        return Backup(downloads, settings, categoryFolders)
+        return Backup(downloads, settings, categoryFolders, torrents)
     }
     private fun checkDepth(text: String) {
         var depth=0;var quoted=false;var escaped=false
