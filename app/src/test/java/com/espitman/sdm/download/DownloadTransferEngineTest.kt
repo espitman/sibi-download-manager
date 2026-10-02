@@ -32,6 +32,7 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -456,6 +457,7 @@ class DownloadTransferEngineTest {
             progressUpdateIntervalBytes = 2048L,
             onChunkRead = { bytesRead ->
                 observedChunks.add(bytesRead)
+                assertEquals(1, HttpConnectionTelemetry.active.value[downloadId])
             },
         )
 
@@ -467,6 +469,7 @@ class DownloadTransferEngineTest {
         )
 
         assertTrue(observedChunks.isNotEmpty())
+        assertNull(HttpConnectionTelemetry.active.value[downloadId])
         for (chunk in observedChunks) {
             assertTrue("Observed chunk $chunk must be > 0", chunk > 0)
             assertTrue(

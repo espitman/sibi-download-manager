@@ -193,7 +193,7 @@ class DownloadDetailsTelemetryTest {
 
     @Test
     fun connectionsAndStreamsFollowConnectingDownloadingVersusIdleStates() {
-        val downloading = mapDownloadDetailsTelemetry(record(state = DownloadState.DOWNLOADING), speed())
+        val downloading = mapDownloadDetailsTelemetry(record(state = DownloadState.DOWNLOADING), speed(), activeConnections = 32)
         val connecting = mapDownloadDetailsTelemetry(record(state = DownloadState.CONNECTING), speed())
         val paused = mapDownloadDetailsTelemetry(record(state = DownloadState.PAUSED), speed())
         val queued = mapDownloadDetailsTelemetry(
@@ -210,10 +210,10 @@ class DownloadDetailsTelemetryTest {
             speed(),
         )
 
-        assertEquals("1", downloading.metrics.connections)
-        assertEquals("one active stream", downloading.technical.connectionThreads)
-        assertEquals("1", connecting.metrics.connections)
-        assertEquals("one active stream", connecting.technical.connectionThreads)
+        assertEquals("32", downloading.metrics.connections)
+        assertEquals("32 active streams", downloading.technical.connectionThreads)
+        assertEquals("0", connecting.metrics.connections)
+        assertEquals("zero active streams", connecting.technical.connectionThreads)
         assertEquals("0", paused.metrics.connections)
         assertEquals("zero active streams", paused.technical.connectionThreads)
         assertEquals("0", queued.metrics.connections)

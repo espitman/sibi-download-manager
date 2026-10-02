@@ -465,7 +465,7 @@ class DownloadTransferEngine(
                     var extraResumeBytes = false
 
                     FileOutputStream(writeFile, appendToWriteFile).use { fileOutputStream ->
-                        body.byteStream().use { inputStream ->
+                        HttpConnectionTelemetry.track(downloadId, body.byteStream()).use { inputStream ->
                             val buffer = ByteArray(bufferSizeBytes)
 
                             while (true) {
@@ -705,6 +705,7 @@ class DownloadTransferEngine(
                 ranges.mapIndexed { index, range ->
                     async {
                         downloadSegment(
+                            downloadId = downloadId,
                             url = url,
                             range = range,
                             totalBytes = totalBytes,
@@ -819,6 +820,7 @@ class DownloadTransferEngine(
     }
 
     private suspend fun downloadSegment(
+        downloadId: String,
         url: String,
         range: TransferByteRange,
         totalBytes: Long,
@@ -885,7 +887,7 @@ class DownloadTransferEngine(
                 output.parentFile?.mkdirs()
                 var received = skip
                 FileOutputStream(output, skip > 0L).use { stream ->
-                    body.byteStream().use { input ->
+                    HttpConnectionTelemetry.track(downloadId, body.byteStream()).use { input ->
                         val buffer = ByteArray(bufferSizeBytes)
                         while (true) {
                             currentCoroutineContext().ensureActive()

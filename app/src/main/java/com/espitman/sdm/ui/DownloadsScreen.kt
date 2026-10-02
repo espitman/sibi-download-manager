@@ -1663,8 +1663,10 @@ private fun DownloadDetailsScreen(
     val hero = mapDownloadToDetailsPresentation(download, nowEpochMillis).let {
         if(retryAt == null) it else it.copy(stateLabel = automaticRetryLabel(retryAt, nowEpochMillis).uppercase(), stateTone = DownloadDetailsStateTone.Muted)
     }
-    val telemetry = remember(download, nowEpochMillis) {
-        mapDownloadDetailsTelemetry(download, speedTracker.observe(download, nowEpochMillis))
+    val httpConnections by com.espitman.sdm.download.HttpConnectionTelemetry.active.collectAsState()
+    val activeHttpConnections = httpConnections[download.id] ?: 0
+    val telemetry = remember(download, nowEpochMillis, activeHttpConnections) {
+        mapDownloadDetailsTelemetry(download, speedTracker.observe(download, nowEpochMillis), activeHttpConnections)
     }
     val nativeTorrentTelemetry by com.espitman.sdm.torrent.TorrentRuntime.telemetry.collectAsState()
     val clipboard = LocalClipboardManager.current
@@ -1675,7 +1677,7 @@ private fun DownloadDetailsScreen(
     val menuOffsetY = with(density) { WindowInsets.statusBars.getTop(this) + designHeaderInset().roundToPx() + 58.dp.roundToPx() }
     Column(Modifier.fillMaxSize().background(SdmBackground)) {
         Box(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(top = designHeaderTopSpace()).height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Box(Modifier.size(36.dp).clickable(onClick = onBack), contentAlignment = Alignment.CenterStart) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp).offset(x = (-7).dp)) }; Text("Download details", fontSize = 18.sp, letterSpacing = (-.36).sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(42.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
+            Row(Modifier.fillMaxWidth().padding(top = designHeaderTopSpace()).height(63.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Box(Modifier.size(36.dp).clickable(remember { MutableInteractionSource() }, null, onClick = onBack), contentAlignment = Alignment.CenterStart) { Icon(SdmIcons.Back, "Back to downloads", tint = SdmText, modifier = Modifier.size(21.dp).offset(x = (-7).dp)) }; Text("Download details", fontSize = 18.sp, letterSpacing = (-.36).sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton(onClick = { menuOpen = !menuOpen }, modifier = Modifier.size(42.dp)) { Icon(SdmIcons.More, "More download options", tint = SdmText, modifier = Modifier.size(21.dp)) } }
             if (menuOpen) Popup(alignment = Alignment.TopEnd, offset = IntOffset(with(density) { (-14).dp.roundToPx() }, menuOffsetY), onDismissRequest = { menuOpen = false }, properties = PopupProperties(focusable = true)) {
                 Surface(color = sdmColor(0xFF1B1C1F, 0xFFFFFFFF), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, SdmLine), shadowElevation = 18.dp, modifier = Modifier.width(232.dp)) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {

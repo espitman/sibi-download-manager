@@ -59,8 +59,9 @@ internal data class DownloadDetailsSpeedChartPoint(
 internal fun mapDownloadDetailsTelemetry(
     download: Download,
     speed: DownloadDetailsSpeedSnapshot,
+    activeConnections: Int = 0,
 ): DownloadDetailsTelemetryPresentation {
-    val connections = detailsConnectionCount(download.state)
+    val connections = detailsConnectionCount(download.state, activeConnections)
     return DownloadDetailsTelemetryPresentation(
         metrics = DownloadDetailsMetricValues(
             speedValue = splitSpeedValue(speed.currentBytesPerSecond),
@@ -80,7 +81,7 @@ internal fun mapDownloadDetailsTelemetry(
             savePath = detailsDestinationDisplay(download),
             security = detailsSecurityLabel(download.url),
             resumeSupport = detailsResumeSupportLabel(download),
-            connectionThreads = if (connections == 1) "one active stream" else "zero active streams",
+            connectionThreads = when (connections) { 0 -> "zero active streams"; 1 -> "one active stream"; else -> "$connections active streams" },
             lastError = if (download.state == DownloadState.FAILED) {
                 failedDownloadLastError(download.error)
             } else {
@@ -92,8 +93,8 @@ internal fun mapDownloadDetailsTelemetry(
     )
 }
 
-internal fun detailsConnectionCount(state: DownloadState): Int = when (state) {
-    DownloadState.CONNECTING, DownloadState.DOWNLOADING -> 1
+internal fun detailsConnectionCount(state: DownloadState, activeConnections: Int = 0): Int = when (state) {
+    DownloadState.CONNECTING, DownloadState.DOWNLOADING -> activeConnections.coerceAtLeast(0)
     else -> 0
 }
 
