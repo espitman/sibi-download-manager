@@ -68,6 +68,7 @@ object DownloadStateMachine {
                 else -> null
             },
             completedAtEpochMillis = if (to == DownloadState.COMPLETED) nowEpochMillis else null,
+            automaticRetryCount = if (to == DownloadState.COMPLETED) 0 else download.automaticRetryCount,
         )
     }
 }

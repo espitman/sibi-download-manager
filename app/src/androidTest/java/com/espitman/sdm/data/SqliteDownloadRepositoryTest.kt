@@ -45,6 +45,22 @@ class SqliteDownloadRepositoryTest {
     }
 
     @Test
+    fun successfulProgressPersistsRetryResetAcrossReopening() = runBlocking {
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        repository!!.insert(Download(id="retry-progress",url="https://example.com/f",fileName="f",
+            state=DownloadState.DOWNLOADING,downloadedBytes=100,automaticRetryCount=5,createdAtEpochMillis=1))
+        assertEquals(5,repository!!.updateProgress("retry-progress",100,2).automaticRetryCount)
+        assertEquals(0,repository!!.updateProgress("retry-progress",101,3).automaticRetryCount)
+        repository!!.close()
+        repository = SqliteDownloadRepository(context, databaseName = databaseName)
+        repository!!.awaitInitialized()
+        val restored=repository!!.get("retry-progress")!!
+        assertEquals(101L,restored.downloadedBytes)
+        assertEquals(0,restored.automaticRetryCount)
+    }
+
+    @Test
     fun recordSurvivesRepositoryRecreationAndFlowReflectsAtomicChanges() = runBlocking {
         val initial = Download(
             id = "one",

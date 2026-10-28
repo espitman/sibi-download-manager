@@ -118,7 +118,7 @@ internal class ContractDownloadRepository(
         require(downloadedBytes >= current.downloadedBytes) { "Download progress cannot move backwards" }
         require(nowEpochMillis >= current.updatedAtEpochMillis) { "Progress time cannot move backwards" }
         current.totalBytes?.let { require(downloadedBytes <= it) { "Download progress cannot exceed total" } }
-        val updated = current.copy(downloadedBytes = downloadedBytes, updatedAtEpochMillis = nowEpochMillis)
+        val updated = com.espitman.sdm.domain.DownloadProgressMutation.apply(current, downloadedBytes, nowEpochMillis)
         replaceLocked(updated)
         updated
     }

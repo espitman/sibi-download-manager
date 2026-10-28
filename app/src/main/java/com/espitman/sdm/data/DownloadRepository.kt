@@ -34,6 +34,7 @@ interface DownloadRepository {
         nowEpochMillis: Long,
         error: String? = null,
     ): Download
+    /** New received bytes reset consecutive automatic retries; unchanged offsets do not. */
     suspend fun updateProgress(id: String, downloadedBytes: Long, nowEpochMillis: Long): Download
     /**
      * Lowers [Download.downloadedBytes] to match a shorter on-disk partial after the

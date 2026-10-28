@@ -173,12 +173,7 @@ class SqliteDownloadRepository(
         downloadedBytes: Long,
         nowEpochMillis: Long,
     ): Download = mutate(id) { current ->
-        require(current.state == DownloadState.DOWNLOADING) {
-            "Progress can only change while downloading"
-        }
-        require(downloadedBytes >= current.downloadedBytes) { "Download progress cannot move backwards" }
-        require(nowEpochMillis >= current.updatedAtEpochMillis) { "Progress time cannot move backwards" }
-        current.copy(downloadedBytes = downloadedBytes, updatedAtEpochMillis = nowEpochMillis)
+        com.espitman.sdm.domain.DownloadProgressMutation.apply(current, downloadedBytes, nowEpochMillis)
     }
 
     override suspend fun pauseAtExactOffset(

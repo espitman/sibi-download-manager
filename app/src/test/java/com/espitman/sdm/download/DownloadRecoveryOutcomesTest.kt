@@ -228,7 +228,7 @@ class DownloadRecoveryOutcomesTest {
         val recovered = transientRepo.get("transient")!!
         assertEquals(2, transientAttempts)
         assertEquals(DownloadState.COMPLETED, recovered.state)
-        assertEquals(1, recovered.automaticRetryCount)
+        assertEquals(0, recovered.automaticRetryCount)
         assertArrayEquals(payload, transientDest.readBytes())
         assertEquals(sha256(payload), sha256(transientDest.readBytes()))
     }
