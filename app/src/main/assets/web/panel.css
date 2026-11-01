@@ -687,3 +687,6 @@ h1,h2,h3,.logo,.stat strong,.ring strong,.torrent-total>strong,.details-metrics 
 .add-start label{margin:0;min-width:0;min-height:76px;padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .add-start label:has(input:checked){border-color:var(--gold);background:#d4af370d}.add-start input{margin:0;width:20px;height:20px;flex:none}.add-start strong{display:block;font-size:14px;line-height:20px}.add-start small{display:block;color:var(--muted);font-size:12px;line-height:18px;margin-top:2px}
 @media(max-width:640px){.destination-summary{flex-basis:100%}.destination-actions{width:100%;flex-wrap:nowrap}.destination-actions button{flex:1;min-width:0}.add-start label{padding:12px;gap:10px}}
+
+.completion-badge{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:6px 10px;border:1px solid #49745b;border-radius:8px;background:#193526;color:#8bd6a5;font-size:13px;font-weight:600}.completion-badge .icon{width:16px;height:16px}
+@media(min-width:761px){.http-hero{position:relative}.http-hero:has(.completion-badge) .http-identity{padding-right:130px}.http-hero .completion-badge{position:absolute;top:24px;right:24px;margin:0}}

@@ -21,3 +21,19 @@ test('history expires old rates and rejects future or invalid observations',()=>
 test('a single observation stays at its actual time and remains visible as a point',()=>{
  assert.match(trace([{time:100000,value:0}]),/<circle[^>]+cx="1000\.00" cy="150\.00"/);
 });
+
+test('completed transfers keep a fixed final chart instead of collecting idle samples',()=>{
+ vm.runInContext("state.history.clear();state.uploadHistory.clear();recordHistory({id:'a',state:'DOWNLOADING',speed:500},99000);recordHistory({id:'a',state:'COMPLETED',speed:500},100000)",context);
+ const before=vm.runInContext("JSON.stringify(state.history.get('a'))",context);
+ vm.runInContext("recordHistory({id:'a',state:'COMPLETED',speed:0},170000)",context);
+ assert.equal(vm.runInContext("JSON.stringify(state.history.get('a'))",context),before);
+ assert.equal(vm.runInContext("historyTime({id:'a',state:'COMPLETED'},170000)",context),100000);
+ assert.equal(vm.runInContext("state.history.get('a').at(-1).value",context),0);
+});
+test('seeding continues sampling and a restarted transfer resumes the live clock',()=>{
+ vm.runInContext("recordHistory({id:'a',state:'COMPLETED',seeding:true,speed:0,uploadRate:250},171000)",context);
+ assert.equal(vm.runInContext("state.uploadHistory.get('a').at(-1).value",context),250);
+ assert.equal(vm.runInContext("historyTime({id:'a',state:'COMPLETED',seeding:true},172000)",context),172000);
+ vm.runInContext("recordHistory({id:'a',state:'DOWNLOADING',speed:100},173000)",context);
+ assert.equal(vm.runInContext("historyTime({id:'a',state:'DOWNLOADING'},174000)",context),174000);
+});
