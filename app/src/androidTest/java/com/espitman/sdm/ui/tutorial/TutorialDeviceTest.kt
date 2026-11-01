@@ -135,4 +135,19 @@ class TutorialDeviceTest {
         assertEquals(preferences.getValue("sdm_settings"),context.getSharedPreferences("sdm_settings",0).all.toMap())
     }
 
+    @Test fun splashCompletesBeforeTheTutorialWindowOpens() {
+        launch()
+        val started=android.os.SystemClock.elapsedRealtime()
+        render { SdmTheme { com.espitman.sdm.ui.SdmLaunchLayer(showSplash=true) {
+            if(com.espitman.sdm.ui.LocalLaunchReady.current) TutorialHost(TourState()) {}
+        } } }
+        Thread.sleep(400)
+        assertNull("Tutorial covered the original splash",find("Get to know SDM"))
+        capture("original-splash")
+        waitFor("Get to know SDM")
+        assertTrue("Tutorial opened before the splash animation and fade completed",android.os.SystemClock.elapsedRealtime()-started>=1650)
+        Thread.sleep(350) // Capture the settled dialog, rather than its platform window fade.
+        capture("after-splash")
+    }
+
 }

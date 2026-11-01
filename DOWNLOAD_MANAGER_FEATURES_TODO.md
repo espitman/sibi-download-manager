@@ -286,3 +286,5 @@ Actual scenarios now pass. Portable logs/results: docs/web-panel-design/verifica
 
 
 Tutorial validation — 2026-11-01: [Implementation and physical-device verification](docs/tutorial-validation/README.md). Release 0.2.76 installed; 900 JVM tests, lint/assembly and four native UI tests pass (28.845 s). All 33 steps, saved resume, Skip/restart/real-view preservation, positive target bounds with no coach overlap, actual 2× font, 320-logical-pixel keyboard and isolated light theme verified. Original downloads/settings/category rules/persisted grants unchanged. Actual captures and portable logs included.
+
+Splash regression fix — 2026-11-01: original renderer/artwork/timing preserved byte for byte against pre-tutorial commit 8e8e5b4. Tutorial waits for full splash exit, including its unchanged fade. Release 0.2.77 installed; 901 unit tests, lint/assembly and five phone tests pass. [Evidence](docs/tutorial-validation/splash-fix/README.md).

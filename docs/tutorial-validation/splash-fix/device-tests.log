@@ -1,0 +1,126 @@
+com.espitman.sdm.ui.tutorial.TutorialDeviceTest:
+Tutorial QA: launch activity via authorized shell
+
+Tutorial QA: Starting: Intent { cmp=com.espitman.sdm/.MainActivity }
+Status: ok
+LaunchState: WARM
+Activity: com.espitman.sdm/.MainActivity
+TotalTime: 738
+WaitTime: 745
+Complete
+
+.
+Tutorial QA: launch activity via authorized shell
+
+Tutorial QA: Starting: Intent { cmp=com.espitman.sdm/.MainActivity }
+Status: ok
+LaunchState: WARM
+Activity: com.espitman.sdm/.MainActivity
+TotalTime: 265
+WaitTime: 289
+Complete
+
+.
+Tutorial QA: launch activity via authorized shell
+
+Tutorial QA: Starting: Intent { cmp=com.espitman.sdm/.MainActivity }
+Status: ok
+LaunchState: WARM
+Activity: com.espitman.sdm/.MainActivity
+TotalTime: 337
+WaitTime: 363
+Complete
+
+
+Tutorial QA: downloads-1
+
+Tutorial QA: downloads-2
+
+Tutorial QA: downloads-3
+
+Tutorial QA: downloads-4
+
+Tutorial QA: downloads-5
+
+Tutorial QA: details-1
+
+Tutorial QA: details-2
+
+Tutorial QA: details-3
+
+Tutorial QA: details-4
+
+Tutorial QA: details-5
+
+Tutorial QA: details-6
+
+Tutorial QA: details-7
+
+Tutorial QA: torrents-1
+
+Tutorial QA: torrents-2
+
+Tutorial QA: torrents-3
+
+Tutorial QA: torrents-4
+
+Tutorial QA: browser-1
+
+Tutorial QA: browser-2
+
+Tutorial QA: browser-3
+
+Tutorial QA: browser-4
+
+Tutorial QA: browser-5
+
+Tutorial QA: files-1
+
+Tutorial QA: files-2
+
+Tutorial QA: files-3
+
+Tutorial QA: files-4
+
+Tutorial QA: settings-1
+
+Tutorial QA: settings-2
+
+Tutorial QA: settings-3
+
+Tutorial QA: settings-4
+
+Tutorial QA: settings-5
+
+Tutorial QA: settings-6
+
+Tutorial QA: settings-7
+
+Tutorial QA: settings-8
+.
+Tutorial QA: launch activity via authorized shell
+
+Tutorial QA: Starting: Intent { cmp=com.espitman.sdm/.MainActivity }
+Status: ok
+LaunchState: WARM
+Activity: com.espitman.sdm/.MainActivity
+TotalTime: 210
+WaitTime: 227
+Complete
+
+.
+Tutorial QA: launch activity via authorized shell
+
+Tutorial QA: Starting: Intent { cmp=com.espitman.sdm/.MainActivity }
+Status: ok
+LaunchState: WARM
+Activity: com.espitman.sdm/.MainActivity
+TotalTime: 216
+WaitTime: 234
+Complete
+
+.
+
+Time: 35.15
+
+OK (5 tests)

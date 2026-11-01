@@ -1,0 +1,16 @@
+com.espitman.sdm.ui.tutorial.TutorialDeviceTest:
+Tutorial QA: launch activity via authorized shell
+
+Tutorial QA: Starting: Intent { cmp=com.espitman.sdm/.MainActivity }
+Status: ok
+LaunchState: WARM
+Activity: com.espitman.sdm/.MainActivity
+TotalTime: 519
+WaitTime: 560
+Complete
+
+.
+
+Time: 6.33
+
+OK (1 test)

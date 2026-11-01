@@ -300,7 +300,7 @@ fun SdmApp(
             onToast = { toastMessage = it; toastSequence++ },
         )
     }
-    if (tutorial.phase != com.espitman.sdm.ui.tutorial.TourPhase.Hidden) {
+    if (LocalLaunchReady.current && tutorial.phase != com.espitman.sdm.ui.tutorial.TourPhase.Hidden) {
         com.espitman.sdm.ui.tutorial.TutorialHost(tutorial, ::updateTutorial)
     }
 

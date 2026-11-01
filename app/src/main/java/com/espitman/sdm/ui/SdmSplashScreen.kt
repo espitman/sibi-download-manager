@@ -3,6 +3,7 @@ package com.espitman.sdm.ui
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,17 +50,24 @@ private val SplashBackground = Color(0xFF070707)
 private val SplashGold = Color(0xFFD4AF37)
 private val SplashGoldHigh = Color(0xFFF3D675)
 
+internal val LocalLaunchReady = staticCompositionLocalOf { true }
+
+internal fun isLaunchContentReady(currentSplash: Boolean, targetSplash: Boolean, idle: Boolean): Boolean =
+    !currentSplash && !targetSplash && idle
+
 @Composable
 internal fun SdmLaunchLayer(showSplash: Boolean = true, content: @Composable () -> Unit) {
-    var splashVisible by remember(showSplash) { mutableStateOf(showSplash) }
+    val splash = remember(showSplash) { MutableTransitionState(showSplash) }
 
     Box(Modifier.fillMaxSize()) {
-        content()
+        CompositionLocalProvider(LocalLaunchReady provides isLaunchContentReady(splash.currentState, splash.targetState, splash.isIdle)) {
+            content()
+        }
         AnimatedVisibility(
-            visible = splashVisible,
+            visibleState = splash,
             exit = fadeOut(tween(durationMillis = 260, easing = LinearEasing)),
         ) {
-            SdmSplashScreen(onAnimationFinished = { splashVisible = false })
+            SdmSplashScreen(onAnimationFinished = { splash.targetState = false })
         }
     }
 }
