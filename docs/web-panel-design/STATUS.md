@@ -1,42 +1,35 @@
-# SDM web panel — delivery status, 2026-11-01
+# SDM web panel — completed, 2026-11-01
 
-The core web-panel implementation is installed and working on the connected phone. The remaining unchecked device qualifications are listed explicitly below; they are not represented as completed tests. Implementation commit `77a1ec5` is pushed to origin/main; the final documentation reconciliation follows in a documentation-only commit.
+The web-panel implementation and its reopened acceptance cases are complete. Implementation 77a1ec5 and final acceptance fixes 991202c are pushed to origin/main. The original phone app is updated; the panel is open in external Chrome at http://10.22.10.45:8081/ with its existing approval.
 
-- Phone: Xiaomi 2107113SG, serial `30fe7f97`.
-- Panel: `http://10.22.10.45:8081/`, opened in external Chrome with its existing approval.
-- Port 8080 is occupied by another service. SDM's native bind-error message worked; only SDM's port was changed to 8081.
-- Final installed release: 0.2.75, non-debuggable, signed with the existing local QA/debug certificate. This is not a Google Play signing-key claim.
-- Original state remains 20 downloads, Queue 4 / Completed 16. No existing download/file was deleted or resumed for the final UI check.
-- Disposable `com.espitman.sdm.qa` / `.qa.test` removed. Six obsolete test-browser credentials removed; both actual Chrome approvals retained. The other user's emulator was not used or stopped.
+## Delivered behavior
 
-## Implementation
+Phone-hosted Ktor and bundled assets/fonts; configurable port/start/stop; phone approval/code and browser revocation; shared HTTP/torrent/magnet queue, selection and group actions; live details/charts, schedules/limits/retry; Files, safe rename/move/delete and previews; storage/category-folder permission handoffs; checksum, protected-link refresh and backup review/restore. The in-app Browser is excluded as requested. Downloads and torrent processing run on the phone.
 
-Phone-owned Ktor transport, static bundled assets/fonts, authenticated approval/code/session flows, configurable port, native access/file handoffs, HTTP/torrent/magnet submissions and selected-file transfers, queue/group actions, HTTP/torrent details, file management/previews, schedules/limits/retry/network preferences, storage/category folders/rename, checksum/link refresh and backup review/restore use shared native repositories and coordinators. The in-app Browser remains excluded as requested.
+The acceptance pass found and fixed two production issues: interrupted torrent-folder copies lacked a durable pre-copy intent, and libtorrent exempted LAN peers from its global rate class. Recovery now removes only verified owned copies and retains user changes. Both IPv4/IPv6 peers obey the shared limit, applied before resume. Shared native colors and Avenir Next/Plex typography are matched to the source; fixed-column and custom-control behavior is retained.
 
-The last capability audit found the missing details Open folder shortcut. It now reveals the HTTP file in Files, opens a torrent folder, or explains that an incomplete file appears after completion. Actual installed Chrome navigation/selection passes. Corrected mobile long destination-path wrapping and actual LAN-address grid overflow; both views remain exactly 390 px wide at a 390 px viewport.
+## Final validation
 
-## Verification
+- Release: 892 unit tests, zero failures/errors/skips; lintRelease and assembleRelease pass. Production JavaScript: 60/60.
+- Physical process kill during a real copy write and after directory rename: recovery passes (.117/.329 s); exact source/selected bytes and original record remain. Changed interrupted copy is retained (.153 s). Four existing move/provider regressions pass (.596 s).
+- Bounded SAF destination genuinely exhausts its quota and returns ENOSPC during writing: preservation/cleanup passes (.238 s). The physical phone was not filled.
+- Concurrent real HTTP/torrent 64/32 MiB transfers under shared 1 MB/s then live 2 MB/s: both make progress and finish with exact SHA-256 (31.720 s). Measured aggregate 1.042/1.957 MB/s; IPv4/IPv6 class regression passes (.841 s).
+- Genuine saved-network transition 10.22.10.45 → 10.22.4.106 → original network with both downloads active: authenticated listener at both addresses, same approved API credential, no pending auto-approval, retained offsets and exact completion (41.511 s). Original Wi-Fi/settings/listener restored.
+- Final original-app installed-release checksum/backup/torrent selection/link identity/replay regressions: four tests pass (1.960 s). Actual Chrome retains All 20 / Queue 4 / Completed 16 and both actual browser approvals without pairing again.
+- All 21 approved state comparisons are reconciled. Forty-five fresh phone-served example captures have no horizontal overflow, including 320/390 px; final installed LAN view is 390/390 px with correct Copy address. Actual operation captures remain distinct from read-only visual examples. No automated whole-image zero-pixel-difference score is claimed.
+- Local graph refreshed with graphify update .; no global graph update. The other user's emulator was not used or stopped.
 
-- 892 JVM tests, zero failures; lintRelease and release assembly pass: `/tmp/sdm-final-release-nov01.log`.
-- 60 production-JS checks pass: `/tmp/sdm-final-js-nov01.log`, including revoked-owner draft cleanup, expired review cleanup and read-only HTTP/torrent/incomplete Open folder routing.
-- Final installed release checksum, backup/torrent round trips and link-identity/restart/replay regressions: `/tmp/sdm-final-installed-release-device.log`, OK (4 tests), 1.615 seconds. Original record guards pass.
-- Actual Chrome bulk automatic/manual matching, independent stale result, metadata 404 and explicit restart/exact bytes: `/tmp/sdm-chrome-links-bulk-pass.log`, OK (1 test), 40.873 seconds.
-- Actual two-minute visible link-review expiry preserves record/64 KiB partial bytes: `/tmp/sdm-chrome-links-expiry.log`, OK (1 test), 173.85 seconds. The expired green result/apply cleanup added afterward passes a JS regression.
-- Actual Chrome backup duplicate/corrupt-replacement/settings/category restore: OK (1 test), 299.646 seconds; owner/expiry mutation-gate and rejection regressions: OK (7 tests), .585 seconds. Restored unavailable category warning API additionally verified: `/tmp/sdm-category-unavailable-final.log`, OK (1 test), .055 seconds.
-- Prior real native folder grants/decline/cancel/expiry/rename recovery, Open/Share recipient grants, file previews/menu behavior, native approval/code/revocation, ordinary-command concurrency, daily alarms, shared HTTP rate changes, real-peer torrent transfers, tab closure, Wi-Fi/cellular and process recovery remain valid. Exact scopes/logs are in verification/README.md.
-- All 21 board-state comparisons reconciled in verification/design-state-matrix.md. Apply native monogram/fonts, larger reading-scale and control overrides from v1/README.md. No automated zero-pixel-difference score is claimed.
-- Local graph refreshed with `graphify update .`; no global graph operation.
+## Installed package and scope
 
-## Extended qualification not performed
+Xiaomi 2107113SG; app com.espitman.sdm 0.2.75, non-debuggable, signed using the existing local QA/debug certificate (not a Google Play signing-key claim). Original main-target test runner restored; disposable QA app removed. Port 8080 belongs to another service, so SDM remains on 8081.
 
-A physically different LAN IP/network while a request is pending; real OS termination in the middle of folder-copy publication; filling the phone to physical ENOSPC; a fresh simultaneous HTTP+torrent aggregate-rate benchmark. Existing same-IP/cellular/process recovery, controlled provider-write failures/staged journal recovery, real two-HTTP aggregate rates and mixed-protocol allocation source review do not claim these additional scenarios.
+Approved credentials remain valid through network changes. Browser cookies follow browser origin rules; automatically migrating a cookie between different IP origins is not claimed. The physical changed-IP acceptance uses the same valid API credential at both addresses and actual Chrome recovery after restoring its original origin.
 
-## Evidence and source
+## Evidence
 
-- Checklist: root DOWNLOAD_MANAGER_FEATURES_TODO.md.
-- Operation logs/captures: verification/README.md.
-- Source parity: verification/capability-matrix.md.
-- Board comparisons: verification/design-state-matrix.md.
-- Final screenshots: `panel-final-lan-desktop-2026-11-01.png`, `panel-final-lan-mobile-2026-11-01.png`, `panel-final-phone-2026-11-01.png`, `open-folder-revealed-release-2026-11-01.png`.
-
-Final external Chrome view remains open on Downloads: All 20 / Queue 4 / Completed 16. Local worktree delivery is committed; no emulator was touched.
+- Root DOWNLOAD_MANAGER_FEATURES_TODO.md, section 10: all web-panel items checked.
+- [Portable results and log hashes](verification/final-2026-11-01/acceptance-results.json).
+- [Detailed verification and prior operation evidence](verification/README.md).
+- [Native/web capability mapping](verification/capability-matrix.md).
+- [21-state comparison](verification/design-state-matrix.md).
+- [Final installed Downloads](verification/final-2026-11-01/installed-downloads-desktop.png) and LAN desktop/mobile captures in the same folder.
