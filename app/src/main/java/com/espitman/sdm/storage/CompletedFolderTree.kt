@@ -89,6 +89,23 @@ internal class CompletedFolderTree(private val context: Context) {
             before[path]?.let { it.directory == node.directory && it.size == node.size && it.digest == node.digest } == true
         }
     }
+    /** Validate an interrupted owned copy without assuming its last write completed. */
+    suspend fun isVerifiedPrefix(copy: Node, original: Node): Boolean {
+        if (copy.directory != original.directory || copy.size < 0 || copy.size > original.size) return false
+        if (copy.directory) return true
+        val hash = MessageDigest.getInstance("SHA-256")
+        input(original.location).use { stream ->
+            var remaining = copy.size
+            val buffer = ByteArray(64 * 1024)
+            while (remaining > 0) {
+                currentCoroutineContext().ensureActive()
+                val count = stream.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                if (count < 0) return false
+                if (count > 0) { hash.update(buffer, 0, count); remaining -= count }
+            }
+        }
+        return hash.digest().joinToString("") { "%02x".format(it) } == copy.digest
+    }
     fun child(parent: String, name: String): String? {
         if (!DownloadDestinationRef.isContentUri(parent)) return File(parent, name).takeIf { it.exists() }?.path
         val uri = Uri.parse(parent)

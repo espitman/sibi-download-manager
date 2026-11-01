@@ -1,6 +1,6 @@
 @font-face { font-family: Plex; src: url("/font-regular.ttf"); }
 @font-face { font-family: Plex; src: url("/font-semibold.ttf"); font-weight: 600 900; }
-:root { color-scheme: dark; --bg: #070707; --surface: #111214; --raised: #17181a; --line: #2d2d29; --gold: #d4af37; --gold-hi: #e8c65a; --text: #f4f2e9; --muted: #96958e; --green: #78c7a5; --red: #d98181; --radius: 16px; font: 14px Plex, Arial, sans-serif; color: var(--text); background: var(--bg); }
+:root { color-scheme: dark; --bg: #070707; --surface: #121315; --raised: #191a1c; --line: #2d2c28; --gold: #d4af37; --gold-hi: #f3d675; --text: #f5f1e8; --muted: #9a978f; --green: #70c69b; --red: #ef756b; --radius: 16px; --display: "Avenir Next", "Century Gothic", Futura, Plex, sans-serif; font: 14px Plex, Arial, sans-serif; color: var(--text); background: var(--bg); }
 * { box-sizing: border-box; }
 body { margin: 0px; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -672,3 +672,5 @@ body>.file-menu{position:fixed;inset:auto;margin:0;min-width:0;width:260px;max-w
 .panel-address-row>.actions{min-width:0;flex-wrap:wrap;justify-content:flex-end}
 .panel-address-row .gold{overflow-wrap:anywhere;min-width:0;max-width:100%}
 @media(max-width:760px){.panel-address-row{align-items:flex-start;flex-direction:column;gap:10px}.panel-address-row>.actions{justify-content:flex-start;max-width:100%}.approved-browser>div{min-width:0;overflow-wrap:anywhere}}
+
+h1,h2,h3,.logo,.stat strong,.ring strong,.torrent-total>strong,.details-metrics strong{font-family:var(--display)}

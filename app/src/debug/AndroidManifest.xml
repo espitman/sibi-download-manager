@@ -12,5 +12,6 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <provider android:name="com.espitman.sdm.storage.CrashTestDocumentsProvider" android:authorities="com.espitman.sdm.qa.crash.documents" android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS"><intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter></provider>
     </application>
 </manifest>

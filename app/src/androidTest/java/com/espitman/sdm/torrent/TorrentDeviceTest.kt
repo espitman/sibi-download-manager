@@ -36,9 +36,9 @@ class TorrentDeviceTest {
         } }
         writeValue(value)
     }.toByteArray()
-    private inner class Fixture(privateTorrent: Boolean = true, persistedBase: File? = null, seedPort: Int? = null, trackerPort: Int? = null) : AutoCloseable {
+    private inner class Fixture(privateTorrent: Boolean = true, persistedBase: File? = null, seedPort: Int? = null, trackerPort: Int? = null, firstSize: Int = 2 * 1024 * 1024, val seedUploadLimit: Int = 128 * 1024) : AutoCloseable {
         val base = (persistedBase ?: File(context.cacheDir, "torrent-qa-${UUID.randomUUID()}")).apply { mkdirs() }
-        val first = ByteArray(2 * 1024 * 1024) { (it * 31 % 251).toByte() }
+        val first = ByteArray(firstSize) { (it * 31 % 251).toByte() }
         val second = ByteArray(1024 * 1024) { (it * 17 % 239).toByte() }
         val port = seedPort ?: ServerSocket(0).use { it.localPort }
         val tracker = ServerSocket(trackerPort ?: 0)
@@ -59,7 +59,7 @@ class TorrentDeviceTest {
             File(files, "first.bin").writeBytes(first); File(files, "second.bin").writeBytes(second)
             val joined = first + second
             val hashes = ByteArrayOutputStream()
-            joined.asList().chunked(65536).forEach { chunk -> hashes.write(MessageDigest.getInstance("SHA-1").digest(chunk.toByteArray())) }
+            for (offset in joined.indices step 65536) { val hash=MessageDigest.getInstance("SHA-1"); hash.update(joined,offset,minOf(65536,joined.size-offset)); hashes.write(hash.digest()) }
             bytes = encode(mapOf("announce" to trackerUrl, "info" to mapOf("name" to "QA-bundle", "private" to if (privateTorrent) 1 else 0, "piece length" to 65536,
                 "pieces" to hashes.toByteArray(), "files" to listOf(mapOf("length" to first.size, "path" to listOf("first.bin")), mapOf("length" to second.size, "path" to listOf("second.bin"))))))
             contents = TorrentStore.inspect(bytes)
@@ -90,7 +90,8 @@ class TorrentDeviceTest {
                     val testContext = InstrumentationRegistry.getInstrumentation().context
                     bound = context.bindService(android.content.Intent().setClassName(testContext.packageName,
                         "com.espitman.sdm.torrent.ReleasePeerTestService").putExtra("metadata", bytes)
-                        .putExtra("port", port).putExtra("receiver", receiver), connection, Context.BIND_AUTO_CREATE)
+                        .putExtra("port", port).putExtra("receiver", receiver).putExtra("appPackage",context.packageName)
+                        .putExtra("firstSize",first.size).putExtra("secondSize",second.size).putExtra("uploadLimit",seedUploadLimit), connection, Context.BIND_AUTO_CREATE)
                     check(bound) { "Could not bind independent release peer" }
                 }
                 await("independent release peer") { check(releasePeerError == null) { releasePeerError.orEmpty() }; releasePeerReady }
@@ -176,6 +177,117 @@ class TorrentDeviceTest {
                 } finally {job.cancelAndJoin()}
             } finally {store.remove(id)}
         } }
+    }
+    @Test fun globalRateClassIncludesIpv4AndIpv6LocalPeers() {
+        TorrentNativeRuntime.prepare(context)
+        val session=SessionManager()
+        try {
+            session.start(SessionParams(TorrentSessionSettings.create(20)));session.stopDht()
+            TorrentSessionSettings.applyRateClassToAllPeers(session)
+            val filter=session.swig().get_peer_class_filter()
+            for(address in listOf("127.0.0.1","192.168.1.9","203.0.113.7","::1","fd00::1","2001:db8::1"))
+                assertEquals("Global limit class missing for $address",1L,filter.access(Address(address).swig()) and 1L)
+        } finally {session.stop()}
+    }
+    @Test fun sharedGlobalLimitChangesDuringConcurrentHttpAndTorrent() = runBlocking {
+        check(context.packageName.endsWith(".qa")) { "Mixed global test is isolated from user transfers" }
+        val repo=com.espitman.sdm.data.AppRepositories.downloads(context);repo.awaitInitialized();check(repo.downloads.value.isEmpty())
+        val settings=com.espitman.sdm.data.settings.SettingsRepository.get(context);val original=settings.settings.value
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        val access=com.espitman.sdm.web.WebPanelRuntime.access;val pending=access.request("Owned mixed rate test","127.0.0.7");check(access.approve(pending.first.id));val secret=checkNotNull(access.collect(pending.first.id,pending.second));val browser=access.authorize(secret)
+        val bridge=com.espitman.sdm.web.WebAppBridge(context);val router=com.espitman.sdm.web.WebRouter(access,{"Fixture"},{null},bridge::handle)
+        fun call(path:String,body:org.json.JSONObject?=null,upload:ByteArray?=null):org.json.JSONObject {
+            val response=router.handle(com.espitman.sdm.web.LanHttpServer.Request(if(body==null&&upload==null)"GET" else "POST",path,buildMap{put("authorization","Bearer $secret");if(body!=null||upload!=null){put("idempotency-key",UUID.randomUUID().toString());put("content-type",if(upload==null)"application/json" else "application/x-bittorrent")}},upload?:body?.toString()?.toByteArray()?:byteArrayOf(),"127.0.0.7"))
+            assertTrue(String(response.body),response.status in setOf(200,202));return org.json.JSONObject(String(response.body))
+        }
+        val networkTest=InstrumentationRegistry.getArguments().getString("network")=="true"
+        val runtime=com.espitman.sdm.web.WebPanelRuntime
+        val oldEnabled=runtime.enabled(context);val oldPort=runtime.port(context)
+        val networkStage=File(context.externalCacheDir,"mixed-network-stage")
+        val networkInfo=File(context.externalCacheDir,"mixed-network-info.json")
+        val wifi=context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+        var originalNetworkId:Int?=null
+        fun <T> networkPermission(block:()->T):T {
+            val automation=InstrumentationRegistry.getInstrumentation().uiAutomation
+            automation.adoptShellPermissionIdentity("android.permission.NETWORK_SETTINGS","android.permission.ACCESS_WIFI_STATE","android.permission.CHANGE_WIFI_STATE","android.permission.ACCESS_FINE_LOCATION")
+            try{return block()}finally{automation.dropShellPermissionIdentity()}
+        }
+        fun connectSaved(id:Int)=networkPermission { check(wifi.enableNetwork(id,true)) { "Android rejected the saved network switch" };wifi.reconnect() }
+
+        val length=64*1024*1024;val origin=ServerSocket(0,16,java.net.InetAddress.getByName("127.0.0.1"));val sockets=java.util.concurrent.CopyOnWriteArrayList<java.net.Socket>()
+        val acceptor=thread(isDaemon=true){while(!origin.isClosed)try{val socket=origin.accept();sockets+=socket;thread(isDaemon=true){try{socket.use{client->
+            client.soTimeout=5000;val reader=client.getInputStream().bufferedReader();val line=reader.readLine()?:return@use;var range:String?=null
+            while(true){val h=reader.readLine()?:break;if(h.isEmpty())break;if(h.startsWith("Range:",true))range=h.substringAfter(':').trim()}
+            val bounds=range?.removePrefix("bytes=")?.split('-');val start=bounds?.firstOrNull()?.toIntOrNull()?:0;val end=minOf(bounds?.getOrNull(1)?.toIntOrNull()?:length-1,length-1)
+            val out=client.getOutputStream();out.write(("HTTP/1.1 ${if(range==null)"200 OK" else "206 Partial Content"}\r\nContent-Length: ${end-start+1}\r\nAccept-Ranges: bytes\r\nETag: \"mixed-v1\"\r\nConnection: close\r\n"+(if(range==null)"" else "Content-Range: bytes $start-$end/$length\r\n")+"\r\n").toByteArray())
+            if(!line.startsWith("HEAD")){val block=ByteArray(65536){(start+it).toByte()};var offset=start;while(offset<=end){val count=minOf(block.size,end-offset+1);out.write(block,0,count);offset+=count}}
+        }}catch(_:Exception){}finally{sockets.remove(socket)}}}catch(_:Exception){if(origin.isClosed)break}}
+        val ids=mutableListOf<String>();var httpDirectory:File?=null
+        fun bytes()=repo.downloads.value.filter{it.id in ids}.sumOf{it.downloadedBytes}
+        suspend fun measure():Double {val before=bytes();val time=System.nanoTime();delay(8000);return (bytes()-before)*1e9/(System.nanoTime()-time)}
+        try { Fixture(firstSize=32*1024*1024,seedUploadLimit=4*1024*1024).use{f->
+            f.ready();call("/api/settings",org.json.JSONObject().put("simultaneous",2).put("wifiOnly",false).put("dailyBulkScheduleEnabled",false).put("unlimitedSpeed",false).put("speedLimitMbps",1).put("speedLimitWifiOnly",false))
+            val draft=call("/api/torrent/upload",upload=f.bytes).getString("id");await("mixed metadata"){call("/api/torrent/draft/$draft").getString("status")=="ready"}
+            val chosen=f.contents.files.first{it.path.endsWith("first.bin")}
+            val torrentId=call("/api/torrent/submit",org.json.JSONObject().put("id",draft).put("selected",org.json.JSONArray(listOf(chosen.index))).put("seed",false).put("startNow",false)).getString("id");ids+=torrentId
+            val added=call("/api/downloads/add",org.json.JSONObject().put("links",org.json.JSONArray(listOf("http://127.0.0.1:${origin.localPort}/mixed-http.bin"))).put("startNow",false))
+            val httpId=added.getJSONArray("results").getJSONObject(0).getString("id");ids+=httpId
+            httpDirectory=repo.get(httpId)!!.destinationPath?.let{File(it).parentFile}
+            call("/api/download/action",org.json.JSONObject().put("ids",org.json.JSONArray(ids)).put("action","resume"))
+            await("both mixed protocols transferring"){ids.all{repo.get(it)!!.state==DownloadState.DOWNLOADING&&repo.get(it)!!.downloadedBytes>=262144}}
+            if(!networkTest) {
+            delay(2000);val firstOffsets=ids.associateWith{repo.get(it)!!.downloadedBytes};val capped=measure()
+            println("MIXED_SAMPLE cap1=$capped before=$firstOffsets after=${ids.associateWith{repo.get(it)!!.downloadedBytes}} states=${ids.map{repo.get(it)!!.state}}")
+            assertTrue("Both protocols must gain verified bytes",ids.all{repo.get(it)!!.downloadedBytes>firstOffsets.getValue(it)})
+            assertTrue("Mixed global 1 MB/s was exceeded or stalled: $capped",capped in 400000.0..1350000.0)
+            call("/api/settings",org.json.JSONObject().put("speedLimitMbps",2));delay(2000);val changed=measure()
+            assertTrue("Mixed live 2 MB/s was exceeded or stalled: $changed",changed in 1200000.0..2600000.0)
+            println("MIXED_GLOBAL_RATES cap1=$capped cap2=$changed http=${repo.get(httpId)!!.downloadedBytes} torrent=${repo.get(torrentId)!!.downloadedBytes}")
+            File(context.externalCacheDir,"mixed-rate-result.json").writeText(org.json.JSONObject().put("cap1Rate",capped).put("cap2Rate",changed).toString())
+            }
+            if(networkTest) {
+                runtime.start(context,18083);await("physical network listener"){runtime.status.value.running}
+                val oldAddress=checkNotNull(runtime.status.value.address)
+                fun remoteState(address:String):org.json.JSONObject {
+                    val connection=java.net.URL("$address/api/state").openConnection() as java.net.HttpURLConnection
+                    connection.connectTimeout=3000;connection.readTimeout=3000;connection.setRequestProperty("Authorization","Bearer $secret")
+                    try { assertEquals(200,connection.responseCode);return org.json.JSONObject(connection.inputStream.bufferedReader().use{it.readText()}) } finally {connection.disconnect()}
+                }
+                remoteState(oldAddress)
+                val approvalsBefore=access.browsers.value
+                val approval=access.request("Owned pending network request","127.0.0.8")
+                val offsets=ids.associateWith{repo.get(it)!!.downloadedBytes}
+                call("/api/settings",org.json.JSONObject().put("speedLimitMbps",1).put("wifiOnly",true))
+                val configured=networkPermission { wifi.configuredNetworks }
+                val current=networkPermission { wifi.connectionInfo.networkId };originalNetworkId=current
+                val alternate=configured.first { it.SSID.trim('"')=="JABAMA" && it.networkId!=current }
+                networkInfo.writeText(org.json.JSONObject().put("before",oldAddress).toString());networkStage.writeText("ready")
+                connectSaved(alternate.networkId)
+                withTimeout(90000){while(!runtime.status.value.running||runtime.status.value.address==oldAddress)delay(100)}
+                val changedAddress=checkNotNull(runtime.status.value.address);remoteState(changedAddress)
+                assertEquals(browser.id,access.authorize(secret).id)
+                assertEquals(approvalsBefore,access.browsers.value)
+                val collected=try{access.collect(approval.first.id,approval.second)}catch(_:com.espitman.sdm.web.AccessDenied){null}
+                assertTrue("Network change must never approve a pending request",collected==null);access.deny(approval.first.id)
+                assertTrue("Published progress decreased after the physical network change: before=$offsets after=${ids.associateWith{repo.get(it)!!.downloadedBytes}}",ids.all{repo.get(it)!!.downloadedBytes>=offsets.getValue(it)})
+                networkInfo.writeText(org.json.JSONObject().put("before",oldAddress).put("after",changedAddress).toString());networkStage.writeText("changed")
+                println("PHYSICAL_NETWORK_ADDRESS $oldAddress -> $changedAddress existingApproval=${access.authorize(secret).id==browser.id}")
+                delay(15000)
+                connectSaved(current)
+                withTimeout(90000){while(!runtime.status.value.running||networkPermission { wifi.connectionInfo.networkId }!=current)delay(100)}
+                remoteState(checkNotNull(runtime.status.value.address));networkStage.writeText("returned")
+            }
+            call("/api/settings",org.json.JSONObject().put("unlimitedSpeed",true));await("mixed exact completion"){ids.all{repo.get(it)!!.state==DownloadState.COMPLETED}}
+            for((id,expected) in listOf(torrentId to MessageDigest.getInstance("SHA-256").digest(f.first),httpId to MessageDigest.getInstance("SHA-256").apply{repeat(1024){update(ByteArray(65536){it.toByte()})}}.digest())) {
+                val row=repo.get(id)!!;val location=if(row.isTorrent)TorrentStore(context).selection(id).published[chosen.index]?:TorrentPaths.resolve(File(row.destinationPath!!),chosen.path).path else row.destinationPath!!
+                val stream=if(location.startsWith("content:"))context.contentResolver.openInputStream(android.net.Uri.parse(location))!! else File(location).inputStream()
+                val actual=MessageDigest.getInstance("SHA-256");stream.use{input->val buffer=ByteArray(65536);while(true){val count=input.read(buffer);if(count<0)break;actual.update(buffer,0,count)}};assertArrayEquals(if(row.isTorrent)"Torrent exact bytes" else "HTTP exact resumed bytes",expected,actual.digest())
+            }
+        }} finally {
+            ids.forEach{id->com.espitman.sdm.download.DownloadTransferService.cancelTransfer(context,id);val row=repo.get(id);row?.destinationPath?.let{path->if(!path.startsWith("content:")){val file=File(path);if(row.isTorrent)file.deleteRecursively() else{file.delete();com.espitman.sdm.download.DownloadPartFile.forDestination(file).delete()}}};repo.delete(id);TorrentStore(context).remove(id)}
+            settings.update{original};com.espitman.sdm.download.DailyBulkSchedule.arm(context);if(networkTest){originalNetworkId?.let{runCatching{connectSaved(it)}};if(oldEnabled)runtime.start(context,oldPort) else runtime.stop(context)};origin.close();sockets.forEach{runCatching{it.close()}};acceptor.join(1000);bridge.close();access.revoke(browser.id)
+        }
+        assertTrue(repo.downloads.value.isEmpty())
     }
     @Test fun webUploadSelectionPauseResumeCompletionAndSeedingUseRealPeer() = webTransfer(false)
     @Test fun webMagnetSelectionPauseResumeCompletionAndSeedingUseRealPeer() = webTransfer(true)

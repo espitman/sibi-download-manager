@@ -1,0 +1,179 @@
+{
+  "date": "2026-11-01",
+  "phone": "Xiaomi 2107113SG",
+  "logs": [
+    {
+      "file": "logs/sdm-copy-before-recovery.log",
+      "sha256": "351833ea9c01400c8cce1a9301ebfb6e988aad024b149364f40f40ea39713850",
+      "result": [
+        "FAILURES!!!"
+      ],
+      "seconds": [
+        "0.095"
+      ],
+      "sourceSha256": "85454a2ab84c4a887af62eaf3fe42873ed2bfee0ebbae9c2b543df1eeda8e7e6",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-copy-after-recovery.log",
+      "sha256": "4bf48cf431d9d21a0059ba8755423c051386884464465ce18b4d11a6dc62feb3",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "0.117"
+      ],
+      "sourceSha256": "0736d5fa0dba9fcd927c22d50f01c4c99d6e491d534a174cc6ef338a106c086a",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-publish-after-recovery.log",
+      "sha256": "e2f1bff16163d6f51e597eda8d3a29edff36e9c050e56b5bc2bf95918e840f93",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "0.329"
+      ],
+      "sourceSha256": "46066d2c74667c93ac28e42389820fc96616be5dab118222e58310c02adee3e8",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-copy-quota-enospc.log",
+      "sha256": "551024a90d87f61cc971cf3335590643b5125e7e9fbf05b59dc9ec9fb35764d8",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "0.238"
+      ],
+      "sourceSha256": "733faded0ce602ed266a8e674c1dba10d3b251d5c34ca884cf928d93617852e1",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-changed-copy-retained.log",
+      "sha256": "6688a54a49145c7a1f8da46b703680ad97134f6e22d09bee5353f8c514a26e05",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "0.153"
+      ],
+      "sourceSha256": "4b9a2af21a345306bc1d978f4b98b7cf27c2a5dc9b8f029b07a8dd5933530dc3",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-move-regressions-after-crash-fix.log",
+      "sha256": "a45374d52ba31aba9a97340614bfa66fbf2fb6ddf6088c9d1dfb43188a1e2f17",
+      "result": [
+        "OK (4 tests)"
+      ],
+      "seconds": [
+        "0.596"
+      ],
+      "sourceSha256": "30d67b3a6b171cf987a37e3d10d85ec38ee43490f3c7c03b2059d37788a2d6ab",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-mixed-after-global-class-fix.log",
+      "sha256": "9198279a39e9e681df790035df95a3ab86821ab27a8d76d9ca0b7c24226c6f50",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "31.72"
+      ],
+      "sourceSha256": "ef387e084775aa48ec068d517aa289ac35c5977e24345970f9d0c50fce67e260",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-global-class-ipv4-ipv6.log",
+      "sha256": "aa86517ad90a9987931ac6d5dc0e4e3c535732b50d96d343f4bf25df0703a4aa",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "0.841"
+      ],
+      "sourceSha256": "a6bbd1a34c6757a7c5f3ecd279d0e53453ea8982d45b5f8c0f44f125ab8e0032",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-physical-ip-exact-bytes.log",
+      "sha256": "99e13215e156e77f9162bce7a1e9a62db38b82ed27fcdb2de0a261e5386c46e7",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "41.511"
+      ],
+      "sourceSha256": "d70427473af51c38bada7334c0d9bebed23c728c711dd55431ed1b3f237309ec",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-final-native-token-visual-fixture.log",
+      "sha256": "28e254953901bba9e4276ffc60bfac1d320f6826e4e044082543f740e0ead500",
+      "result": [
+        "OK (1 test)"
+      ],
+      "seconds": [
+        "767.867"
+      ],
+      "sourceSha256": "6ce7f2965f7b770ee5699ac533e4b25f909e645a9f1989d67afddd68cc6288a3",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-final-updated-release-device.log",
+      "sha256": "2b63db520429a393cd40bc902ff663a30346889cd5f28d75df6c4e13e4a84d62",
+      "result": [
+        "OK (4 tests)"
+      ],
+      "seconds": [
+        "1.96"
+      ],
+      "sourceSha256": "eb4abc12c2a5f359939488cdabc34cf0367dc4406ec4d5c72da99c5d550a3540",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-final-updated-js.log",
+      "sha256": "7a2ce8414ffae590805dc39341b01b49efad58b2d734fe750f5f2e6129f45cc5",
+      "result": [
+        "\u2139 pass 60"
+      ],
+      "seconds": [],
+      "sourceSha256": "7a2ce8414ffae590805dc39341b01b49efad58b2d734fe750f5f2e6129f45cc5",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    },
+    {
+      "file": "logs/sdm-final-recovery-rate-release.log",
+      "sha256": "9e8082365c73ca3bf8a207242226af8b7c241edecc9de8e325441c16b5e5017a",
+      "result": [
+        "BUILD SUCCESSFUL in 24s"
+      ],
+      "seconds": [],
+      "sourceSha256": "9e8082365c73ca3bf8a207242226af8b7c241edecc9de8e325441c16b5e5017a",
+      "normalization": "Leading/trailing blank lines removed; output text unchanged."
+    }
+  ],
+  "physicalIp": {
+    "before": "10.22.10.45",
+    "after": "10.22.4.106",
+    "restored": "10.22.10.45",
+    "scope": "Same approved API credential at both addresses; unapproved pending request never becomes authorized. Existing Chrome origin reconnects after network restoration. No cross-origin cookie migration claim."
+  },
+  "rateMeasurements": {
+    "source": "mixed-rate-result.json read from isolated QA external cache before cleanup",
+    "cap1BytesPerSecond": 1041994.4895099575,
+    "cap2BytesPerSecond": 1956969.3417664901
+  },
+  "storageExhaustion": "Actual ENOSPC from bounded SAF test volume after 64 KiB; physical phone storage was not filled.",
+  "originalApplication": {
+    "records": 20,
+    "queue": 4,
+    "completed": 16,
+    "approvedBrowsers": 2,
+    "version": "0.2.75",
+    "debuggable": false
+  },
+  "packageSha256": "c8db6fe7251c894ae8887b5f1419fe238f3d6da03a243f99958db9a259bf7283"
+}

@@ -1,0 +1,1062 @@
+[
+  {
+    "name": "02-downloads-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Downloads",
+    "width": 1512
+  },
+  {
+    "name": "19-downloads-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Downloads",
+    "width": 390
+  },
+  {
+    "name": "03-queue-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Downloads",
+    "width": 390
+  },
+  {
+    "name": "03-queue-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Downloads",
+    "width": 1512
+  },
+  {
+    "name": "04-http-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "20-http-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "20-http-mobile-320",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 320,
+    "title": "Download details",
+    "width": 320
+  },
+  {
+    "name": "12-schedule-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 789,
+      "height": 773,
+      "left": 446,
+      "right": 1066,
+      "top": 16,
+      "width": 620,
+      "x": 446,
+      "y": 16
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "12-schedule-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 828,
+      "height": 812,
+      "left": 19,
+      "right": 371,
+      "top": 16,
+      "width": 352,
+      "x": 19,
+      "y": 16
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "13-limit-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 747.4453125,
+      "height": 650.8984375,
+      "left": 19,
+      "right": 371,
+      "top": 96.546875,
+      "width": 352,
+      "x": 19,
+      "y": 96.546875
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "13-limit-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 682.9453125,
+      "height": 560.8984375,
+      "left": 446,
+      "right": 1066,
+      "top": 122.046875,
+      "width": 620,
+      "x": 446,
+      "y": 122.046875
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "14-link-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 661.890625,
+      "height": 518.78125,
+      "left": 446,
+      "right": 1066,
+      "top": 143.109375,
+      "width": 620,
+      "x": 446,
+      "y": 143.109375
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "14-link-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 730.6875,
+      "height": 617.375,
+      "left": 19,
+      "right": 371,
+      "top": 113.3125,
+      "width": 352,
+      "x": 19,
+      "y": 113.3125
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "15-rename-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 575.25,
+      "height": 306.5,
+      "left": 19,
+      "right": 371,
+      "top": 268.75,
+      "width": 352,
+      "x": 19,
+      "y": 268.75
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "15-rename-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 644.25,
+      "height": 306.5,
+      "left": 446,
+      "right": 1066,
+      "top": 337.75,
+      "width": 620,
+      "x": 446,
+      "y": 337.75
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "15-remove-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 610,
+      "height": 238,
+      "left": 446,
+      "right": 1066,
+      "top": 372,
+      "width": 620,
+      "x": 446,
+      "y": 372
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "15-checksum-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 642,
+      "height": 302,
+      "left": 426,
+      "right": 1086,
+      "top": 340,
+      "width": 660,
+      "x": 426,
+      "y": 340
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "05-add-links-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 944.25,
+      "height": 906.5,
+      "left": 446,
+      "right": 1066,
+      "top": 37.75,
+      "width": 620,
+      "x": 446,
+      "y": 37.75
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "06-add-torrent-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 884.25,
+      "height": 786.5,
+      "left": 446,
+      "right": 1066,
+      "top": 97.75,
+      "width": 620,
+      "x": 446,
+      "y": 97.75
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Download details",
+    "width": 1512
+  },
+  {
+    "name": "06-add-torrent-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 810.25,
+      "height": 776.5,
+      "left": 19,
+      "right": 371,
+      "top": 33.75,
+      "width": 352,
+      "x": 19,
+      "y": 33.75
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "05-add-links-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 828,
+      "height": 812,
+      "left": 19,
+      "right": 371,
+      "top": 16,
+      "width": 352,
+      "x": 19,
+      "y": 16
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Download details",
+    "width": 390
+  },
+  {
+    "name": "08-torrent-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Torrent details",
+    "width": 390
+  },
+  {
+    "name": "08-torrent-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Torrent details",
+    "width": 1512
+  },
+  {
+    "name": "08-torrent-files-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Torrent details",
+    "width": 1512
+  },
+  {
+    "name": "08-torrent-peers-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Torrent details",
+    "width": 1512
+  },
+  {
+    "name": "09-files-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Files",
+    "width": 1512
+  },
+  {
+    "name": "09-files-menu-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Files",
+    "width": 1512
+  },
+  {
+    "name": "21-files-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Files",
+    "width": 390
+  },
+  {
+    "name": "21-files-selection-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Files",
+    "width": 390
+  },
+  {
+    "name": "10-settings-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Settings",
+    "width": 390
+  },
+  {
+    "name": "10-time-picker-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Settings",
+    "width": 390
+  },
+  {
+    "name": "10-time-picker-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Settings",
+    "width": 1512
+  },
+  {
+    "name": "10-settings-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Settings",
+    "width": 1512
+  },
+  {
+    "name": "10-folder-rename-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 676.25,
+      "height": 370.5,
+      "left": 526,
+      "right": 986,
+      "top": 305.75,
+      "width": 460,
+      "x": 526,
+      "y": 305.75
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Settings",
+    "width": 1512
+  },
+  {
+    "name": "10-folder-rename-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "dialog": {
+      "bottom": 614,
+      "height": 384,
+      "left": 19,
+      "right": 371,
+      "top": 230,
+      "width": 352,
+      "x": 19,
+      "y": 230
+    },
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Settings",
+    "width": 390
+  },
+  {
+    "name": "16-disconnected-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Downloads",
+    "width": 390
+  },
+  {
+    "name": "16-disconnected-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Downloads",
+    "width": 1512
+  },
+  {
+    "name": "18-empty-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Downloads",
+    "width": 1512
+  },
+  {
+    "name": "18-empty-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Downloads",
+    "width": 390
+  },
+  {
+    "name": "08-seeding-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Torrent details",
+    "width": 390
+  },
+  {
+    "name": "08-seeding-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Torrent details",
+    "width": 1512
+  },
+  {
+    "name": "17-revoked-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Access revoked on your phone",
+    "width": 1512
+  },
+  {
+    "name": "17-revoked-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Access revoked on your phone",
+    "width": 390
+  },
+  {
+    "name": "01-approval-mobile",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 390,
+    "title": "Access revoked on your phone",
+    "width": 390
+  },
+  {
+    "name": "01-approval-desktop",
+    "bodyFont": "Plex, Arial, sans-serif",
+    "headingFont": "Avenir Next, Century Gothic, Futura, Plex, sans-serif",
+    "palette": {
+      "bg": "#070707",
+      "gold": "#d4af37",
+      "gold-hi": "#f3d675",
+      "green": "#70c69b",
+      "line": "#2d2c28",
+      "muted": "#9a978f",
+      "raised": "#191a1c",
+      "red": "#ef756b",
+      "surface": "#121315",
+      "text": "#f5f1e8"
+    },
+    "scrollWidth": 1512,
+    "title": "Access revoked on your phone",
+    "width": 1512
+  }
+]

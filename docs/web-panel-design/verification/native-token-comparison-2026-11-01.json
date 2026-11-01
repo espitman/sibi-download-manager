@@ -1,0 +1,67 @@
+{
+  "reference": "Open Design 13ab3c0f-1414-409f-934f-981d4a24c89f/index.html",
+  "tokens": [
+    {
+      "token": "bg",
+      "reference": "#070707",
+      "before": "#070707",
+      "after": "#070707"
+    },
+    {
+      "token": "surface",
+      "reference": "#121315",
+      "before": "#111214",
+      "after": "#121315"
+    },
+    {
+      "token": "raised",
+      "reference": "#191a1c",
+      "before": "#17181a",
+      "after": "#191a1c"
+    },
+    {
+      "token": "gold",
+      "reference": "#d4af37",
+      "before": "#d4af37",
+      "after": "#d4af37"
+    },
+    {
+      "token": "gold-hi",
+      "reference": "#f3d675",
+      "before": "#e8c65a",
+      "after": "#f3d675"
+    },
+    {
+      "token": "text",
+      "reference": "#f5f1e8",
+      "before": "#f4f2e9",
+      "after": "#f5f1e8"
+    },
+    {
+      "token": "muted",
+      "reference": "#9a978f",
+      "before": "#96958e",
+      "after": "#9a978f"
+    },
+    {
+      "token": "line",
+      "reference": "#2d2c28",
+      "before": "#2d2d29",
+      "after": "#2d2c28"
+    },
+    {
+      "token": "green",
+      "reference": "#70c69b",
+      "before": "#78c7a5",
+      "after": "#70c69b"
+    },
+    {
+      "token": "red",
+      "reference": "#ef756b",
+      "before": "#d98181",
+      "after": "#ef756b"
+    }
+  ],
+  "beforeMismatches": 8,
+  "afterMismatches": 0
+}

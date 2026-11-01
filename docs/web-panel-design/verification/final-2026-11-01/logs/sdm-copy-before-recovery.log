@@ -1,0 +1,38 @@
+com.espitman.sdm.web.WebCopyCrashQaDeviceTest:
+Error in recoverAfterRealProcessDeathKeepsOriginalAndCleansOwnedCopy(com.espitman.sdm.web.WebCopyCrashQaDeviceTest):
+java.lang.AssertionError: Interrupted move must remove its owned staging/publication copy expected:<1> but was:<5>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at com.espitman.sdm.web.WebCopyCrashQaDeviceTest$recoverAfterRealProcessDeathKeepsOriginalAndCleansOwnedCopy$1.invokeSuspend(WebCopyCrashQaDeviceTest.kt:54)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:280)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:85)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:59)
+	at kotlinx.coroutines.BuildersKt.runBlocking(dex-id-4d6d2b091a7b5c887fb6668eec6eed4d3b146f61:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:38)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(dex-id-4d6d2b091a7b5c887fb6668eec6eed4d3b146f61:1)
+	at com.espitman.sdm.web.WebCopyCrashQaDeviceTest.recoverAfterRealProcessDeathKeepsOriginalAndCleansOwnedCopy(WebCopyCrashQaDeviceTest.kt:47)
+
+
+Time: 0.095
+There was 1 failure:
+1) recoverAfterRealProcessDeathKeepsOriginalAndCleansOwnedCopy(com.espitman.sdm.web.WebCopyCrashQaDeviceTest)
+java.lang.AssertionError: Interrupted move must remove its owned staging/publication copy expected:<1> but was:<5>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at com.espitman.sdm.web.WebCopyCrashQaDeviceTest$recoverAfterRealProcessDeathKeepsOriginalAndCleansOwnedCopy$1.invokeSuspend(WebCopyCrashQaDeviceTest.kt:54)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:280)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:85)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:59)
+	at kotlinx.coroutines.BuildersKt.runBlocking(dex-id-4d6d2b091a7b5c887fb6668eec6eed4d3b146f61:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:38)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(dex-id-4d6d2b091a7b5c887fb6668eec6eed4d3b146f61:1)
+	at com.espitman.sdm.web.WebCopyCrashQaDeviceTest.recoverAfterRealProcessDeathKeepsOriginalAndCleansOwnedCopy(WebCopyCrashQaDeviceTest.kt:47)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1

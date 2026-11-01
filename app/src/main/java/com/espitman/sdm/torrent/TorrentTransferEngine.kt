@@ -35,7 +35,7 @@ object TorrentRuntime {
     val telemetry: StateFlow<Map<String, TorrentTelemetry>> = state
     @Synchronized internal fun acquire(): SessionManager {
         val manager = session ?: SessionManager().also {
-            it.start(SessionParams(TorrentSessionSettings.create(200))); session = it
+            it.start(SessionParams(TorrentSessionSettings.create(200))); TorrentSessionSettings.applyRateClassToAllPeers(it); session = it
         }
         users++
         return manager
@@ -109,6 +109,7 @@ class TorrentTransferEngine(private val context: Context, private val capacity: 
             session.addListener(listener)
             torrent.unsetFlags(TorrentFlags.AUTO_MANAGED)
             torrent.prioritizeFiles(priorities)
+            session.applySettings(SettingsPack().downloadRateLimit(AppRepositories.torrentRateLimit(context)))
             torrent.resume()
             repository.transition(id, DownloadState.DOWNLOADING, now())
             var checkpointAt = System.currentTimeMillis()

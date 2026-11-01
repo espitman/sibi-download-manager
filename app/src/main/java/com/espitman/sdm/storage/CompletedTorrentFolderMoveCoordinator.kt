@@ -28,7 +28,7 @@ object CompletedTorrentFolderMoveCoordinator {
             "Stop the torrent before moving its completed folder"
         }
         recoverPlans(context, repository, id)
-        require(journals(context).listFiles().orEmpty().none { it.name.startsWith("$id-") }) { "The previous move retained changed files or needs folder access. Restore access and try again" }
+        require(listOf(journals(context), copies(context)).flatMap { it.listFiles().orEmpty().toList() }.none { it.name.startsWith("$id-") }) { "The previous move retained changed files or needs folder access. Restore access and try again" }
         val source = record.destinationPath ?: throw IllegalArgumentException("Folder is unavailable")
         val tree = CompletedFolderTree(context)
         val store = TorrentStore(context)
@@ -59,11 +59,20 @@ object CompletedTorrentFolderMoveCoordinator {
             else AndroidStorageCapacityProbe(context).queryTree(target.tree!!)
         capacity.availableBytes?.let { require(it >= requiredBytes) { "Not enough storage in the selected folder" } }
         require(tree.child(parent, record.fileName) == null) { "A file or folder with that name already exists" }
+        val operation = UUID.randomUUID().toString()
+        val stagingName = ".sdm-move-$operation.part"
+        val marker = ".sdm-copy-owner-$operation"
+        val copyPlan = File(copies(context), "$id-$operation.json")
+        // Reserve the unique staging name durably before allocating or writing the copy.
+        write(copyPlan, JSONObject().put("id", id).put("source", source).put("parent", parent)
+            .put("name", record.fileName).put("staging", stagingName).put("marker", marker)
+            .put("metadata", metadataHash(store.metadata(id))).put("before", nodesJson(before)))
         var destination: String? = null
         var committed = false
         var journal: File? = null
         try {
-            destination = tree.create(parent, ".sdm-move-${UUID.randomUUID()}.part", true)
+            destination = tree.create(parent, stagingName, true)
+            tree.create(destination!!, marker, false)
             val paths = mutableMapOf("" to destination!!)
             for (node in before.filter { it.path.isNotEmpty() }.sortedWith(compareBy({ it.path.count { char -> char == '/' } }, { it.path }))) {
                 val parentPath = node.path.substringBeforeLast('/', "")
@@ -105,9 +114,25 @@ object CompletedTorrentFolderMoveCoordinator {
             }
             val removed = runCatching { tree.matches(source, before) && tree.delete(source) }.getOrDefault(false)
             if (removed) journal!!.delete()
+            val markerRemoved = runCatching { tree.child(destination!!, marker)?.let(tree::delete) ?: true }.getOrDefault(false)
+            if (markerRemoved) copyPlan.delete()
             Result(record.fileName, if (removed) null else "Moved to the new folder. The original folder was retained; check its access or changed files.")
         } finally {
-            if (!committed) destination?.let { runCatching { tree.delete(it) } }
+            if (!committed) {
+                val removed = destination?.let { location -> runCatching {
+                    if (!tree.exists(location)) true else {
+                        val partial = tree.snapshot(location)
+                        val originals = before.associateBy { it.path }
+                        val owned = partial.size == 1 || partial.any { it.path == marker && !it.directory && it.size == 0L }
+                        owned && tree.matches(source, before) && partial.filter { it.path != marker }.all { node ->
+                            originals[node.path]?.let { tree.isVerifiedPrefix(node, it) } == true
+                        } && tree.delete(location)
+                    }
+                }.getOrDefault(false) } ?: true
+                // renameDocument may have renamed its document before failing/being killed.
+                // Keep the intent until recovery verifies both possible names.
+                if (removed && runCatching { tree.child(parent, record.fileName) == null }.getOrDefault(false)) copyPlan.delete()
+            }
         }
     }
 
@@ -119,7 +144,6 @@ object CompletedTorrentFolderMoveCoordinator {
     }
     private suspend fun recoverPlans(context: Context, repository: DownloadRepository, downloadId: String?): Boolean {
             val plans = journals(context).listFiles().orEmpty().filter { it.extension == "json" && (downloadId == null || it.name.startsWith("$downloadId-")) }
-            if (plans.isEmpty()) return true
             val tree = CompletedFolderTree(context)
             val store = TorrentStore(context)
             var recovered = true
@@ -151,8 +175,48 @@ object CompletedTorrentFolderMoveCoordinator {
                 }.getOrDefault(false)
                 recovered = recovered && success
             }
-            return recovered
+            return recoverCopies(context, repository, downloadId) && recovered
     }
+    private suspend fun recoverCopies(context: Context, repository: DownloadRepository, downloadId: String?): Boolean {
+        val tree = CompletedFolderTree(context)
+        var recovered = true
+        for (file in copies(context).listFiles().orEmpty().filter { it.extension == "json" && (downloadId == null || it.name.startsWith("$downloadId-")) }) {
+            val success = runCatching {
+                val plan = JSONObject(String(AtomicFile(file).readFully(), Charsets.UTF_8))
+                val id = plan.getString("id")
+                val record = repository.get(id) ?: return@runCatching false
+                require(record.isTorrent && record.state == DownloadState.COMPLETED && metadataHash(TorrentStore(context).metadata(id)) == plan.getString("metadata"))
+                val parent = plan.getString("parent")
+                val staging = tree.child(parent, plan.getString("staging"))
+                val published = tree.child(parent, plan.getString("name"))
+                val marker = plan.getString("marker")
+                val before = nodesFrom(plan.getJSONArray("before"))
+                var ownedFound = false
+                for (candidate in listOfNotNull(staging, published).distinct()) {
+                    val nodes = tree.snapshot(candidate)
+                    val proof = nodes.singleOrNull { it.path == marker && !it.directory && it.size == 0L }
+                    // An allocation interrupted before marker creation can only own an empty staging directory.
+                    if (proof == null && !(candidate == staging && nodes.size == 1)) continue
+                    ownedFound = true
+                    if (record.destinationPath?.let(tree::identity) == tree.identity(candidate)) {
+                        // Record/selection commit is recovered by its existing journal above.
+                        proof?.let { require(tree.delete(it.location)) }
+                    } else {
+                        require(record.destinationPath == plan.getString("source") && tree.matches(plan.getString("source"), before))
+                        val originals = before.associateBy { it.path }
+                        require(nodes.filter { it.path != marker }.all { node -> originals[node.path]?.let { tree.isVerifiedPrefix(node, it) } == true })
+                        require(tree.delete(candidate))
+                    }
+                }
+                require(ownedFound || (staging == null && published == null))
+                file.delete()
+                true
+            }.getOrDefault(false)
+            recovered = recovered && success
+        }
+        return recovered
+    }
+    private fun copies(context: Context) = File(context.filesDir, "completed-folder-copies").apply { check(isDirectory || mkdirs()) }
     private fun journals(context: Context) = File(context.filesDir, "completed-folder-moves").apply { check(isDirectory || mkdirs()) }
     private fun metadataHash(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     private fun selectionJson(selection: TorrentSelection) = JSONObject().put("selected", JSONArray(selection.selected.sorted()))

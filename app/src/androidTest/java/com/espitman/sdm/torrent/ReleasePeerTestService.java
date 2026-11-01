@@ -29,22 +29,22 @@ public final class ReleasePeerTestService extends Service {
         receiver = intent.getParcelableExtra("receiver");
         byte[] metadata = intent.getByteArrayExtra("metadata");
         int port = intent.getIntExtra("port", 0);
-        if (receiver == null || metadata == null || metadata.length > 8192 || port < 1024 || port > 65535)
+        if (receiver == null || metadata == null || metadata.length > 65536 || port < 1024 || port > 65535)
             throw new IllegalArgumentException("Invalid peer fixture");
         worker = new Thread(() -> {
             try {
-                android.content.pm.ApplicationInfo app = getPackageManager().getApplicationInfo("com.espitman.sdm", 0);
+                android.content.pm.ApplicationInfo app = getPackageManager().getApplicationInfo(intent.getStringExtra("appPackage") == null ? "com.espitman.sdm" : intent.getStringExtra("appPackage"), 0);
                 engineLoader = new PathClassLoader(app.sourceDir, app.nativeLibraryDir, getClassLoader());
                 directory = new File(getCacheDir(), "peer-" + java.util.UUID.randomUUID());
                 File bundle = new File(directory, "QA-bundle");
                 if (!bundle.mkdirs()) throw new IllegalStateException("Could not create owned fixture");
-                payload(new File(bundle, "first.bin"), 2 * 1024 * 1024, 31, 251);
-                payload(new File(bundle, "second.bin"), 1024 * 1024, 17, 239);
+                payload(new File(bundle, "first.bin"), intent.getIntExtra("firstSize", 2 * 1024 * 1024), 31, 251);
+                payload(new File(bundle, "second.bin"), intent.getIntExtra("secondSize", 1024 * 1024), 17, 239);
                 Class<?> settingsClass = engine("SettingsPack");
                 Object settings = settingsClass.getConstructor().newInstance();
                 settingsClass.getMethod("setPeerFingerprint", byte[].class).invoke(settings, (Object)("-QA0001-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12)).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
                 settingsClass.getMethod("listenInterfaces", String.class).invoke(settings, "127.0.0.1:" + port);
-                settingsClass.getMethod("uploadRateLimit", int.class).invoke(settings, 128 * 1024);
+                settingsClass.getMethod("uploadRateLimit", int.class).invoke(settings, intent.getIntExtra("uploadLimit", 128 * 1024));
                 // Metadata resolution, cancellation and resumed transfers all share loopback IP.
                 Class<?> bools = engineLoader.loadClass("com.frostwire.jlibtorrent.swig.settings_pack$bool_types");
                 Object multiple = bools.getField("allow_multiple_connections_per_ip").get(null);
