@@ -44,9 +44,9 @@ Verification: [Physical-device and automated validation](docs/import-export-back
 - [x] 18. DMF-018 — Let the user map file categories to save folders through Android's document-tree picker.
 - [x] 19. DMF-019 — Classify files using trusted metadata and filename fallback, then reserve the correct destination before download.
 - [x] 20. DMF-020 — Handle revoked folder permissions and unknown types without losing or misplacing downloads.
-- [ ] 21. DMF-021 — Test category rules, filename collisions, SD-card folders, and changes to rules while a download is active.
+- [x] 21. DMF-021 — Test category rules, filename collisions and changes to rules while a download is active. Physical removable-SD support/qualification is outside scope by explicit user decision, 2026-11-01.
 
-Verification: [Physical-device and automated validation](docs/automatic-folders-validation.md). Real HTTP-to-SAF transfer, byte equality, collision handling, persisted rules, simulated revoked grants and rule edits during transfer passed. DMF-021 remains open only for a physical removable-SD-card check; no such volume is available on the connected device.
+Verification: [Physical-device and automated validation](docs/automatic-folders-validation.md). Real HTTP-to-SAF transfer, byte equality, collision handling, persisted rules, simulated revoked grants and rule edits during transfer passed. DMF-021 is complete under the revised scope: physical removable-SD support/qualification was excluded by the user on 2026-11-01. Fresh focused release-unit regression: 13 tests, zero failures/errors/skips. No physical SD test is claimed.
 
 ## 6. Configurable automatic retry
 
@@ -84,11 +84,12 @@ Verification: [Torrent device, restart, storage and release validation](docs/tor
 - [x] 36. DMF-036 — Compare every new visible control and state against the Open Design reference and verify on a connected device.
 - [x] 37. DMF-037 — Produce a release build and document remaining limitations only after the requested features are complete.
 
-Verification: [0.2.73 validation and documented runtime limits](docs/torrent-validation.md). The separate removable-SD-card test in DMF-021 remains open.
+Verification: [0.2.73 validation and documented runtime limits](docs/torrent-validation.md). Physical removable-SD support/qualification was excluded by the user on 2026-11-01; DMF-021 is complete under that scope.
 
 ## Product boundaries
 
 - Proxy support is excluded by request.
+- Physical removable-SD support/qualification is outside the release scope by user decision (2026-11-01); do not advertise physical-SD validation.
 - Do not restore Always keep active, automatic media detection/downloading, or YouTube-specific access.
 - Keep the existing private-browser behavior unless a later request explicitly changes it.
 
@@ -271,6 +272,9 @@ Actual scenarios now pass. Portable logs/results: docs/web-panel-design/verifica
 ## 11. Interactive app tutorial
 
 - [ ] 38. DMF-038 — Design a complete guided tour in SDM's visual style, using highlighted controls and short explanations with Next, Back, Skip, and progress indicators; obtain approval for the visual design before implementation.
+  - [x] DMF-038.1 — Define the complete 33-step flow across six independent chapters, sample-data isolation, skip/restart/resume, keyboard/accessibility and explicit permission handoff. Specification: docs/tutorial-design/v1/README.md (2026-11-01).
+  - [x] DMF-038.2 — Produce five visual boards with 20 representative native-phone tutorial states, including welcome/completion, spotlight/coach controls, browser/files, settings, interruption, keyboard and light theme. Gallery: docs/tutorial-design/v1/index.html (2026-11-01).
+  - [ ] DMF-038.3 — Obtain user approval for the tutorial layer before implementation. The existing app screens/components remain the underlying reference.
 - [ ] 39. DMF-039 — Introduce the tour on first launch, remember completion or dismissal, and provide a Restart tutorial entry in Settings.
 - [ ] 40. DMF-040 — Guide users through Downloads: aggregate status, All/Queue/Completed, adding single or multiline links, clipboard paste, download/queue actions, pause/resume, selection, bulk actions, deletion choices, and single/group queue reordering.
 - [ ] 41. DMF-041 — Guide users through download details: progress, live speed, connections, history chart, technical information, request headers, segments, rename, checksum verification, priority, copy URL, open folder, scheduling, expired-link refresh, and individual speed limits including the orange card indicator.

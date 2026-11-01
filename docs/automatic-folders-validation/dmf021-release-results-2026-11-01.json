@@ -1,0 +1,10 @@
+{
+  "command": "./gradlew :app:testReleaseUnitTest --tests '*FileCategoryTest' --tests '*DestinationAllocatorTest' --tests '*SafDownloadDestinationPublisherTest'",
+  "results": {
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "scopeChange": "Physical removable-SD support/qualification excluded by explicit user instruction on 2026-11-01; no hardware test claim."
+}

@@ -30,4 +30,4 @@ Cropped evidence excludes unrelated user filenames:
 
 Local QA artifact: `SDM-0.2.73-release.apk`, SHA-256 `42bd7be2a802211ad2cf080cb5e8b9836b5b2b06b4c9ccc4cd8ee4d4314f4227`. It is signed for the existing local test installation; distribution signing remains the separate release process documented in [release preparation](release.md).
 
-See [torrent behavior and licenses](torrent-downloads.md) for metadata/backup bounds, private-magnet availability, provider staging space and opt-in seeding. No removable SD-card volume or 16 KiB-page device is connected; packaging/alignment was checked, but runtime coverage for those environments is not claimed. The older removable-card checklist item remains open.
+See [torrent behavior and licenses](torrent-downloads.md) for metadata/backup bounds, private-magnet availability, provider staging space and opt-in seeding. No removable SD-card volume or 16 KiB-page device is connected; packaging/alignment was checked, but runtime coverage for those environments is not claimed. Physical removable-SD support/qualification was explicitly excluded by the user on 2026-11-01; DMF-021 is closed under that revised scope.
