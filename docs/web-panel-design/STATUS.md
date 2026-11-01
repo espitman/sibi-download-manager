@@ -1,6 +1,6 @@
 # SDM web panel — delivery status, 2026-11-01
 
-The core web-panel implementation is installed and working on the connected phone. The remaining unchecked device qualifications are listed explicitly below; they are not represented as completed tests. Final commit/push status is recorded after delivery.
+The core web-panel implementation is installed and working on the connected phone. The remaining unchecked device qualifications are listed explicitly below; they are not represented as completed tests. Implementation commit `77a1ec5` is pushed to origin/main; the final documentation reconciliation follows in a documentation-only commit.
 
 - Phone: Xiaomi 2107113SG, serial `30fe7f97`.
 - Panel: `http://10.22.10.45:8081/`, opened in external Chrome with its existing approval.
@@ -38,3 +38,5 @@ A physically different LAN IP/network while a request is pending; real OS termin
 - Source parity: verification/capability-matrix.md.
 - Board comparisons: verification/design-state-matrix.md.
 - Final screenshots: `panel-final-lan-desktop-2026-11-01.png`, `panel-final-lan-mobile-2026-11-01.png`, `panel-final-phone-2026-11-01.png`, `open-folder-revealed-release-2026-11-01.png`.
+
+Final external Chrome view remains open on Downloads: All 20 / Queue 4 / Completed 16. Local worktree delivery is committed; no emulator was touched.
