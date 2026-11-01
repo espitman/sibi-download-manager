@@ -674,3 +674,16 @@ body>.file-menu{position:fixed;inset:auto;margin:0;min-width:0;width:260px;max-w
 @media(max-width:760px){.panel-address-row{align-items:flex-start;flex-direction:column;gap:10px}.panel-address-row>.actions{justify-content:flex-start;max-width:100%}.approved-browser>div{min-width:0;overflow-wrap:anywhere}}
 
 h1,h2,h3,.logo,.stat strong,.ring strong,.torrent-total>strong,.details-metrics strong{font-family:var(--display)}
+
+/* Add-download destination and transfer mode share the panel's native card language. */
+.add-destination{margin:20px 0 16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.add-destination-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.destination-summary{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+.destination-symbol{display:grid;place-items:center;width:42px;height:42px;flex:none;border:1px solid #d4af3738;border-radius:12px;color:var(--gold);background:#d4af370a}
+.destination-symbol .icon{width:22px;height:22px}.destination-summary>div{min-width:0}.destination-caption{display:block;color:var(--muted);font-size:12px;line-height:18px;margin-bottom:4px}
+.destination-summary strong{display:block;font-size:16px;line-height:22px;overflow-wrap:anywhere}.destination-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.destination-actions button{min-height:44px;font-size:13px;padding:10px 12px}.destination-actions [data-action="default-destination"]{color:var(--muted);background:transparent}
+.add-destination #destination-folders:not([hidden]){margin-top:16px;background:var(--raised)}.add-destination .error:empty{display:none}
+.add-start{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 20px}
+.add-start label{margin:0;min-width:0;min-height:76px;padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.add-start label:has(input:checked){border-color:var(--gold);background:#d4af370d}.add-start input{margin:0;width:20px;height:20px;flex:none}.add-start strong{display:block;font-size:14px;line-height:20px}.add-start small{display:block;color:var(--muted);font-size:12px;line-height:18px;margin-top:2px}
+@media(max-width:640px){.destination-summary{flex-basis:100%}.destination-actions{width:100%;flex-wrap:nowrap}.destination-actions button{flex:1;min-width:0}.add-start label{padding:12px;gap:10px}}
