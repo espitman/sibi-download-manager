@@ -79,7 +79,13 @@ class TutorialDeviceTest {
     @Test fun all33StepsAreReachableAndActionsStayIsolated() {
         launch();capture("welcome")
         TourChapter.entries.forEach { chapter ->
-            click("tour-chapter-${chapter.name}",true)
+            if(chapter==TourChapter.Downloads) click("Start tour",true)
+            else {
+                waitFor("Choose a chapter")
+                assertNull("Done must only appear at the end",find("Done"))
+                waitFor("Skip");capture("chapter-next-${chapter.name}")
+                click("Next chapter",true)
+            }
             repeat(chapter.count){i->
                 val step=TourCatalog.step(chapter,i+1);stage(step.id)
                 waitFor(step.title);Thread.sleep(120)
@@ -96,7 +102,7 @@ class TutorialDeviceTest {
     }
     @Test fun recreationResumesAndSkipAndRestartPreserveTheRealView() {
         launch();click("Start tour",true);click("Next");recreate()
-        waitFor("Continue your tour?");capture("resume");click("Resume tour");waitFor("Paste one link or several");click("Back");waitFor("Everything in one place");click("Skip")
+        waitFor("Continue your tour?");capture("resume");click("Resume tour");waitFor("Paste one link or several");click("Back");waitFor("Everything in one place");click("Back");waitFor("Choose a chapter");assertNull(find("Done"));capture("chapter-skip");click("Skip",true)
         assertEquals(1,TutorialStore(context).read().number);recreate();Thread.sleep(500);assertNull(find("Continue your tour?"))
         click("Settings");click("Restart tutorial",true);waitFor("Get to know SDM");click("Not now",true);waitFor("Restart tutorial")
     }

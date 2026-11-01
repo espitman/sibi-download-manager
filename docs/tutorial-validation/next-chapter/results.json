@@ -1,0 +1,14 @@
+{
+  "date": "2026-11-01",
+  "version": "0.2.78",
+  "versionCode": 80,
+  "releaseUnit": {
+    "tests": 904,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "deviceTests": 5,
+  "deviceSeconds": 35.888,
+  "apkSha256": "327981f4cf55630fe7b954db45d7aa499ecb8fecbf1198d3195e14df6f4de9c0"
+}

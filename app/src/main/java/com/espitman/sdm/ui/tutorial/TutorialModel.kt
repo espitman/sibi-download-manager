@@ -55,6 +55,11 @@ internal data class TourState(val phase:TourPhase=TourPhase.Welcome,val chapter:
         val done=completed+chapter
         copy(phase=if(done.size==TourChapter.entries.size)TourPhase.Complete else TourPhase.Chapters,completed=done)
     }
+    fun nextChapter():TourState {
+        val chapters=TourChapter.entries
+        val next=(1..chapters.size).map{chapters[(chapter.ordinal+it)%chapters.size]}.firstOrNull{it !in completed}
+        return if(next==null) copy(phase=TourPhase.Complete) else start(next)
+    }
     fun back()=if(number>1)copy(number=number-1)else copy(phase=TourPhase.Chapters)
     fun close()=copy(phase=TourPhase.Hidden)
     fun forRelaunch()=if(phase==TourPhase.Running)copy(phase=TourPhase.Resume)else this

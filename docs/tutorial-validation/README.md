@@ -1,6 +1,6 @@
 # Native tutorial implementation — 2026-11-01
 
-Current patch: **0.2.77** preserves the exact original splash and waits for its complete exit before opening the tutorial. [Regression proof](splash-fix/README.md). The 0.2.76 implementation results below remain dated evidence.
+Current patch: **0.2.78** adds Skip / Next chapter to chapter selection, with Done only at final completion. [Validation](next-chapter/README.md). Patch **0.2.77** preserves the exact original splash and waits for its complete exit before opening the tutorial. [Regression proof](splash-fix/README.md). The 0.2.76 implementation results below remain dated evidence.
 
 Design was approved by the user's explicit request to implement it. The design and DMF-021 scope closure were committed/pushed as `8e8e5b4` before implementation.
 

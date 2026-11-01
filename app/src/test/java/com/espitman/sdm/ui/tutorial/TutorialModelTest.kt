@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TutorialModelTest {
+    @Test fun nextChapterStartsTheFollowingUnfinishedChapter() {
+        val finished=TourState(TourPhase.Chapters,TourChapter.Downloads,5,setOf(TourChapter.Downloads))
+        val next=finished.nextChapter()
+        assertEquals(TourChapter.Details,next.chapter)
+        assertEquals(1,next.number)
+        assertEquals(TourPhase.Running,next.phase)
+        assertEquals(finished.completed,next.completed)
+    }
+    @Test fun nextChapterSkipsCompletedChaptersAndWrapsWithoutLosingProgress() {
+        val state=TourState(TourPhase.Chapters,TourChapter.Settings,8,setOf(TourChapter.Settings,TourChapter.Downloads))
+        assertEquals(TourChapter.Details,state.nextChapter().chapter)
+        assertEquals(state.completed,state.nextChapter().completed)
+    }
+    @Test fun nextChapterCannotFinishATourWithUnfinishedChapters() {
+        val state=TourState(TourPhase.Chapters,TourChapter.Settings,8,TourChapter.entries.toSet()-TourChapter.Files)
+        assertEquals(TourChapter.Files,state.nextChapter().chapter)
+        assertEquals(TourPhase.Complete,state.copy(completed=TourChapter.entries.toSet()).nextChapter().phase)
+    }
     @Test fun everyChapterHasItsCompleteDistinctSequence() {
         assertEquals(33,TourCatalog.steps.size)
         assertEquals(33,TourCatalog.steps.map{it.id}.distinct().size)

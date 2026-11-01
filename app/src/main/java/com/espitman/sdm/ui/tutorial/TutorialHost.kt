@@ -92,8 +92,13 @@ import com.espitman.sdm.ui.theme.*
                 TourButton("Resume tour",true,Modifier.fillMaxWidth()){onChange(state.copy(phase=TourPhase.Running))}
                 TourButton("Start over",false,Modifier.fillMaxWidth()){onChange(TourState())}
                 TourButton("Not now",false,Modifier.fillMaxWidth()){onChange(state.close())}
-            } else if(complete || state.phase==TourPhase.Chapters) {
+            } else if(complete) {
                 TourButton("Done",true,Modifier.fillMaxWidth()){onChange(state.close())}
+            } else if(state.phase==TourPhase.Chapters) {
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    TourButton("Skip",false,Modifier.weight(1f)){onChange(state.close())}
+                    TourButton("Next chapter",true,Modifier.weight(1.25f)){onChange(state.nextChapter())}
+                }
             } else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 TourButton("Not now",false,Modifier.weight(1f)){onChange(state.close())}
                 TourButton("Start tour",true,Modifier.weight(1f)){onChange(state.start(TourChapter.Downloads))}
