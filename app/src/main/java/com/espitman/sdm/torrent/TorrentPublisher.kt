@@ -18,7 +18,8 @@ internal object TorrentPublisher {
         var rootUri = selection.rootDocument?.let(Uri::parse)
         if (rootUri == null) {
             val treeUri = Uri.parse(tree)
-            val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
+            val parent = download.destinationParentDocumentUri?.let(Uri::parse)
+                ?: DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
             rootUri = DocumentsContract.createDocument(resolver, parent, DocumentsContract.Document.MIME_TYPE_DIR, download.fileName)
                 ?: error("Cannot create torrent folder. Check folder access.")
             try { selection = store.updateSelection(download.id) { it.copy(rootDocument = rootUri.toString()) } }

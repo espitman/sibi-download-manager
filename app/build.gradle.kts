@@ -41,6 +41,8 @@ android {
 }
 
 dependencies {
+    val ktorVersion = "2.3.13"
+    implementation("io.ktor:ktor-server-cio-jvm:$ktorVersion")
     val torrentVersion = "2.0.12.9"
     implementation("com.frostwire:jlibtorrent:$torrentVersion")
     listOf("arm", "arm64", "x86", "x86_64").forEach { abi ->

@@ -67,6 +67,8 @@ internal fun SettingsScreen(
     if (renameFolderOpen) RenameSaveFolderSheet({ renameFolderOpen = false }, onToast)
     var automaticFoldersOpen by remember { mutableStateOf(false) }
     if (automaticFoldersOpen) AutomaticFoldersSheet({ automaticFoldersOpen = false }, onToast)
+    var webPanelOpen by remember { mutableStateOf(false) }
+    if (webPanelOpen) WebPanelSheet({ webPanelOpen = false }, onToast)
     var backupOpen by remember { mutableStateOf(false) }
     if (backupOpen) BackupRestoreSheet({ backupOpen = false }, onToast)
     var pendingTheme by remember { mutableStateOf(appliedTheme) }
@@ -134,6 +136,9 @@ internal fun SettingsScreen(
                     FilteredSettingsGroup("NETWORK", visibleRows) {
                         add(SettingsSearchRow.WifiOnly) {
                             ToggleRow(SdmIcons.Wifi, "Wi-Fi only", "Pause downloads on mobile data", wifiOnly) { repository.update { current -> current.copy(wifiOnly = it) }; toast(if (it) "Wi-Fi only enabled" else "Mobile data downloads allowed") }
+                        }
+                        add(SettingsSearchRow.WebPanel) {
+                            ValueRow(SdmIcons.Wifi, "Web panel", "Control SDM over your local network", chevron = true) { webPanelOpen = true }
                         }
                         add(SettingsSearchRow.SpeedLimit) {
                             ValueRow(SdmIcons.Gauge, "Speed limit", "Combined download speed", if (settings.unlimitedSpeed) "Unlimited" else "${settings.speedLimitMbps.toInt()} MB/s", chevron = true) { overlay = SettingsOverlay.SpeedLimit }
@@ -251,8 +256,8 @@ internal fun SettingsScreen(
             onReset = {
                 scope.launch {
                     try {
-                        withContext(Dispatchers.IO) { com.espitman.sdm.storage.CategoryFolderStore.get(context).replace(com.espitman.sdm.storage.CategoryFolderSettings()) }
-                        repository.reset(); com.espitman.sdm.download.DailyBulkSchedule.arm(context); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
+                        withContext(Dispatchers.IO) { com.espitman.sdm.data.settings.SettingsReset.apply(repository, com.espitman.sdm.storage.CategoryFolderStore.get(context)) }
+                         com.espitman.sdm.download.DailyBulkSchedule.arm(context); pendingTheme = "dark"; overlay = null; toast("Settings restored to defaults")
                     } catch (_: Exception) { toast("Could not reset settings") }
                 }
             },

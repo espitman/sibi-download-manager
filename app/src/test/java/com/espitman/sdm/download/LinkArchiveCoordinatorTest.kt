@@ -62,4 +62,16 @@ class LinkArchiveCoordinatorTest {
             assertTrue(repo.downloads.value.isEmpty());assertEquals(0,directory.listFiles()!!.size)
         } finally {directory.deleteRecursively()}
     }
+    @Test fun lostApprovalDuringAllocationRollsBackBeforeRecordsAreInserted() = runBlocking {
+        val directory=Files.createTempDirectory("archive-approval").toFile();val repo=repository()
+        val scheduler=DownloadQueueScheduler(repo,ConcurrentDownloadLimit {3},QueuedTransferStarter {})
+        val metadata=object:DownloadMetadataRetriever {override suspend fun retrieve(url:String):DownloadMetadataResult=error("Restore is offline")}
+        var approved=true
+        val allocator=DestinationAllocator { name->AppPrivateDestinationAllocator({directory}).allocate(name).also { approved=false } }
+        try {
+            val coordinator=LinkArchiveCoordinator(repo,allocator,metadata,scheduler)
+            val result=runCatching {coordinator.restore(listOf(Download(url="http://example.org/approval",fileName="owned.bin",createdAtEpochMillis=1)),validateCommit={check(approved){"Approval removed"}})}
+            assertTrue(result.isFailure);assertTrue(repo.downloads.value.isEmpty());assertEquals(0,directory.listFiles()!!.size)
+        } finally {directory.deleteRecursively()}
+    }
 }

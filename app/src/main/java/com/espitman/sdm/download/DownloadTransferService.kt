@@ -157,8 +157,10 @@ class DownloadTransferService : Service() {
                     } finally {
                         withContext(NonCancellable) {
                             persistCancelledIfRequested(result.command.downloadId)
+                            var finishedStartId: Int? = null
                             TransferSlotCleanup.afterTransferFinished(
                                 acceptingWork = acceptingWork.get(),
+                                finishSession = { finishedStartId = session.onTransferFinished(result.command.downloadId) },
                                 releaseClaim = {
                                     AppRepositories.queueScheduler(applicationContext)
                                         .releaseClaim(result.command.downloadId)
@@ -167,9 +169,7 @@ class DownloadTransferService : Service() {
                                     AppRepositories.queueScheduler(applicationContext).schedule()
                                 },
                             )
-                            session.onTransferFinished(result.command.downloadId)?.let { finishedStartId ->
-                                if (acceptingWork.get()) stopSelf(finishedStartId)
-                            }
+                            finishedStartId?.let { if (acceptingWork.get()) stopSelf(it) }
                         }
                     }
                 }

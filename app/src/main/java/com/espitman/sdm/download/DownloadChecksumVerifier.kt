@@ -52,6 +52,7 @@ object DownloadChecksumVerifier {
         bufferSizeBytes: Int = DEFAULT_BUFFER_SIZE_BYTES,
         openStream: (File) -> InputStream = { FileInputStream(it) },
         openContentUri: ((String) -> InputStream)? = null,
+        onDigest: (reference: String, actual: String) -> Unit = { _, _ -> },
     ): ChecksumVerificationResult = withContext(ioDispatcher) {
         require(bufferSizeBytes > 0) { "Buffer size must be greater than 0: $bufferSizeBytes" }
         val reference = ReferenceSha256Parser.parseHexHeader(download.referenceSha256)
@@ -77,6 +78,7 @@ object DownloadChecksumVerifier {
             }
             currentCoroutineContext().ensureActive()
             val actual = digest.digest().toHexLower()
+            onDigest(reference, actual)
             if (actual == reference) {
                 ChecksumVerificationResult.Match
             } else {

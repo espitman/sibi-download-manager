@@ -22,6 +22,7 @@ internal enum class SettingsSearchRow {
     DailySchedule,
     WifiOnly,
     SpeedLimit,
+    WebPanel,
     SaveLocation,
     RenameFolder,
     AutomaticFolders,
@@ -138,6 +139,13 @@ internal fun settingsSearchCatalog(
         title = "Speed limit",
         subtitle = "Combined download speed",
         synonyms = listOf("throttle", "bandwidth", "unlimited", "mb/s"),
+    ),
+    SettingsSearchItem(
+        row = SettingsSearchRow.WebPanel,
+        groupTitle = "NETWORK",
+        title = "Web panel",
+        subtitle = "Control SDM over your local network",
+        synonyms = listOf("LAN", "port", "pairing", "remote"),
     ),
     SettingsSearchItem(
         row = SettingsSearchRow.SaveLocation,

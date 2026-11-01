@@ -30,6 +30,8 @@ object OpenDocumentTreeAccess {
     private fun initialUri(initialTreeUriString: String?): Uri? {
         val valid = StorageAccessPolicy.validateTreeUri(initialTreeUriString) as? TreeUriValidation.Valid
             ?: return null
-        return Uri.parse(valid.uriString)
+        val tree = Uri.parse(valid.uriString)
+        // EXTRA_INITIAL_URI needs a document ID, not just a tree grant URI.
+        return DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
     }
 }

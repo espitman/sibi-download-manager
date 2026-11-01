@@ -10,15 +10,14 @@ import java.security.SecureRandom
 class DocumentsContractTreeAccess(
     private val contentResolver: ContentResolver,
 ) : UserTreeAccess {
-    override fun inspect(treeUri: String): UserTreeInspection {
+    override fun inspect(treeUri: String): UserTreeInspection = inspectDirectory(treeUri, null)
+
+    override fun inspectDirectory(treeUri: String, parentDocumentUri: String?): UserTreeInspection {
         val valid = StorageAccessPolicy.validateTreeUri(treeUri) as? TreeUriValidation.Valid
             ?: return UserTreeInspection(UserTreeState.Missing)
         val tree = android.net.Uri.parse(valid.uriString)
         val documentUri = try {
-            DocumentsContract.buildDocumentUriUsingTree(
-                tree,
-                DocumentsContract.getTreeDocumentId(tree),
-            )
+            directoryUri(tree, parentDocumentUri)
         } catch (_: RuntimeException) {
             return UserTreeInspection(UserTreeState.Missing)
         }
@@ -39,7 +38,7 @@ class DocumentsContractTreeAccess(
         }
 
         val children = try {
-            queryChildNames(tree)
+            queryChildNames(documentUri)
         } catch (_: SecurityException) {
             return UserTreeInspection(UserTreeState.PermissionRevoked, displayName)
         } catch (_: Exception) {
@@ -53,14 +52,14 @@ class DocumentsContractTreeAccess(
         }
     }
 
-    override fun createFile(treeUri: String, mimeType: String, displayName: String): CreatedTreeDocument {
+    override fun createFile(treeUri: String, mimeType: String, displayName: String): CreatedTreeDocument =
+        createFileInDirectory(treeUri, null, mimeType, displayName)
+
+    override fun createFileInDirectory(treeUri: String, parentDocumentUri: String?, mimeType: String, displayName: String): CreatedTreeDocument {
         val valid = StorageAccessPolicy.validateTreeUri(treeUri) as? TreeUriValidation.Valid
             ?: throw IOException("Folder access requires a content tree URI")
         val tree = android.net.Uri.parse(valid.uriString)
-        val parent = DocumentsContract.buildDocumentUriUsingTree(
-            tree,
-            DocumentsContract.getTreeDocumentId(tree),
-        )
+        val parent = directoryUri(tree, parentDocumentUri)
         val created = try {
             DocumentsContract.createDocument(
                 contentResolver,
@@ -97,6 +96,16 @@ class DocumentsContractTreeAccess(
         }
     }
 
+    private fun directoryUri(tree: android.net.Uri, parentDocumentUri: String?): android.net.Uri {
+        val rootId = DocumentsContract.getTreeDocumentId(tree)
+        if (parentDocumentUri == null) return DocumentsContract.buildDocumentUriUsingTree(tree, rootId)
+        val parent = android.net.Uri.parse(parentDocumentUri)
+        require(parent.scheme == "content" && parent.authority == tree.authority &&
+            DocumentsContract.getTreeDocumentId(parent) == rootId) { "Directory does not belong to the granted tree" }
+        // Rebuild the URI with the original tree: the provider enforces subtree access.
+        return DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getDocumentId(parent))
+    }
+
     private fun queryDisplayName(documentUri: android.net.Uri): String? {
         contentResolver.query(
             documentUri,
@@ -114,7 +123,7 @@ class DocumentsContractTreeAccess(
     private fun queryChildNames(tree: android.net.Uri): Set<String> {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
             tree,
-            DocumentsContract.getTreeDocumentId(tree),
+            DocumentsContract.getDocumentId(tree),
         )
         contentResolver.query(
             childrenUri,

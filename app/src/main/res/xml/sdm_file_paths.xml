@@ -4,6 +4,7 @@
     <external-files-path
         name="external_downloads"
         path="Download/" />
+    <external-files-path name="external_downloads_plural" path="Downloads/" />
     <!-- Internal filesDir/Downloads fallback and any SAF staging under it. -->
     <files-path
         name="internal_downloads"

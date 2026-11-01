@@ -11,6 +11,7 @@ import java.io.File
 data class TorrentFile(val index: Int, val path: String, val size: Long)
 data class TorrentContents(val name: String, val magnet: String, val metadata: ByteArray, val files: List<TorrentFile>)
 data class TorrentSelection(val selected: Set<Int>, val seed: Boolean = false, val published: Map<Int, String> = emptyMap(), val rootDocument: String? = null)
+data class TorrentProgressCheckpoint(val downloaded: Long, val uploaded: Long, val files: Map<Int, Long>)
 
 class TorrentStore(context: Context) {
     init { TorrentNativeRuntime.prepare(context) }
@@ -32,6 +33,22 @@ class TorrentStore(context: Context) {
         } catch (failure: Exception) { directory.deleteRecursively(); throw failure }
     }
     fun metadata(id: String) = File(directory(id), "metadata.torrent").readBytes()
+    fun saveProgress(id: String, progress: TorrentProgressCheckpoint) {
+        require(progress.downloaded >= 0 && progress.uploaded >= 0 && progress.files.all { it.key >= 0 && it.value >= 0 })
+        require(progress.files.values.fold(0L, Math::addExact) == progress.downloaded)
+        atomicWrite(File(directory(id), "progress.json"), JSONObject().put("downloaded", progress.downloaded)
+            .put("uploaded", progress.uploaded).put("files", JSONObject(progress.files.mapKeys { it.key.toString() })).toString().toByteArray())
+    }
+    fun progress(id: String): TorrentProgressCheckpoint? = runCatching {
+        val json = JSONObject(String(AtomicFile(File(directory(id), "progress.json")).readFully(), Charsets.UTF_8))
+        val files = json.getJSONObject("files")
+        val rows = files.keys().asSequence().associate { it.toInt() to files.getLong(it) }
+        TorrentProgressCheckpoint(json.getLong("downloaded"), json.getLong("uploaded"), rows).also {
+            require(it.downloaded >= 0 && it.uploaded >= 0 && rows.all { row -> row.key >= 0 && row.value >= 0 })
+            require(rows.values.fold(0L, Math::addExact) == it.downloaded)
+            require(rows.keys == selection(id).selected)
+        }
+    }.getOrNull()
     fun selection(id: String): TorrentSelection {
         val json = JSONObject(String(AtomicFile(File(directory(id), "selection.json")).readFully(), Charsets.UTF_8))
         val array = json.getJSONArray("selected")

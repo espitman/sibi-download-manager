@@ -109,6 +109,8 @@ fun SdmApp(
     openDownloadId: String? = null,
     onConsumed: () -> Unit = {},
 ) {
+    WebAccessApproval()
+    WebFolderAccessSheet()
     val downloadsStateHolder = rememberSaveableStateHolder()
     val downloadsUiState = rememberDownloadsUiState()
     val filesUiState = rememberFilesUiState()
@@ -128,6 +130,7 @@ fun SdmApp(
     var toastVisible by remember { mutableStateOf(false) }
     var toastSequence by remember { mutableIntStateOf(0) }
     var browserPrivateMode by remember { mutableStateOf(true) }
+    WebFileHandoffSheet { toastMessage = it; toastSequence++ }
     LaunchedEffect(toastSequence) {
         if (toastSequence > 0) {
             toastVisible = true

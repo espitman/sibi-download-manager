@@ -13,6 +13,13 @@ internal class CompletedDownloadsVisibility(context: Context) {
         preferences.edit().putStringSet(HIDDEN_IDS_KEY, updated).apply()
         return updated
     }
+    fun observe(onChanged: (Set<String>) -> Unit): AutoCloseable {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == HIDDEN_IDS_KEY) onChanged(hiddenIds())
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        return AutoCloseable { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     private companion object {
         const val PREFERENCES_NAME = "sdm.completed_downloads_visibility"

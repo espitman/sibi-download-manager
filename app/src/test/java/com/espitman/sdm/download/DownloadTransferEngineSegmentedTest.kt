@@ -197,6 +197,24 @@ class DownloadTransferEngineSegmentedTest {
     }
 
     @Test
+    fun sameStrongIdentityRetainsRangesWhenReplacementLastModifiedChanges() = runBlocking {
+        server.dispatcher=rangeDispatcher(ignoreRanges=false)
+        val (repo,destination,part)=fixture("replacement-checkpoint")
+        val original=repo.get("replacement-checkpoint")!!
+        val ranges=SegmentedTransferPolicy.plan(original,0)!!
+        ranges.forEachIndexed { i,r -> FolderSegmentCheckpoint.file(part,r).writeBytes(payload.copyOfRange(r.start.toInt(),r.start.toInt()+if(i==0)17 else 31)) }
+        FolderSegmentCheckpoint.save(part,ranges,original)
+        val replacement=original.copy(lastModified="Wed, 07 Oct 2026 00:00:00 GMT")
+        assertEquals(ranges,FolderSegmentCheckpoint.load(part,replacement))
+        assertEquals(null,FolderSegmentCheckpoint.load(part,replacement.copy(etag="\"changed\"")))
+        assertEquals(48L,FolderSegmentCheckpoint.bytes(part,ranges))
+        repo.insert(replacement)
+        engine().executeTransfer(replacement.id,replacement.url,part,repo)
+        assertArrayEquals(payload,destination.readBytes())
+        assertEquals(setOf("bytes=17-524296","bytes=524328-1048592"),requests.filterNotNull().toSet())
+    }
+
+    @Test
     fun fullySavedFolderCheckpointRevalidatesCompletedSegmentsBeforeMerging() = runBlocking {
         server.dispatcher=rangeDispatcher(ignoreRanges=false)
         val (repo,destination,part)=fixture("folder-complete-segments")

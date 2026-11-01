@@ -11,6 +11,7 @@ data class AllocatedDownloadDestination(
     val destinationTreeUri: String? = null,
     val destinationDisplayLabel: String? = null,
     val partFile: File,
+    val destinationParentDocumentUri: String? = null,
 )
 
 fun interface DestinationAllocator {
@@ -41,6 +42,7 @@ class AppPrivateDestinationAllocator(
             occupiedNames: Set<String>,
             destinationTreeUri: String? = null,
             destinationDisplayLabel: String? = null,
+            destinationParentDocumentUri: String? = null,
         ): AllocatedDownloadDestination {
             val names = occupiedNames.toMutableSet()
             var reservedPart: File? = null
@@ -79,6 +81,7 @@ class AppPrivateDestinationAllocator(
                 destinationTreeUri = destinationTreeUri,
                 destinationDisplayLabel = destinationDisplayLabel,
                 partFile = part,
+                destinationParentDocumentUri = destinationParentDocumentUri,
             )
         }
 

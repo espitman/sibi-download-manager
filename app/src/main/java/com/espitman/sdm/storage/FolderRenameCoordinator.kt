@@ -279,9 +279,10 @@ class FolderRenameCoordinator(
             }
             val old = plan.getString("oldTree"); val new = plan.getString("newTree")
             val tree = download.destinationTreeUri?.let { remapUri(it, old, new) }
+            val parent = download.destinationParentDocumentUri?.let { remapUri(it, old, new) }
             val path = download.destinationPath?.let { if (DownloadDestinationRef.isContentUri(it)) remapUri(it, old, new) else it }
-            val affected = tree != download.destinationTreeUri || path != download.destinationPath
-            return if (affected) download.copy(destinationPath = path, destinationTreeUri = tree,
+            val affected = tree != download.destinationTreeUri || path != download.destinationPath || parent != download.destinationParentDocumentUri
+            return if (affected) download.copy(destinationPath = path, destinationTreeUri = tree, destinationParentDocumentUri = parent,
                 destinationDisplayLabel = tree?.let { SaveLocationLabels.fromTree(it, if (sameFolder(it, new)) plan.getString("name") else null) }) else download
         }
     }

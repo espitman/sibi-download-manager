@@ -480,10 +480,10 @@ internal class JvmDownloadTransferHost(
                             persistCancelledIfRequested(downloadId)
                             TransferSlotCleanup.afterTransferFinished(
                                 acceptingWork = true,
+                                finishSession = { session.onTransferFinished(downloadId) },
                                 releaseClaim = { scheduler.releaseClaim(downloadId) },
                                 reschedule = { scheduler.schedule() },
                             )
-                            session.onTransferFinished(downloadId)
                             done.complete(Unit)
                         }
                     }

@@ -22,7 +22,11 @@ import kotlin.math.max
 /** Native state is owned by the process; saved metadata/pieces survive process death. */
 data class TorrentTelemetry(val peers: Int = 0, val seeds: Int = 0, val downloadRate: Int = 0,
     val uploadRate: Int = 0, val uploaded: Long = 0, val ratio: Double = 0.0, val seeding: Boolean = false,
-    val checking: Boolean = false)
+    val checking: Boolean = false, val fileProgress: Map<Int, Long> = emptyMap(),
+    val peerDetails: List<TorrentPeer> = emptyList(), val trackers: List<TorrentTracker> = emptyList())
+
+data class TorrentPeer(val address: String, val client: String, val downloadRate: Int, val uploadRate: Int, val progress: Float)
+data class TorrentTracker(val url: String, val verified: Boolean)
 
 object TorrentRuntime {
     private var session: SessionManager? = null
@@ -63,6 +67,7 @@ class TorrentTransferEngine(private val context: Context, private val capacity: 
             return signal.await(5, TimeUnit.SECONDS) && resumeSaved.get()
         }
         var verified = initial.downloadedBytes
+        var verifiedFiles = emptyMap<Int, Long>()
         fun now() = max(System.currentTimeMillis(), initial.updatedAtEpochMillis)
         try {
             repository.transition(id, DownloadState.CONNECTING, now())
@@ -117,16 +122,20 @@ class TorrentTransferEngine(private val context: Context, private val capacity: 
                 check(error.value() == 0) { "Torrent error: ${error.message()}" }
                 val checking = status.state() in setOf(TorrentStatus.State.CHECKING_FILES, TorrentStatus.State.CHECKING_RESUME_DATA)
                 val complete = status.isFinished || status.isSeeding
+                val progress = torrent.fileProgress(TorrentHandle.PIECE_GRANULARITY)
                 if (!checking) {
-                    val progress = torrent.fileProgress(TorrentHandle.PIECE_GRANULARITY)
-                    verified = selectedFiles.sumOf { progress.getOrElse(it.index) { 0L }.coerceIn(0L, it.size) }
+                    verifiedFiles = selectedFiles.associate { it.index to progress.getOrElse(it.index) { 0L }.coerceIn(0L, it.size) }
+                    verified = verifiedFiles.values.sum()
                     if (verified < record.downloadedBytes) repository.alignDownloadedBytes(id, verified, now())
                     if (verified != record.downloadedBytes) repository.updateProgress(id, verified, now())
                 }
                 val seed = store.selection(id).seed
                 TorrentRuntime.update(id, TorrentTelemetry(status.numPeers(), status.numSeeds(), status.downloadRate(),
                     status.uploadRate(), status.totalPayloadUpload(), if (verified > 0) status.totalPayloadUpload().toDouble() / verified else 0.0,
-                    seeding = complete && seed, checking = checking))
+                    seeding = complete && seed, checking = checking,
+                    fileProgress = selectedFiles.associate { it.index to progress.getOrElse(it.index) { 0L }.coerceIn(0L, it.size) },
+                    peerDetails = torrent.peerInfo().take(200).map { TorrentPeer(it.ip(), it.client(), it.downSpeed(), it.upSpeed(), it.progress()) },
+                    trackers = torrent.trackers().take(200).map { TorrentTracker(it.url(), it.isVerified) }))
                 torrent.setDownloadLimit(record.speedLimitBytesPerSecond?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0)
                 session.applySettings(SettingsPack().downloadRateLimit(AppRepositories.torrentRateLimit(context)))
                 if (complete && !checking && verified == record.totalBytes && !seed) {
@@ -138,6 +147,7 @@ class TorrentTransferEngine(private val context: Context, private val capacity: 
                     return@withContext
                 }
                 if (System.currentTimeMillis() - checkpointAt >= 5_000) {
+                    if (!checking) store.saveProgress(id, TorrentProgressCheckpoint(verified, status.totalPayloadUpload(), verifiedFiles))
                     checkpoint(false); checkpointAt = System.currentTimeMillis()
                 }
                 delay(500)
@@ -147,8 +157,19 @@ class TorrentTransferEngine(private val context: Context, private val capacity: 
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 val record = repository.get(id)
-                if (record?.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING))
-                    repository.pauseAtExactOffset(id, verified, now(), pauseCause())
+                if (record?.state in setOf(DownloadState.CONNECTING, DownloadState.DOWNLOADING)) {
+                    if (record != null && record.totalBytes == verified && TorrentRuntime.telemetry.value[id]?.seeding == true) {
+                        try {
+                            handle?.pause()
+                            check(checkpoint(true)) { "Unable to flush torrent files; resume to retry" }
+                            val published = TorrentPublisher.publish(context, record, TorrentStore.inspect(store.metadata(id)), store)
+                            repository.updateDestination(id, published, record.destinationTreeUri, record.destinationDisplayLabel, record.fileName, now())
+                            repository.transition(id, DownloadState.COMPLETED, now())
+                        } catch (failure: Exception) {
+                            repository.transition(id, DownloadState.FAILED, now(), ErrorReportSanitizer.sanitize(failure.message ?: "Torrent publication failed"))
+                        }
+                    } else repository.pauseAtExactOffset(id, verified, now(), pauseCause())
+                }
             }
             throw cancelled
         } catch (failure: Exception) {
@@ -165,6 +186,8 @@ class TorrentTransferEngine(private val context: Context, private val capacity: 
                     runCatching { manager?.remove(torrent) }
                 }
                 listener?.let { runCatching { manager?.removeListener(it) } }
+                if (verifiedFiles.isNotEmpty()) runCatching { store.saveProgress(id, TorrentProgressCheckpoint(verified,
+                    TorrentRuntime.telemetry.value[id]?.uploaded ?: 0L, verifiedFiles)) }
                 if (manager != null) TorrentRuntime.release(id)
                 val final = repository.get(id)
                 if (final?.state == DownloadState.COMPLETED && com.espitman.sdm.storage.DownloadDestinationRef.isContentUri(final.destinationPath.orEmpty()))

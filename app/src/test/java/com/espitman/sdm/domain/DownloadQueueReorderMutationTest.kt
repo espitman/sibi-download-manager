@@ -48,6 +48,14 @@ class DownloadQueueReorderMutationTest {
         assertTrue(DownloadQueueReorderMutation.apply(queue + row("done", 2).copy(state = DownloadState.COMPLETED, completedAtEpochMillis = 2), "done", "b", true, 100).isEmpty())
     }
 
+    @Test fun reorderingOneTierPreservesOtherTiersExactly() {
+        val unrelated = row("unrelated", 1790119163734, 0).copy(state=DownloadState.FAILED, error="Expired link", downloadedBytes=42, updatedAtEpochMillis=50)
+        val queue = listOf(row("a", 1, 1), row("b", 2, 1), row("c", 3, 1), unrelated)
+        val next = DownloadQueueReorderMutation.applyGroup(queue, setOf("b", "c"), "a", false, 100)
+        assertEquals(listOf("b", "c", "a", "unrelated"), next.sortedWith(DownloadQueueOrder.comparator).map { it.id })
+        assertEquals(unrelated, next.single { it.id == "unrelated" })
+    }
+
     private fun row(id: String, order: Long, priority: Int = 0) = Download(
         id = id,
         url = "https://example.com/$id",

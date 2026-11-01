@@ -1,0 +1,116 @@
+{
+  "beforePause": [
+    48,
+    442,
+    120,
+    130,
+    180,
+    72,
+    130,
+    100
+  ],
+  "paused": [
+    48,
+    442,
+    120,
+    130,
+    180,
+    72,
+    130,
+    100
+  ],
+  "resumed": [
+    48,
+    442,
+    120,
+    130,
+    180,
+    72,
+    130,
+    100
+  ],
+  "all": [
+    {
+      "label": "",
+      "left": 257,
+      "width": 48
+    },
+    {
+      "label": "Name",
+      "left": 305,
+      "width": 442
+    },
+    {
+      "label": "Status",
+      "left": 747,
+      "width": 120
+    },
+    {
+      "label": "Progress",
+      "left": 867,
+      "width": 130
+    },
+    {
+      "label": "Speed / Size",
+      "left": 997,
+      "width": 180
+    },
+    {
+      "label": "ETA",
+      "left": 1177,
+      "width": 72
+    },
+    {
+      "label": "Connections",
+      "left": 1249,
+      "width": 130
+    },
+    {
+      "label": "Actions",
+      "left": 1379,
+      "width": 100
+    }
+  ],
+  "completed": [
+    {
+      "label": "",
+      "left": 257,
+      "width": 48
+    },
+    {
+      "label": "Name",
+      "left": 305,
+      "width": 442
+    },
+    {
+      "label": "Status",
+      "left": 747,
+      "width": 120
+    },
+    {
+      "label": "Progress",
+      "left": 867,
+      "width": 130
+    },
+    {
+      "label": "Speed / Size",
+      "left": 997,
+      "width": 180
+    },
+    {
+      "label": "ETA",
+      "left": 1177,
+      "width": 72
+    },
+    {
+      "label": "Connections",
+      "left": 1249,
+      "width": 130
+    },
+    {
+      "label": "Actions",
+      "left": 1379,
+      "width": 100
+    }
+  ]
+}

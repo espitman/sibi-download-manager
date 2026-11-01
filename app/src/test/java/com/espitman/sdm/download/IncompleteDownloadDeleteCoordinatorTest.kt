@@ -33,6 +33,47 @@ class IncompleteDownloadDeleteCoordinatorTest {
     }
 
     @Test
+    fun deletionRemovesSegmentCheckpointsSoReaddingSameNameCannotResume() = runBlocking {
+        val directory = Files.createTempDirectory("sdm-delete-segments").toFile()
+        try {
+            val destination = directory.resolve("sample.bin")
+            val part = DownloadPartFile.forDestination(destination)
+            val restart = DownloadPartFile.restartForDestination(destination)
+            val ranges = listOf(TransferByteRange(0,49),TransferByteRange(50,99))
+            val old = record(destination.path,DownloadState.CANCELLED).copy(totalBytes=100,etag="\"same-file\"")
+            val repository = CompletedFileDeleteCoordinatorTest.FakeRepository(old)
+            for (base in listOf(part,restart)) {
+                base.writeText("partial")
+                FolderSegmentCheckpoint.save(base,ranges,old)
+                ranges.forEach { FolderSegmentCheckpoint.file(base,it).writeText("retained range") }
+            }
+            val unrelated=directory.resolve(part.name+".segment-0-49.backup").apply{writeText("keep")}
+            val other=DownloadPartFile.forDestination(directory.resolve("other.bin"))
+            val otherSegment=FolderSegmentCheckpoint.file(other,ranges[0]).apply{writeText("other download")}
+            assertTrue(IncompleteDownloadDeleteCoordinator.delete("sample",repository){error("already cancelled")})
+            for (base in listOf(part,restart)) {
+                assertFalse(base.exists());assertFalse(FolderSegmentCheckpoint.marker(base).exists())
+                ranges.forEach { assertFalse(FolderSegmentCheckpoint.file(base,it).exists()) }
+                assertNull(FolderSegmentCheckpoint.load(base,old.copy(id="new-download")))
+            }
+            assertTrue(unrelated.exists());assertTrue(otherSegment.exists());assertNull(repository.get("sample"))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test
+    fun undeletableSegmentKeepsRecordAndReportsFailure() = runBlocking {
+        val directory=Files.createTempDirectory("sdm-delete-blocked-segment").toFile()
+        try {
+            val destination=directory.resolve("sample.bin")
+            val part=DownloadPartFile.forDestination(destination)
+            val blocked=FolderSegmentCheckpoint.file(part,TransferByteRange(0,9)).apply{mkdir();resolve("content").writeText("keep")}
+            val repository=CompletedFileDeleteCoordinatorTest.FakeRepository(record(destination.path,DownloadState.CANCELLED))
+            assertFalse(IncompleteDownloadDeleteCoordinator.delete("sample",repository){error("already cancelled")})
+            assertTrue(blocked.exists());assertTrue(repository.get("sample")!=null)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test
     fun activeDownloadIsCancelledBeforeItsPartialIsDeleted() = runBlocking {
         val directory = Files.createTempDirectory("sdm-cancel-delete").toFile()
         try {

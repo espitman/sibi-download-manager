@@ -7,12 +7,11 @@ import org.junit.Test
 
 class NetworkPermissionPolicyTest {
     @Test
-    fun wifiOnlyEnforcementAddsOnlyAccessNetworkState() {
+    fun networkFeaturesUseOnlyRequiredPermissions() {
         assertEquals("android.permission.ACCESS_NETWORK_STATE", NetworkPermissionPolicy.ACCESS_NETWORK_STATE)
         assertTrue(
             NetworkPermissionPolicy.DISALLOWED_BROAD_PERMISSIONS.containsAll(
                 listOf(
-                    "android.permission.CHANGE_NETWORK_STATE",
                     "android.permission.CHANGE_WIFI_STATE",
                     "android.permission.ACCESS_WIFI_STATE",
                     "android.permission.READ_EXTERNAL_STORAGE",
@@ -35,6 +34,8 @@ class NetworkPermissionPolicyTest {
                     "android.permission.POST_NOTIFICATIONS",
                     "android.permission.FOREGROUND_SERVICE",
                     "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+                    "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+                    "android.permission.CHANGE_NETWORK_STATE",
                     "android.permission.RECEIVE_BOOT_COMPLETED",
                 ),
             ),

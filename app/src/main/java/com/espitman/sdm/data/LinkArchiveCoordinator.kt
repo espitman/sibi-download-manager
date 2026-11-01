@@ -56,7 +56,8 @@ class LinkArchiveCoordinator(
         if(startNow && added>0) scheduler.schedule()
         ImportResult(added,skipped,failed)
     } }
-    suspend fun restore(downloads: List<Download>, torrents: Map<String, DownloadBackupCodec.TorrentSnapshot> = emptyMap()): Int = mutex.withLock { FolderMutationGate.mutex.withLock {
+    suspend fun restore(downloads: List<Download>, torrents: Map<String, DownloadBackupCodec.TorrentSnapshot> = emptyMap(), validateCommit: () -> Unit = {}): Int = mutex.withLock { FolderMutationGate.mutex.withLock {
+        validateCommit()
         check(!FolderRenameCoordinator.operationPending) { "Finish folder access in Settings first." }
         val existing=repository.schedulingSnapshot().map { it.url }.toMutableSet()
         val candidates=downloads.filter { existing.add(it.url) }
@@ -88,7 +89,7 @@ class LinkArchiveCoordinator(
                 } else prepared+=next
             }
             // No suspension between commit return and tracking the committed IDs.
-            inserted=withContext(NonCancellable) {repository.insertUniqueBatch(prepared)}.toSet()
+            inserted=withContext(NonCancellable) {validateCommit();repository.insertUniqueBatch(prepared)}.toSet()
             inserted.size
         } finally {
             createdTorrentDirectories.forEach { (id, directory) -> if (id !in inserted) {

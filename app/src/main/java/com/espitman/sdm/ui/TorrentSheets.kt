@@ -186,7 +186,7 @@ internal fun TorrentDetailsSheet(download: Download, onDismiss: () -> Unit, onTr
                 val published = selection?.published?.get(file.index)
                 Row(Modifier.fillMaxWidth().clickable(enabled = download.state == com.espitman.sdm.domain.DownloadState.COMPLETED) {
                     try {
-                        val uri = if (published != null) Uri.parse(published) else androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", TorrentPaths.resolve(java.io.File(download.destinationPath!!), file.path))
+                        val uri = if (published != null) Uri.parse(published) else com.espitman.sdm.storage.CompletedFileShareAccess.uriForFile(context, TorrentPaths.resolve(java.io.File(download.destinationPath!!), file.path))
                         context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.path.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
                     } catch (_: Exception) { error = "No app can open this file" }
                 }.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

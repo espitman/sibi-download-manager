@@ -42,7 +42,15 @@ object IncompleteDownloadDeleteCoordinator {
                 DownloadPartFile.forDestination(destinationFile),
                 DownloadPartFile.restartForDestination(destinationFile),
             )
-            if (partials.any { it.exists() && !it.delete() }) return@withContext false
+            val parent = destinationFile.parentFile ?: return@withContext false
+            val siblings = if (parent.exists()) parent.listFiles() ?: return@withContext false else emptyArray()
+            val artifacts = partials.flatMap { part ->
+                val segmentName = Regex(Regex.escape(part.name) + "\\.segment-[0-9]+-[0-9]+")
+                siblings.filter { segmentName.matches(it.name) } + listOf(FolderSegmentCheckpoint.marker(part), part)
+            }
+            // Retained range files can restore progress even after the ordinary .part is gone.
+            // Remove only exact artifact names for this destination; keep the row on any failure.
+            if (artifacts.any { it.exists() && !it.delete() }) return@withContext false
             repository.delete(downloadId)
         } catch (cancelled: CancellationException) {
             throw cancelled

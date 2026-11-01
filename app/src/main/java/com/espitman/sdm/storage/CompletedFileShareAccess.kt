@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.webkit.MimeTypeMap
-import androidx.core.content.FileProvider
 import java.io.File
 
 class CompletedFileShareAccess(
@@ -44,7 +43,7 @@ class CompletedFileShareAccess(
             is CompletedFileDestinationKind.LocalFile -> {
                 val file = destination.file
                 if (!file.isFile || !file.canRead()) return null
-                val uri = FileProvider.getUriForFile(appContext, authority(appContext.packageName), file)
+                val uri = uriForFile(appContext, file)
                 ShareableCompletedFile(
                     uriString = uri.toString(),
                     persistedMimeType = identity.persistedMimeType,
@@ -87,11 +86,7 @@ class CompletedFileShareAccess(
         fun authority(packageName: String): String = "$packageName$AUTHORITY_SUFFIX"
 
         fun uriForFile(context: Context, file: File): Uri =
-            FileProvider.getUriForFile(
-                context.applicationContext,
-                authority(context.packageName),
-                file,
-            )
+            SdmFileProvider.uriForFile(context.applicationContext, file)
     }
 }
 

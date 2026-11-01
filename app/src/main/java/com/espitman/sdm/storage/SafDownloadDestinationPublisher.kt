@@ -44,14 +44,16 @@ class SafDownloadDestinationPublisher(
         if (treeUri.isNullOrBlank()) {
             return DownloadDestinationPublisher.KeepLocal.afterLocalFinalize(download, localFile)
         }
-        val inspection = trees.inspect(treeUri)
+        val inspection = trees.inspectDirectory(treeUri, download.destinationParentDocumentUri)
         if (inspection.state != UserTreeState.Writable) {
+            if (download.destinationParentDocumentUri != null) throw IOException("Selected destination folder is unavailable. Restore access on your phone")
             return fallbackToAppPrivate(localFile, treeUri)
         }
         return try {
             val uniqueName = uniqueTreeName(download.fileName, inspection.childDisplayNames)
-            val created = trees.createFile(
+            val created = trees.createFileInDirectory(
                 treeUri = treeUri,
+                parentDocumentUri = download.destinationParentDocumentUri,
                 mimeType = download.mimeType ?: "application/octet-stream",
                 displayName = uniqueName,
             )
@@ -71,7 +73,8 @@ class SafDownloadDestinationPublisher(
                     ?: SaveLocationLabels.fromTree(treeUri, inspection.displayName),
                 fileName = uniqueName,
             )
-        } catch (_: IOException) {
+        } catch (error: IOException) {
+            if (download.destinationParentDocumentUri != null) throw error
             fallbackToAppPrivate(localFile, treeUri)
         }
     }

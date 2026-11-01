@@ -12,7 +12,8 @@ import java.util.UUID
 
 object TorrentSubmission {
     suspend fun submit(context: Context, contents: TorrentContents, selected: Set<Int>, seed: Boolean, startNow: Boolean,
-        folderUri: String? = null, folderLabel: String? = null): Download = withContext(Dispatchers.IO) {
+        folderUri: String? = null, folderLabel: String? = null, deferUntilResumed: Boolean = false,
+        destinationAllocatorOverride: com.espitman.sdm.storage.DestinationAllocator? = null): Download = withContext(Dispatchers.IO) {
         val rows = contents.files.filter { it.index in selected }
         require(rows.isNotEmpty() && rows.size == selected.size) { "Select at least one file" }
         val repository = AppRepositories.downloads(context)
@@ -22,7 +23,7 @@ object TorrentSubmission {
         val download = FolderMutationGate.mutex.withLock {
             check(!com.espitman.sdm.storage.FolderRenameCoordinator.isPending(context)) { "Wait for folder changes to finish" }
             check(repository.downloads.value.none { it.isTorrent && TorrentMagnet.identities(it.url).intersect(TorrentMagnet.identities(contents.magnet)).isNotEmpty() }) { "This torrent is already in Downloads" }
-            val destination = AppRepositories.destinationAllocator(context).allocate(contents.name, "application/x-bittorrent")
+            val destination = (destinationAllocatorOverride ?: AppRepositories.destinationAllocator(context)).allocate(contents.name, "application/x-bittorrent")
             val directory = File(destination.destinationPath)
             var ownsDirectory = false
             try {
@@ -36,13 +37,15 @@ object TorrentSubmission {
                     mimeType = "application/x-bittorrent", destinationPath = directory.path,
                     destinationTreeUri = folderUri ?: destination.destinationTreeUri,
                     destinationDisplayLabel = folderLabel ?: destination.destinationDisplayLabel,
-                    totalBytes = total, acceptsRanges = true, createdAtEpochMillis = now,
+                    destinationParentDocumentUri = destination.destinationParentDocumentUri,
+                    totalBytes = total, acceptsRanges = true,
+                    state = if (deferUntilResumed) com.espitman.sdm.domain.DownloadState.PAUSED else com.espitman.sdm.domain.DownloadState.QUEUED, createdAtEpochMillis = now,
                     sortOrder = (repository.downloads.value.maxOfOrNull { it.sortOrder } ?: -1L) + 1)
                 withContext(kotlinx.coroutines.NonCancellable) { repository.insert(record) }
                 record
             } catch (failure: Throwable) { store.remove(id); if (ownsDirectory) directory.deleteRecursively(); destination.partFile.delete(); throw failure }
         }
-        if (startNow) AppRepositories.queueScheduler(context).schedule()
+        if (startNow && !deferUntilResumed) AppRepositories.queueScheduler(context).schedule()
         download
     }
 }

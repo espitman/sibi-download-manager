@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import com.espitman.sdm.data.AppRepositories
 import com.espitman.sdm.download.DownloadInterruptionTrigger
 import com.espitman.sdm.notification.TransferNotificationCoordinator
@@ -17,6 +18,7 @@ import com.espitman.sdm.ui.SdmLaunchLayer
 import com.espitman.sdm.ui.SplashLaunchPolicy
 import com.espitman.sdm.ui.theme.SdmTheme
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val pendingTorrent = mutableStateOf<String?>(null)
@@ -37,6 +39,10 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
+        com.espitman.sdm.web.WebPanelRuntime.initialize(this)
+        if (com.espitman.sdm.web.WebPanelRuntime.enabled(this)) {
+            com.espitman.sdm.web.WebPanelRuntime.start(this)
+        }
         pendingTorrent.value = parseTorrentIntent(intent)
         pendingRequest.value = if (savedInstanceState == null) parseTransferNotificationIntent(intent) else null
         runBlocking {
@@ -47,6 +53,11 @@ class MainActivity : ComponentActivity() {
             val repository = AppRepositories.downloads(this@MainActivity)
             repository.awaitInitialized()
             TransferNotificationCoordinator(this@MainActivity).clearOrphanSummary(repository.downloads.value)
+        }
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val repository = AppRepositories.downloads(this@MainActivity)
+            repository.awaitInitialized()
+            com.espitman.sdm.storage.CompletedTorrentFolderMoveCoordinator.recover(this@MainActivity, repository)
         }
         setContent {
             val request by pendingRequest

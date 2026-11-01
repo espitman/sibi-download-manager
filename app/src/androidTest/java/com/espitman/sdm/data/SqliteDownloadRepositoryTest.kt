@@ -45,6 +45,31 @@ class SqliteDownloadRepositoryTest {
     }
 
     @Test
+    fun deletedSegmentedDownloadCannotRestoreOldRangesWhenReadded() = runBlocking {
+        val directory=java.io.File(context.cacheDir,"delete-segments-${UUID.randomUUID()}").apply{check(mkdir())}
+        try {
+            repository=SqliteDownloadRepository(context,databaseName=databaseName)
+            repository!!.awaitInitialized()
+            val destination=directory.resolve("sample.bin")
+            val original=Download(id="old",url="https://example.com/sample.bin",fileName="sample.bin",
+                destinationPath=destination.path,totalBytes=100,etag="\"same\"",state=DownloadState.CANCELLED,createdAtEpochMillis=1)
+            repository!!.insert(original)
+            val ranges=listOf(com.espitman.sdm.download.TransferByteRange(0,49),com.espitman.sdm.download.TransferByteRange(50,99))
+            val part=com.espitman.sdm.download.DownloadPartFile.forDestination(destination)
+            part.writeText("old bytes")
+            com.espitman.sdm.download.FolderSegmentCheckpoint.save(part,ranges,original)
+            ranges.forEach{com.espitman.sdm.download.FolderSegmentCheckpoint.file(part,it).writeText("old range")}
+            check(com.espitman.sdm.download.IncompleteDownloadDeleteCoordinator.delete("old",repository!!){error("already cancelled")})
+            assertNull(repository!!.get("old"))
+            val fresh=original.copy(id="new",state=DownloadState.QUEUED,createdAtEpochMillis=2,updatedAtEpochMillis=2)
+            repository!!.insert(fresh)
+            assertEquals(0L,repository!!.get("new")!!.downloadedBytes)
+            assertNull(com.espitman.sdm.download.FolderSegmentCheckpoint.load(part,fresh))
+            assertEquals(emptyList<String>(),directory.listFiles()!!.map{it.name})
+        } finally {directory.deleteRecursively()}
+    }
+
+    @Test
     fun successfulProgressPersistsRetryResetAcrossReopening() = runBlocking {
         repository = SqliteDownloadRepository(context, databaseName = databaseName)
         repository!!.awaitInitialized()
@@ -64,6 +89,8 @@ class SqliteDownloadRepositoryTest {
     fun recordSurvivesRepositoryRecreationAndFlowReflectsAtomicChanges() = runBlocking {
         val initial = Download(
             id = "one",
+            destinationTreeUri = "content://provider/tree/root",
+            destinationParentDocumentUri = "content://provider/tree/root/document/child",
             url = "https://example.com/one.bin",
             fileName = "one.bin",
             totalBytes = 10,
@@ -76,6 +103,7 @@ class SqliteDownloadRepositoryTest {
         repository!!.transition("one", DownloadState.DOWNLOADING, 300)
         repository!!.updateProgress("one", 4, 400)
         assertEquals(4, repository!!.downloads.value.single().downloadedBytes)
+        assertEquals(initial.destinationParentDocumentUri, repository!!.get("one")!!.destinationParentDocumentUri)
 
         repository!!.close()
         repository = SqliteDownloadRepository(context, databaseName = databaseName)
@@ -83,6 +111,7 @@ class SqliteDownloadRepositoryTest {
 
         assertEquals(4, repository!!.downloads.value.single().downloadedBytes)
         assertEquals(DownloadState.DOWNLOADING, repository!!.get("one")!!.state)
+        assertEquals(initial.destinationParentDocumentUri, repository!!.get("one")!!.destinationParentDocumentUri)
     }
 
     @Test

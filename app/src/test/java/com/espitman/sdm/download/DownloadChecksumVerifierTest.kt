@@ -121,6 +121,17 @@ class DownloadChecksumVerifierTest {
     }
 
     @Test
+    fun measuredDigestReportsTheCompletedBytesWithoutChangingTheRecord() = runBlocking {
+        val file = File(tempDir, "measured.bin").apply { writeBytes("measured bytes".toByteArray()) }
+        val download = record(file, DownloadState.COMPLETED, EMPTY_SHA256_HEX)
+        var measured: Pair<String, String>? = null
+        val result = DownloadChecksumVerifier.verify(download, onDigest = { reference, actual -> measured = reference to actual })
+        assertEquals(ChecksumVerificationResult.Mismatch, result)
+        assertEquals(EMPTY_SHA256_HEX to sha256Hex(file.readBytes()), measured)
+        assertEquals(EMPTY_SHA256_HEX, download.referenceSha256)
+    }
+
+    @Test
     fun failureWhenStreamingTheCompletedFileThrows() = runBlocking {
         val file = File(tempDir, "unreadable.bin")
         file.writeBytes(byteArrayOf(0, 1))

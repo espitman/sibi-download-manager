@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** Retains all verified range files during folder migration instead of discarding non-contiguous bytes. */
+/** Retains verified ranges across pauses and folder migration without discarding non-contiguous bytes. */
 internal object FolderSegmentCheckpoint {
     fun marker(part: File) = File(part.path + ".folder-segments")
     fun file(part: File, range: TransferByteRange) = File(part.path + ".segment-${range.start}-${range.endInclusive}")
@@ -20,8 +20,10 @@ internal object FolderSegmentCheckpoint {
     }
     fun load(part: File, download: Download): List<TransferByteRange>? = try {
         val json=JSONObject(marker(part).readText())
-        if (json.getLong("total") != download.totalBytes || json.getString("etag") != (download.etag ?: "") ||
-            json.getString("modified") != (download.lastModified ?: "")) null
+        val savedEtag = json.getString("etag")
+        val sameStrongIdentity = HttpRangeResume.isStrongEtag(savedEtag) && savedEtag == download.etag
+        if (json.getLong("total") != download.totalBytes || savedEtag != (download.etag ?: "") ||
+            (!sameStrongIdentity && json.getString("modified") != (download.lastModified ?: ""))) null
         else {
             val array=json.getJSONArray("ranges")
             val ranges=(0 until array.length()).map { val r=array.getJSONArray(it);TransferByteRange(r.getLong(0),r.getLong(1)) }

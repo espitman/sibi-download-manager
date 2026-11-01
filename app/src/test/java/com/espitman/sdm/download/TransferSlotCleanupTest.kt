@@ -47,6 +47,22 @@ class TransferSlotCleanupTest {
         assertEquals(1, released.get())
     }
 
+    @Test
+    fun immediateResumeCanStartBeforeOldWorkerCleanupReturns() = runBlocking {
+        val session = DownloadTransferSession()
+        val command = StartTransferCommand("paused-torrent", "/tmp/owned.part")
+        assertEquals(SessionCommandResult.StartJob(command), session.handleCommand(1, command))
+        var resumed: SessionCommandResult? = null
+        TransferSlotCleanup.afterTransferFinished(
+            acceptingWork = true,
+            finishSession = { session.onTransferFinished(command.downloadId) },
+            releaseClaim = { yield() },
+            reschedule = { resumed = session.handleCommand(2, command) },
+        )
+        assertEquals(SessionCommandResult.StartJob(command), resumed)
+        assertEquals(null, session.startIdIfIdle())
+    }
+
     private suspend fun runCancelledTransferCleanup(acceptingWork: Boolean): CleanupCounts =
         kotlinx.coroutines.coroutineScope {
         val parent = Job()

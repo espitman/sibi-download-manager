@@ -160,6 +160,7 @@ interface DownloadRepository {
     suspend fun moveToTop(id: String, nowEpochMillis: Long): Download? = null
     /** Atomically place one unfinished record next to another in scheduler order. */
     suspend fun reorderQueued(sourceId: String, targetId: String, placeAfter: Boolean, nowEpochMillis: Long): Boolean = false
+    suspend fun moveQueuedGroupToTop(sourceIds: Set<String>, nowEpochMillis: Long): Boolean = false
     suspend fun reorderQueuedGroup(sourceIds: Set<String>, targetId: String, placeAfter: Boolean, nowEpochMillis: Long): Boolean = false
     /** Atomically updates fileName and destinationPath for a non-active record. */
     suspend fun renameRecord(
@@ -180,6 +181,16 @@ interface DownloadRepository {
      * Updates the finalized destination after a local transfer when a user-selected
      * folder is published, or after a safe fallback to app-private storage.
      */
+    /** Compare the completed source before relocating it; never publishes an active transfer. */
+    suspend fun relocateCompleted(
+        id: String,
+        expectedSource: String,
+        destinationPath: String,
+        destinationTreeUri: String?,
+        destinationDisplayLabel: String?,
+        nowEpochMillis: Long,
+    ): Download = error("relocateCompleted is not implemented")
+
     suspend fun updateDestination(
         id: String,
         destinationPath: String,

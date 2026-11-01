@@ -317,6 +317,78 @@ class DownloadSubmissionCoordinatorTest {
     }
 
     @Test
+    fun submissionOptionsPersistBeforeSchedulerCanStartTransfer() = runBlocking {
+        val repository = FakeDownloadRepository()
+        val starter = FakeTransferStarter()
+        val coordinator = coordinator(repository, FakeMetadataRetriever(
+            DownloadMetadataResult.Success(DownloadMetadata(
+                url = "https://example.com/options.bin", contentLength = 64L,
+                contentType = "application/octet-stream", suggestedFilename = "options.bin",
+            )),
+        ), starter)
+        val immediate = coordinator.submit("https://example.com/options.bin", true,
+            speedLimitBytesPerSecond = 96 * 1024L) as SubmissionResult.Success
+        assertEquals(96 * 1024L, starter.startedTransfers.single().first.speedLimitBytesPerSecond)
+        assertEquals(96 * 1024L, repository.get(immediate.download.id)!!.speedLimitBytesPerSecond)
+        val schedule = com.espitman.sdm.domain.DownloadSchedule(
+            com.espitman.sdm.domain.DownloadSchedule.Kind.ONCE, startEpochMillis = 10_000L)
+        val future = coordinator.submit("https://example.com/future.bin", true,
+            schedule = schedule, speedLimitBytesPerSecond = 128 * 1024L) as SubmissionResult.Success
+        assertEquals(schedule, repository.get(future.download.id)!!.schedule)
+        assertEquals(128 * 1024L, repository.get(future.download.id)!!.speedLimitBytesPerSecond)
+        assertEquals(1, starter.startedTransfers.size)
+        assertEquals(DownloadState.QUEUED, repository.get(future.download.id)!!.state)
+    }
+
+    @Test
+    fun explicitlyDeferredSubmissionSurvivesSchedulerPassUntilResume() = runBlocking {
+        val repository = FakeDownloadRepository()
+        val starter = FakeTransferStarter()
+        val coordinator = coordinator(repository, FakeMetadataRetriever(
+            DownloadMetadataResult.Success(DownloadMetadata(
+                url = "https://example.com/deferred.bin", contentLength = 64L,
+                contentType = "application/octet-stream", suggestedFilename = "deferred.bin",
+            )),
+        ), starter)
+        val result = coordinator.submit("https://example.com/deferred.bin", false,
+            deferUntilResumed = true) as SubmissionResult.Success
+        assertEquals(DownloadState.PAUSED, repository.get(result.download.id)?.state)
+        assertEquals(0L, repository.get(result.download.id)?.downloadedBytes)
+        assertTrue(starter.startedTransfers.isEmpty())
+        val scheduler = DownloadQueueScheduler(repository, { 3 }, { download ->
+            starter.startTransfer(download, DownloadPartFile.forDestination(File(download.destinationPath!!)))
+        })
+        scheduler.schedule()
+        assertTrue(starter.startedTransfers.isEmpty())
+        scheduler.resume(result.download.id)
+        assertEquals(result.download.id, starter.startedTransfers.single().first.id)
+    }
+
+    @Test
+    fun destinationOverrideIsCapturedPerSubmissionWithoutReplacingDefault() = runBlocking {
+        val repository = FakeDownloadRepository()
+        val starter = FakeTransferStarter()
+        val retriever = FakeMetadataRetriever(DownloadMetadataResult.Success(DownloadMetadata(
+            url = "https://example.com/target.bin", contentLength = 64L,
+            contentType = "application/octet-stream", suggestedFilename = "target.bin",
+        )))
+        val coordinator = coordinator(repository, retriever, starter)
+        val chosen = File(tempDir, "chosen").apply { mkdir() }
+        val existing = File(chosen, "target.bin").apply { writeText("existing") }
+        val custom = coordinator.submit("https://example.com/target.bin", false,
+            deferUntilResumed = true, destinationAllocatorOverride =
+                com.espitman.sdm.storage.AppPrivateDestinationAllocator({ chosen }, "Chosen")) as SubmissionResult.Success
+        assertEquals(chosen.absolutePath, File(custom.download.destinationPath!!).parent)
+        assertEquals("Chosen", custom.download.destinationDisplayLabel)
+        assertEquals("existing", existing.readText())
+        assertTrue(custom.download.fileName != "target.bin")
+        val fallback = coordinator.submit("https://example.com/target.bin", false,
+            deferUntilResumed = true) as SubmissionResult.Success
+        assertEquals(tempDir.absolutePath, File(fallback.download.destinationPath!!).parent)
+        assertTrue(starter.startedTransfers.isEmpty())
+    }
+
+    @Test
     fun concurrentDuplicateSubmissionsAreDedupedToOneRecordAndOneStart() = runBlocking {
         val repository = FakeDownloadRepository()
         val gate = CompletableDeferred<Unit>()

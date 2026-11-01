@@ -129,7 +129,8 @@ object AppRepositories {
                 segmentCount = { SettingsRepository.get(appContext).settings.value.connections },
                 requestContext = BrowserRequestContextRegistry::get,
                 networkUnavailable = { isNetworkOffline(appContext) },
-                preserveSegmentsOnPause = { com.espitman.sdm.storage.FolderRenameCoordinator.isPending(appContext) },
+                // Retain every verified range for manual, policy and link-refresh pauses.
+                preserveSegmentsOnPause = { true },
             ).also { transferEngine = it }
         }
     }
@@ -355,6 +356,10 @@ object AppRepositories {
         }
         return limiter
     }
+
+    fun archiveCoordinator(context: Context) = LinkArchiveCoordinator(
+        downloads(context), destinationAllocator(context), metadataRetriever(), queueScheduler(context),
+        com.espitman.sdm.torrent.TorrentStore(context.applicationContext))
 
     fun destinationAllocator(context: Context): com.espitman.sdm.storage.DestinationAllocator {
         val app = context.applicationContext

@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application>
+        <service android:name="com.espitman.sdm.torrent.ReleasePeerTestService" android:process=":torrent_peer" android:exported="true" />
+        <activity android:name="com.espitman.sdm.web.PhoneHandoffTestActivity" android:exported="true" android:label="SDM test viewer">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="application/x-sdm-owned-fixture" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

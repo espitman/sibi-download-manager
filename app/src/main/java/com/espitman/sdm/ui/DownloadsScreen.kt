@@ -222,6 +222,10 @@ internal fun InteractiveDownloadsScreen(
     val repository = AppRepositories.downloads(context)
     val completedVisibility = remember(context) { CompletedDownloadsVisibility(context) }
     var hiddenCompletedIds by remember(context) { mutableStateOf(completedVisibility.hiddenIds()) }
+    androidx.compose.runtime.DisposableEffect(completedVisibility) {
+        val observation = completedVisibility.observe { hiddenCompletedIds = it }
+        onDispose { observation.close() }
+    }
     val records by repository.downloads.collectAsState()
     val speedTracker = remember { RecentTransferSpeedTracker() }
     var nowEpochMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }

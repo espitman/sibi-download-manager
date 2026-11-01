@@ -8,10 +8,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.UUID
 
 object TorrentResolver {
+    // A cancelled metadata job still has native cleanup to finish. Keep subsequent
+    // metadata sessions behind that cleanup, including requests from other browsers.
+    private val magnetSessionGate = Mutex()
     suspend fun link(context: Context, raw: String, requestContext: com.espitman.sdm.network.ScopedRequestContext? = null): TorrentContents {
         if (raw.trim().startsWith("magnet:", true)) return magnet(context, raw)
         val validated = com.espitman.sdm.domain.DownloadUrl.validate(raw)
@@ -49,34 +54,42 @@ object TorrentResolver {
         return out.toByteArray()
     }
     suspend fun magnet(context: Context, uri: String): TorrentContents = withContext(Dispatchers.IO) {
-        require(TorrentMagnet.isValid(uri)) { "Enter a valid magnet link" }
-        TorrentNativeRuntime.prepare(context)
-        val directory = File(context.cacheDir, "torrent-resolve-${UUID.randomUUID()}").apply { mkdirs() }
-        val session = SessionManager()
-        try {
-            session.start(com.frostwire.jlibtorrent.SessionParams(TorrentSessionSettings.create(60)))
-            // Metadata-only: the engine cannot request payload before file selection.
-            session.download(uri.trim(), directory, com.frostwire.jlibtorrent.TorrentFlags.UPLOAD_MODE.or_(com.frostwire.jlibtorrent.TorrentFlags.STOP_WHEN_READY))
-            kotlinx.coroutines.withTimeout(90_000) {
-                var configured = false
-                while (true) {
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    val handle = session.torrentHandles.firstOrNull()
-                    if (handle != null && !configured) {
-                        handle.unsetFlags(com.frostwire.jlibtorrent.TorrentFlags.AUTO_MANAGED)
-                        handle.resume()
-                        configured = true
+        magnetSessionGate.withLock {
+            require(TorrentMagnet.isValid(uri)) { "Enter a valid magnet link" }
+            TorrentNativeRuntime.prepare(context)
+            val directory = File(context.cacheDir, "torrent-resolve-${UUID.randomUUID()}").apply { mkdirs() }
+            val session = SessionManager()
+            try {
+                session.start(com.frostwire.jlibtorrent.SessionParams(TorrentSessionSettings.create(60)))
+                // Metadata-only: the engine cannot request payload before file selection.
+                session.download(uri.trim(), directory, com.frostwire.jlibtorrent.TorrentFlags.UPLOAD_MODE)
+                kotlinx.coroutines.withTimeout(90_000) {
+                    var configured = false
+                    while (true) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        // SWIG vector elements borrow native storage. SessionManager's
+                        // array getter drops the vector owner before callers use them.
+                        // Keep the owner alive until every handle operation is finished.
+                        val handles = session.swig().get_torrents()
+                        try {
+                            val handle = if (handles.isEmpty()) null else com.frostwire.jlibtorrent.TorrentHandle(handles[0])
+                            if (handle != null && !configured) {
+                                handle.unsetFlags(com.frostwire.jlibtorrent.TorrentFlags.AUTO_MANAGED)
+                                handle.resume()
+                                configured = true
+                            }
+                            val info = handle?.torrentFile()
+                            if (info?.isValid == true) return@withTimeout TorrentStore.inspect(info.bencode())
+                        } finally { handles.delete() }
+                        kotlinx.coroutines.delay(100)
                     }
-                    val info = handle?.torrentFile()
-                    if (info?.isValid == true) return@withTimeout TorrentStore.inspect(info.bencode())
-                    kotlinx.coroutines.delay(100)
+                    @Suppress("UNREACHABLE_CODE") error("Metadata unavailable")
                 }
-                @Suppress("UNREACHABLE_CODE") error("Metadata unavailable")
+            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                error("Metadata unavailable. Check your connection or try a .torrent file.")
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { session.stop(); directory.deleteRecursively() }
             }
-        } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
-            error("Metadata unavailable. Check your connection or try a .torrent file.")
-        } finally {
-            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { session.stop(); directory.deleteRecursively() }
         }
     }
     suspend fun file(context: Context, uri: Uri): TorrentContents = withContext(Dispatchers.IO) {

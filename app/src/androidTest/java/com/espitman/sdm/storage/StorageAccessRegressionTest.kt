@@ -93,7 +93,11 @@ class StorageAccessRegressionTest {
             @Suppress("DEPRECATION")
             withInitial.getParcelableExtra(DocumentsContract.EXTRA_INITIAL_URI) as Uri?,
         )
-        assertEquals(treeUri(), initial.toString())
+        assertEquals(
+            DocumentsContract.buildDocumentUriUsingTree(Uri.parse(treeUri()), DocumentsContract.getTreeDocumentId(Uri.parse(treeUri()))),
+            initial,
+        )
+        assertEquals(DocumentsContract.getTreeDocumentId(Uri.parse(treeUri())), DocumentsContract.getDocumentId(initial))
         assertTrue(DocumentsContract.isTreeUri(initial))
         assertFalse(
             OpenDocumentTreeAccess.createPickerIntent("file:///storage/emulated/0/Download")

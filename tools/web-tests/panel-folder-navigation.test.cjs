@@ -1,0 +1,24 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const vm=require('node:vm');
+const fs=require('node:fs');
+const source=fs.readFileSync('app/src/main/assets/web/panel.js','utf8').split('(async()=>{try{const info=await api')[0];
+for(const kind of ['http','torrent','incomplete'])test(`open folder reveals ${kind} without a download command`,async()=>{
+ const requests=[],messages=[];
+ const file={id:'owned',index:'main',name:'test.bin'};
+ const context=vm.createContext({AbortSignal,document:{querySelector(){},querySelectorAll:()=>[],addEventListener(){}},localStorage:{getItem:()=>null},navigator:{},setTimeout,clearTimeout,setInterval(){},window:{scrollTo(){}}});
+ vm.runInContext(source,context);
+ context.fixture={torrent:kind==='torrent',files:kind==='incomplete'?[]:[file]};
+ context.readFiles=async(path,body)=>{requests.push({path,body});return {files:context.fixture.files,storage:{},location:'SDM'}};
+ context.message=text=>messages.push(text);
+ vm.runInContext("state.snapshot={downloads:[{id:'owned',torrent:fixture.torrent}]};state.detail='owned';api=readFiles;render=()=>{};toast=message;state.fileFilter='Video';state.query='old query';state.fileSelected.add('old:main')",context);
+ await vm.runInContext("act('open-download-folder')",context);
+ assert.deepEqual(requests,[{path:'files',body:undefined}]);
+ assert.equal(vm.runInContext('state.page',context),'files');
+ assert.equal(vm.runInContext('state.detail',context),null);
+ assert.equal(vm.runInContext('state.query',context),'');
+ assert.equal(vm.runInContext('state.fileFilter',context),'All');
+ assert.equal(vm.runInContext('state.fileFolder',context),kind==='torrent'?'owned':null);
+ assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify([...state.fileSelected])',context)),kind==='http'?['owned:main']:[]);
+ assert.equal(messages.length,kind==='incomplete'?1:0);
+});

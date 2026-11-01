@@ -65,7 +65,11 @@ class DownloadSubmissionCoordinator(
         startNow: Boolean,
         requestContext: ScopedRequestContext? = null,
         schedule: DownloadSchedule? = null,
+        deferUntilResumed: Boolean = false,
+        destinationAllocatorOverride: DestinationAllocator? = null,
+        speedLimitBytesPerSecond: Long? = null,
     ): SubmissionResult {
+        require(speedLimitBytesPerSecond == null || speedLimitBytesPerSecond > 0) { "Enter a positive speed limit" }
         val trimmedUrl = url.trim()
         val validatedUrl = when (val validation = DownloadUrl.validate(trimmedUrl)) {
             is DownloadUrlResult.Valid -> validation.url
@@ -74,7 +78,7 @@ class DownloadSubmissionCoordinator(
             }
         }
 
-        val dedupeKey = "$validatedUrl|$startNow|$schedule|${requestContext?.let { "${it.scopeKey}:${System.identityHashCode(it)}" } ?: "public"}"
+        val dedupeKey = "$validatedUrl|$startNow|$schedule|$speedLimitBytesPerSecond|$deferUntilResumed|${destinationAllocatorOverride?.let { System.identityHashCode(it) }}|${requestContext?.let { "${it.scopeKey}:${System.identityHashCode(it)}" } ?: "public"}"
         return coroutineScope {
             var myDeferred: Deferred<SubmissionResult>? = null
             var isLeader = false
@@ -86,7 +90,7 @@ class DownloadSubmissionCoordinator(
                     isLeader = false
                 } else {
                     val newDeferred = async {
-                        performSubmission(validatedUrl, requestContext, schedule)
+                        performSubmission(validatedUrl, requestContext, schedule, deferUntilResumed, destinationAllocatorOverride, speedLimitBytesPerSecond)
                     }
                     inFlightSubmissions[dedupeKey] = newDeferred
                     myDeferred = newDeferred
@@ -110,6 +114,9 @@ class DownloadSubmissionCoordinator(
         validatedUrl: String,
         requestContext: ScopedRequestContext?,
         schedule: DownloadSchedule?,
+        deferUntilResumed: Boolean,
+        destinationAllocatorOverride: DestinationAllocator?,
+        speedLimitBytesPerSecond: Long?,
     ): SubmissionResult {
         // 1. Retrieve metadata
         val metadataResult = try {
@@ -139,7 +146,7 @@ class DownloadSubmissionCoordinator(
             var persistedDownloadId: String? = null
             try {
                 val allocated = withContext(Dispatchers.IO) {
-                    destinationAllocator.allocate(metadata.suggestedFilename, metadata.contentType)
+                    (destinationAllocatorOverride ?: destinationAllocator).allocate(metadata.suggestedFilename, metadata.contentType)
                 }
                 reservedTempFile = allocated.partFile
 
@@ -156,7 +163,7 @@ class DownloadSubmissionCoordinator(
                     destinationPath = allocated.destinationPath,
                     totalBytes = metadata.contentLength,
                     downloadedBytes = 0L,
-                    state = DownloadState.QUEUED,
+                    state = if (deferUntilResumed) DownloadState.PAUSED else DownloadState.QUEUED,
                     error = null,
                     priority = 0,
                     sortOrder = now,
@@ -168,15 +175,17 @@ class DownloadSubmissionCoordinator(
                     referenceSha256 = metadata.referenceSha256,
                     destinationTreeUri = allocated.destinationTreeUri,
                     destinationDisplayLabel = allocated.destinationDisplayLabel,
+                    destinationParentDocumentUri = allocated.destinationParentDocumentUri,
                     schedule = schedule,
+                    speedLimitBytesPerSecond = speedLimitBytesPerSecond,
                 )
 
-                // 3. Persist exactly one QUEUED download
+                // Persist a held download as PAUSED so unrelated scheduler events cannot start it.
                 repository.insert(download)
                 persistedDownloadId = downloadId
                 BrowserRequestContextRegistry.put(downloadId, requestContext)
 
-                queueScheduler.schedule()
+                if (!deferUntilResumed) queueScheduler.schedule()
 
                 return@withLock SubmissionResult.Success(download)
             } catch (cancellation: CancellationException) {

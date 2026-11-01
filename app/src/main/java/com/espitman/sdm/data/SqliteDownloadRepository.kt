@@ -448,6 +448,21 @@ class SqliteDownloadRepository(
         nowEpochMillis: Long,
     ): Boolean = reorderQueuedGroup(setOf(sourceId), targetId, placeAfter, nowEpochMillis)
 
+    override suspend fun moveQueuedGroupToTop(sourceIds: Set<String>, nowEpochMillis: Long): Boolean = onIo {
+        awaitInitialized()
+        mutex.withLock {
+            var changed=false
+            database.writableDatabase.inTransaction { db ->
+                val current=queryUnfinished(db)
+                val next=DownloadQueueReorderMutation.groupToTop(current,sourceIds,nowEpochMillis)
+                next.forEach { persistIdentity(db,it.id,it) }
+                changed=next.isNotEmpty()
+            }
+            if(changed)refreshLocked(database.readableDatabase)
+            changed
+        }
+    }
+
     override suspend fun reorderQueuedGroup(
         sourceIds: Set<String>, targetId: String, placeAfter: Boolean, nowEpochMillis: Long,
     ): Boolean = onIo {
@@ -568,6 +583,25 @@ class SqliteDownloadRepository(
         }
     }
 
+    override suspend fun relocateCompleted(
+        id: String,
+        expectedSource: String,
+        destinationPath: String,
+        destinationTreeUri: String?,
+        destinationDisplayLabel: String?,
+        nowEpochMillis: Long,
+    ): Download = mutate(id) { current ->
+        require(current.state == DownloadState.COMPLETED && current.destinationPath == expectedSource) {
+            "File changed while moving. Try again"
+        }
+        require(destinationPath.isNotBlank()) { "Destination path cannot be blank" }
+        require(destinationTreeUri == null || destinationTreeUri.isNotBlank()) { "Destination tree URI cannot be blank" }
+        require(destinationDisplayLabel == null || destinationDisplayLabel.isNotBlank()) { "Destination label cannot be blank" }
+        current.copy(destinationPath = destinationPath, destinationTreeUri = destinationTreeUri,
+            destinationParentDocumentUri = null,
+            destinationDisplayLabel = destinationDisplayLabel, updatedAtEpochMillis = maxOf(nowEpochMillis, current.updatedAtEpochMillis))
+    }
+
     override suspend fun updateDestination(
         id: String,
         destinationPath: String,
@@ -592,6 +626,7 @@ class SqliteDownloadRepository(
             fileName = fileName,
             destinationPath = destinationPath,
             destinationTreeUri = destinationTreeUri,
+            destinationParentDocumentUri = current.destinationParentDocumentUri.takeIf { destinationTreeUri == current.destinationTreeUri },
             destinationDisplayLabel = destinationDisplayLabel,
             updatedAtEpochMillis = maxOf(nowEpochMillis, current.updatedAtEpochMillis),
         )
@@ -719,7 +754,7 @@ class SqliteDownloadRepository(
             "id", "url", "file_name", "mime_type", "etag", "last_modified", "destination_path", "total_bytes",
             "downloaded_bytes", "state", "error", "priority", "sort_order", "created_at", "updated_at",
             "started_at", "completed_at", "accepts_ranges", "reference_sha256", "automatic_retry_count", "failed_at",
-            "destination_tree_uri", "destination_display_label", "pause_cause",
+            "destination_tree_uri", "destination_display_label", "destination_parent_document_uri", "pause_cause",
             "schedule_kind", "schedule_start_epoch", "schedule_end_epoch",
             "schedule_start_minute", "schedule_end_minute", "schedule_zone_id", "speed_limit_bytes_per_second",
         )
@@ -758,6 +793,7 @@ private fun Download.toValues() = ContentValues().apply {
     put("automatic_retry_count", automaticRetryCount)
     putNullable("failed_at", failedAtEpochMillis)
     putNullable("destination_tree_uri", destinationTreeUri)
+    putNullable("destination_parent_document_uri", destinationParentDocumentUri)
     putNullable("destination_display_label", destinationDisplayLabel)
     putNullable("pause_cause", pauseCause?.name)
     putNullable("schedule_kind", schedule?.kind?.name)
@@ -809,6 +845,7 @@ private fun Cursor.toDownload() = Download(
     failedAtEpochMillis = getColumnIndexOrThrow("failed_at").let { if (isNull(it)) null else getLong(it) },
     automaticRetryCount = getInt(getColumnIndexOrThrow("automatic_retry_count")),
     destinationTreeUri = nullableString("destination_tree_uri"),
+    destinationParentDocumentUri = nullableString("destination_parent_document_uri"),
     destinationDisplayLabel = nullableString("destination_display_label"),
     pauseCause = nullableString("pause_cause")?.let { raw ->
         DownloadPauseCause.entries.find { it.name == raw }

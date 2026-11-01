@@ -50,7 +50,7 @@ class SettingsSearchTest {
             filterSettingsRows(catalog, "DOWNLOAD BEHAVIOR"),
         )
         assertEquals(
-            listOf(SettingsSearchRow.WifiOnly, SettingsSearchRow.SpeedLimit),
+            listOf(SettingsSearchRow.WifiOnly, SettingsSearchRow.SpeedLimit, SettingsSearchRow.WebPanel),
             filterSettingsRows(catalog, "network"),
         )
         assertRows("threads", SettingsSearchRow.Connections)

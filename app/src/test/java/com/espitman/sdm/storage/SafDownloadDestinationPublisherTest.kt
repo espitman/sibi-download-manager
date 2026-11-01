@@ -72,6 +72,49 @@ class SafDownloadDestinationPublisherTest {
     }
 
     @Test
+    fun selectedProviderDirectoryIsUsedForInspectionAndPublication() {
+        val local = File(tempDir, "selected.bin").apply { writeText("selected bytes") }
+        val parent = "content://provider/tree/root/document/child"
+        val delegate = FakeUserTreeAccess()
+        var inspected: String? = null
+        var created: String? = null
+        val trees = object : UserTreeAccess by delegate {
+            override fun inspectDirectory(treeUri: String, parentDocumentUri: String?): UserTreeInspection {
+                inspected = parentDocumentUri
+                return UserTreeInspection(UserTreeState.Writable)
+            }
+            override fun createFileInDirectory(treeUri: String, parentDocumentUri: String?, mimeType: String, displayName: String): CreatedTreeDocument {
+                created = parentDocumentUri
+                return delegate.createFile(treeUri, mimeType, displayName)
+            }
+        }
+        val store = SaveLocationStore(InMemoryPreferences())
+        val publisher = SafDownloadDestinationPublisher(trees,
+            SaveLocationCoordinator(store, FakeTreeUriGrantStore(), trees), { tempDir })
+        publisher.afterLocalFinalize(record(destinationPath = local.path, destinationTreeUri = treeUri)
+            .copy(destinationParentDocumentUri = parent), local)
+        assertEquals(parent, inspected)
+        assertEquals(parent, created)
+        assertFalse(local.exists())
+    }
+
+    @Test
+    fun unavailableExplicitDirectoryRetainsBytesInsteadOfPublishingElsewhere() {
+        val local = File(tempDir, "held.bin").apply { writeText("retained") }
+        val trees = FakeUserTreeAccess()
+        val publisher = SafDownloadDestinationPublisher(trees,
+            SaveLocationCoordinator(SaveLocationStore(InMemoryPreferences()), FakeTreeUriGrantStore(), trees), { tempDir })
+        var failed = false
+        try {
+            publisher.afterLocalFinalize(record(destinationPath = local.path, destinationTreeUri = treeUri)
+                .copy(destinationParentDocumentUri = "content://provider/tree/root/document/child"), local)
+        } catch (_: IOException) { failed = true }
+        assertTrue(failed)
+        assertEquals("retained", local.readText())
+        assertTrue(trees.written.isEmpty())
+    }
+
+    @Test
     fun missingTreePromotesTheLocalFileAndClearsTheMatchingSetting() {
         val stagingDir = File(tempDir, SaveLocationDestinationAllocator.STAGING_DIRECTORY_NAME).apply { mkdirs() }
         val local = File(stagingDir, "keep.bin").apply { writeText("kept") }

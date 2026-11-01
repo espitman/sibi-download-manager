@@ -34,9 +34,7 @@ import kotlinx.coroutines.*
 import java.io.File
 import java.time.LocalDate
 
-private fun archiveCoordinator(context: android.content.Context) = LinkArchiveCoordinator(
-    AppRepositories.downloads(context), AppRepositories.destinationAllocator(context),
-    AppRepositories.metadataRetriever(), AppRepositories.queueScheduler(context), com.espitman.sdm.torrent.TorrentStore(context))
+private fun archiveCoordinator(context: android.content.Context) = AppRepositories.archiveCoordinator(context)
 
 private suspend fun readArchive(context: android.content.Context, uri: Uri): Pair<String,String> = withContext(Dispatchers.IO) {
     val name=context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use {
@@ -288,13 +286,10 @@ internal fun safeArchiveName(raw:String,fallback:String,extension:String):String
                     } else {
                         val b=backup!!;val added=archiveCoordinator(context).restore(b.downloads,b.torrents);restoredCount=added
                         if(includeSettings && b.settings!=null) {
-                            settings.update {b.settings}
-                            b.categoryFolders?.let { folders-> withContext(Dispatchers.IO) {
-                                val store=CategoryFolderStore.get(context);store.replace(folders)
-                                val grants=PersistableTreeUriGrants(context.contentResolver)
-                                folders.rules.forEach { (category,rule)->if(!grants.hasReadWrite(rule.treeUri)) store.markUnavailable(category) }
-                            } }
-                            com.espitman.sdm.download.DailyBulkSchedule.arm(context)
+                            withContext(Dispatchers.IO) {
+                                com.espitman.sdm.data.settings.BackupSettingsRestore.apply(b,settings,
+                                    CategoryFolderStore.get(context),PersistableTreeUriGrants(context.contentResolver)::hasReadWrite)
+                            }
                         }
                         onToast("$added downloads restored · ${b.downloads.size-added} skipped");dismiss()
                     }

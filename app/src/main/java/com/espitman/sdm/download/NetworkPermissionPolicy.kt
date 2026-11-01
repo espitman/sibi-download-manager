@@ -10,12 +10,14 @@ object NetworkPermissionPolicy {
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+        // Required prerequisite for the LAN panel's connectedDevice foreground service.
+        "android.permission.CHANGE_NETWORK_STATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.SCHEDULE_EXACT_ALARM",
     )
 
     val DISALLOWED_BROAD_PERMISSIONS = setOf(
-        "android.permission.CHANGE_NETWORK_STATE",
         "android.permission.CHANGE_WIFI_STATE",
         "android.permission.ACCESS_WIFI_STATE",
         "android.permission.NEARBY_WIFI_DEVICES",

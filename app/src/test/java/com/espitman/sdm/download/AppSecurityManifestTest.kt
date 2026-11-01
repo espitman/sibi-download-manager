@@ -19,6 +19,10 @@ class AppSecurityManifestTest {
             assertFalse(manifest.contains(permission))
         }
         assertTrue(manifest.contains("""android:name=".download.DownloadTransferService""""))
+        val webService = Regex("""<service\s+[^>]*android:name="\.web\.WebPanelService"[^>]*/>""")
+            .find(manifest)?.value ?: error("Missing LAN panel service")
+        assertTrue(webService.contains("""android:exported="false""""))
+        assertTrue(webService.contains("""android:foregroundServiceType="connectedDevice""""))
         assertTrue(manifest.contains("""android:exported="false""""))
         assertTrue(manifest.contains("android.support.FILE_PROVIDER_PATHS"))
         assertTrue(manifest.contains("""android:fullBackupContent="@xml/sdm_backup_rules""""))

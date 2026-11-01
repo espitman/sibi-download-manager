@@ -61,6 +61,8 @@ data class Download(
     /** Optional user-selected time window; null means the download can run at any time. */
     val schedule: DownloadSchedule? = null,
     val speedLimitBytesPerSecond: Long? = null,
+    /** Selected provider directory within destinationTreeUri; null means the granted root. */
+    val destinationParentDocumentUri: String? = null,
 ) {
     val isTorrent: Boolean get() = url.startsWith("magnet:", ignoreCase = true)
 

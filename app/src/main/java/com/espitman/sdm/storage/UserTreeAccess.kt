@@ -24,6 +24,12 @@ data class CreatedTreeDocument(
 interface UserTreeAccess {
     fun inspect(treeUri: String): UserTreeInspection
     fun createFile(treeUri: String, mimeType: String, displayName: String): CreatedTreeDocument
+    fun inspectDirectory(treeUri: String, parentDocumentUri: String?): UserTreeInspection =
+        if (parentDocumentUri == null) inspect(treeUri) else UserTreeInspection(UserTreeState.NotWritable)
+    fun createFileInDirectory(treeUri: String, parentDocumentUri: String?, mimeType: String, displayName: String): CreatedTreeDocument {
+        require(parentDocumentUri == null) { "Provider subfolder access is unavailable" }
+        return createFile(treeUri, mimeType, displayName)
+    }
     fun writeFrom(documentUri: String, source: File)
     fun deleteDocument(documentUri: String): Boolean
 }

@@ -46,6 +46,10 @@ class TorrentDeviceTest {
         val bytes: ByteArray
         val contents: TorrentContents
         private var bound = false
+        @Volatile private var releasePeerReady = false
+        @Volatile private var releasePeerStopped = false
+        @Volatile private var releasePeerError: String? = null
+        private var releasePeer = false
         private val connection = object : android.content.ServiceConnection {
             override fun onServiceConnected(name: android.content.ComponentName, service: android.os.IBinder) {}
             override fun onServiceDisconnected(name: android.content.ComponentName) {}
@@ -65,8 +69,9 @@ class TorrentDeviceTest {
                         socket.soTimeout=5000
                         val reader=socket.getInputStream().bufferedReader(); val request = reader.readLine().orEmpty()
                         while (!reader.readLine().isNullOrEmpty()) {}
+                        android.util.Log.i("SDMReleaseTorrentQA", "Owned tracker: " + Regex("[?&](port|left|event)=[^& ]+").findAll(request).joinToString { it.value } + " seedPort=" + port)
                         val peer=byteArrayOf(127,0,0,1,(port shr 8).toByte(),port.toByte())
-                        val body=encode(mapOf("interval" to 1,"complete" to 1,"incomplete" to 0,"peers" to if ("left=0&" in request || "&port=$port&" in request) ByteArray(0) else peer))
+                        val body=encode(mapOf("interval" to 1,"complete" to 1,"incomplete" to 0,"peers" to if (Regex("[?&]port=$port(?:&| )").containsMatchIn(request)) ByteArray(0) else peer))
                         socket.getOutputStream().apply { write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray());write(body);flush() }
                     }
                 } catch (_: Exception) {}
@@ -74,9 +79,26 @@ class TorrentDeviceTest {
             File(base, "fixture.torrent").writeBytes(bytes)
         }
         suspend fun ready() {
+            if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                if (!bound) {
+                    releasePeer = true
+                    val receiver = object : android.os.ResultReceiver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                        override fun onReceiveResult(code: Int, data: android.os.Bundle?) {
+                            when (code) { 1 -> releasePeerReady = true; 2 -> releasePeerError = data?.getString("error"); 3 -> releasePeerStopped = true }
+                        }
+                    }
+                    val testContext = InstrumentationRegistry.getInstrumentation().context
+                    bound = context.bindService(android.content.Intent().setClassName(testContext.packageName,
+                        "com.espitman.sdm.torrent.ReleasePeerTestService").putExtra("metadata", bytes)
+                        .putExtra("port", port).putExtra("receiver", receiver), connection, Context.BIND_AUTO_CREATE)
+                    check(bound) { "Could not bind independent release peer" }
+                }
+                await("independent release peer") { check(releasePeerError == null) { releasePeerError.orEmpty() }; releasePeerReady }
+                return
+            }
             if (!bound) {
                 File(base,"ready").delete()
-                bound=context.bindService(android.content.Intent(context, TorrentTestSeederService::class.java)
+                bound=context.bindService(android.content.Intent().setClassName(context, "com.espitman.sdm.torrent.TorrentTestSeederService")
                     .putExtra("fixture",base.path).putExtra("port",port), connection, Context.BIND_AUTO_CREATE)
                 check(bound)
             }
@@ -87,7 +109,7 @@ class TorrentDeviceTest {
             if (bound) {
                 context.unbindService(connection)
                 val deadline=System.currentTimeMillis()+10_000
-                while (File(base,"ready").exists() && System.currentTimeMillis()<deadline) Thread.sleep(50)
+                while ((if (releasePeer) !releasePeerStopped else File(base,"ready").exists()) && System.currentTimeMillis()<deadline) Thread.sleep(50)
             }
             base.deleteRecursively()
         }
@@ -124,6 +146,11 @@ class TorrentDeviceTest {
                     job.cancelAndJoin()
                     val paused=repo.get(id)!!;assertEquals(DownloadState.PAUSED,paused.state);assertTrue(paused.downloadedBytes>0)
                     assertTrue(File(store.directory(id),"resume.data").length()>0)
+                    assertNull(TorrentRuntime.telemetry.value[id])
+                    val savedProgress = checkNotNull(TorrentStore(context).progress(id))
+                    assertEquals(paused.downloadedBytes, savedProgress.downloaded)
+                    assertEquals(setOf(chosen.index), savedProgress.files.keys)
+                    assertEquals(paused.downloadedBytes, savedProgress.files.getValue(chosen.index))
                     // Network policy interruption must retain verified pieces and become eligible again.
                     repo.resumePaused(id,System.currentTimeMillis())
                     job=launch(Dispatchers.IO) {TorrentTransferEngine(context).execute(id,repo,{false},{DownloadPauseCause.NETWORK_POLICY})}
@@ -149,6 +176,125 @@ class TorrentDeviceTest {
                 } finally {job.cancelAndJoin()}
             } finally {store.remove(id)}
         } }
+    }
+    @Test fun webUploadSelectionPauseResumeCompletionAndSeedingUseRealPeer() = webTransfer(false)
+    @Test fun webMagnetSelectionPauseResumeCompletionAndSeedingUseRealPeer() = webTransfer(true)
+    @Test fun webTorrentTransferSurvivesListenerOutage() = webTransfer(false, true)
+    private fun webTransfer(magnet: Boolean, listenerOutage: Boolean = false) = runBlocking {
+        val repository = com.espitman.sdm.data.AppRepositories.downloads(context)
+        repository.awaitInitialized()
+        val originals = repository.downloads.value
+        org.junit.Assume.assumeTrue("Requires an idle user queue", originals.all { it.state in setOf(DownloadState.PAUSED, DownloadState.COMPLETED, DownloadState.FAILED, DownloadState.CANCELLED) })
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        if (listenerOutage) org.junit.Assume.assumeTrue(com.espitman.sdm.web.WebPanelRuntime.enabled(context))
+        val access = com.espitman.sdm.web.WebPanelRuntime.access
+        val (pending, ticket) = access.request("SDM owned torrent transfer fixture", "127.0.0.1")
+        check(access.approve(pending.id))
+        val secret = checkNotNull(access.collect(pending.id, ticket))
+        val browser = access.authorize(secret)
+        val bridge = com.espitman.sdm.web.WebAppBridge(context)
+        val router = com.espitman.sdm.web.WebRouter(access, { "Fixture" }, { null }, bridge::handle)
+        var ownedId: String? = null
+        fun call(path: String, body: org.json.JSONObject? = null, upload: ByteArray? = null): org.json.JSONObject {
+            android.util.Log.i("SDMReleaseTorrentQA", "Command: $path ${body?.optString("action").orEmpty()}")
+            val headers = mutableMapOf("authorization" to "Bearer $secret")
+            if (body != null || upload != null) {
+                headers["idempotency-key"] = UUID.randomUUID().toString()
+                headers["content-type"] = if (upload != null) "application/x-bittorrent" else "application/json"
+            }
+            val response = router.handle(com.espitman.sdm.web.LanHttpServer.Request(if (body != null || upload != null) "POST" else "GET", path, headers, upload ?: body?.toString()?.toByteArray() ?: byteArrayOf(), "127.0.0.1"))
+            assertEquals(String(response.body), if (upload != null || path == "/api/torrent/resolve") 202 else 200, response.status)
+            return org.json.JSONObject(String(response.body))
+        }
+        fun action(id: String, value: String) = call("/api/download/action", org.json.JSONObject().put("ids", org.json.JSONArray(listOf(id))).put("action", value))
+        try {
+            Fixture(privateTorrent = !magnet).use { f ->
+                f.ready()
+                if (magnet) {
+                    val cancelled = call("/api/torrent/resolve", org.json.JSONObject().put("link", f.contents.magnet)).getString("id")
+                    call("/api/torrent/cancel", org.json.JSONObject().put("id", cancelled))
+                    assertEquals(originals, repository.downloads.value)
+                }
+                val draft = if (magnet) call("/api/torrent/resolve", org.json.JSONObject().put("link", f.contents.magnet)).getString("id")
+                    else call("/api/torrent/upload", upload = f.bytes).getString("id")
+                await("web metadata ready") {
+                    val review = call("/api/torrent/draft/$draft")
+                    check(review.getString("status") != "failed") { review.optString("error") }
+                    review.getString("status") == "ready"
+                }
+                val chosen = f.contents.files.first { it.path.endsWith("first.bin") }
+                val id = call("/api/torrent/submit", org.json.JSONObject().put("id", draft).put("selected", org.json.JSONArray(listOf(chosen.index))).put("seed", true).put("startNow", false)).getString("id")
+                ownedId = id
+                assertEquals(DownloadState.PAUSED, repository.get(id)!!.state)
+                assertEquals(0L, repository.get(id)!!.downloadedBytes)
+                repository.updateSpeedLimit(id, 96 * 1024L, System.currentTimeMillis())
+                assertTrue(action(id, "resume").getJSONArray("results").getJSONObject(0).getBoolean("accepted"))
+                await("web-started verified pieces") { val row = repository.get(id)!!; check(row.state != DownloadState.FAILED) { row.error.orEmpty() }; row.downloadedBytes >= 65536 }
+                if (listenerOutage) {
+                    val runtime = com.espitman.sdm.web.WebPanelRuntime
+                    val port = runtime.port(context)
+                    val approvals = runtime.access.browsers.value.map { it.id }.toSet()
+                    val before = repository.get(id)!!.downloadedBytes
+                    try {
+                        runtime.stop(context)
+                        await("torrent listener stopped") { !runtime.status.value.running }
+                        kotlinx.coroutines.delay(4000)
+                        val during = repository.get(id)!!
+                        assertTrue("Torrent must gain verified bytes with panel stopped", during.downloadedBytes > before)
+                        assertEquals(DownloadState.DOWNLOADING, during.state)
+                        assertEquals(approvals, runtime.access.browsers.value.map { it.id }.toSet())
+                    } finally {
+                        runtime.start(context, port)
+                        await("torrent listener restored") { runtime.status.value.running }
+                    }
+                    assertEquals(port, runtime.status.value.port)
+                    assertEquals(approvals, runtime.access.browsers.value.map { it.id }.toSet())
+                }
+                action(id, "pause")
+                await("web pause persisted") { repository.get(id)!!.state == DownloadState.PAUSED && TorrentRuntime.telemetry.value[id] == null }
+                val saved = repository.get(id)!!.downloadedBytes
+                assertTrue(saved > 0)
+                assertEquals(saved, TorrentStore(context).progress(id)!!.downloaded)
+                action(id, "resume")
+                var diagnosticAt = 0L
+                await("web-resumed seeding") {
+                    val row = repository.get(id)!!
+                    check(row.state != DownloadState.FAILED) { row.error.orEmpty() }
+                    if (System.currentTimeMillis() - diagnosticAt > 5000) {
+                        val telemetry = TorrentRuntime.telemetry.value[id]
+                        android.util.Log.i("SDMReleaseTorrentQA", "Owned resume: state=${row.state}, bytes=${row.downloadedBytes}, peers=${telemetry?.peers}, rate=${telemetry?.downloadRate}, checking=${telemetry?.checking}")
+                        diagnosticAt = System.currentTimeMillis()
+                    }
+                    TorrentRuntime.telemetry.value[id]?.seeding == true
+                }
+                val details = call("/api/torrent/details/$id")
+                assertTrue(details.getBoolean("seed"))
+                assertEquals(2, details.getJSONArray("files").length())
+                assertTrue(action(id, "pause").getJSONArray("results").getJSONObject(0).getBoolean("accepted"))
+                await("web stop seeding retains completion") {
+                    repository.get(id)!!.state == DownloadState.COMPLETED && TorrentRuntime.telemetry.value[id] == null
+                }
+                val completed = repository.get(id)!!
+                assertEquals(f.first.size.toLong(), completed.downloadedBytes)
+                val store = TorrentStore(context)
+                val uri = store.selection(id).published[chosen.index]
+                val actual = if (uri != null) context.contentResolver.openInputStream(android.net.Uri.parse(uri))!!.use { it.readBytes() }
+                    else TorrentPaths.resolve(File(completed.destinationPath), chosen.path).readBytes()
+                assertArrayEquals(f.first, actual)
+                assertEquals(originals, repository.downloads.value.filter { it.id != id })
+                assertTrue(call("/api/downloads/remove", org.json.JSONObject().put("ids", org.json.JSONArray(listOf(id))).put("confirmed", true).put("deleteFiles", true)).getJSONArray("results").getJSONObject(0).getBoolean("removed"))
+                ownedId = null
+            }
+        } finally {
+            ownedId?.let { id ->
+                com.espitman.sdm.download.DownloadTransferService.cancelTransfer(context, id)
+                await("owned fixture stopped") { TorrentRuntime.telemetry.value[id] == null }
+                assertTrue(call("/api/downloads/remove", org.json.JSONObject().put("ids", org.json.JSONArray(listOf(id))).put("confirmed", true).put("deleteFiles", true)).getJSONArray("results").getJSONObject(0).getBoolean("removed"))
+            }
+            bridge.close()
+            access.revoke(browser.id)
+        }
+        assertEquals(originals, repository.downloads.value)
     }
     @Test fun rejectsCorruptMetadataAndInvalidSelectionsWithoutTouchingExistingFiles() = runBlocking {
         assertThrows(IllegalArgumentException::class.java) {TorrentStore.inspect("bad".toByteArray())}
@@ -276,6 +422,7 @@ class TorrentDeviceTest {
         val marker=org.json.JSONObject().put("id",id).put("base",f.base.path).put("port",f.port)
             .put("trackerPort",f.tracker.localPort).put("bytes",repo.get(id)!!.downloadedBytes)
         File(context.filesDir,"torrent-process-death-qa.json").writeText(marker.toString())
+        File(context.externalCacheDir,"torrent-process-ready").writeText("ready")
         delay(120_000)
         error("Host did not kill the process")
     }
@@ -295,8 +442,272 @@ class TorrentDeviceTest {
                 TorrentTransferEngine(context).execute(id,repo,{false},{null})
                 val completed=repo.get(id)!!;assertEquals(completed.error,DownloadState.COMPLETED,completed.state)
                 assertArrayEquals(f.first,TorrentPaths.resolve(File(completed.destinationPath!!),f.contents.files.first().path).readBytes())
-            } finally {repo.close();context.deleteDatabase(name);store.remove(id);markerFile.delete()}
+            } finally {repo.close();context.deleteDatabase(name);store.remove(id);markerFile.delete();File(context.externalCacheDir,"torrent-process-ready").delete()}
         }
+    }
+
+    private fun withIsolatedWebCommands(block: ((String, org.json.JSONObject?, ByteArray?) -> com.espitman.sdm.web.LanHttpServer.Response) -> Unit) {
+        val access=com.espitman.sdm.web.WebPanelRuntime.access
+        val (pending,ticket)=access.request("Owned torrent restart commands","127.0.0.9")
+        check(access.approve(pending.id));val secret=checkNotNull(access.collect(pending.id,ticket));val ownedBrowser=access.authorize(secret)
+        val bridge=com.espitman.sdm.web.WebAppBridge(context)
+        val router=com.espitman.sdm.web.WebRouter(access,{"Fixture"},{null},bridge::handle)
+        try { block { path,body,bytes ->
+            router.handle(com.espitman.sdm.web.LanHttpServer.Request(if(body==null&&bytes==null)"GET" else "POST",path,
+                buildMap {put("authorization","Bearer $secret");if(body!=null||bytes!=null){put("idempotency-key",UUID.randomUUID().toString());put("content-type",if(bytes!=null)"application/x-bittorrent" else "application/json")}},
+                bytes?:body?.toString()?.toByteArray()?:byteArrayOf(),"127.0.0.9"))
+        } } finally {bridge.close();access.revoke(ownedBrowser.id)}
+    }
+    private fun restartFingerprint(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    @Test fun stageWebServiceTorrentProcessDeath(): Unit = runBlocking {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("torrentPhase")=="web-stage")
+        org.junit.Assume.assumeTrue(com.espitman.sdm.data.settings.SettingsRepository.get(context).settings.value.autoResume)
+        val repo=com.espitman.sdm.data.AppRepositories.downloads(context);repo.awaitInitialized()
+        val original=repo.downloads.value
+        check(original.all {it.state in setOf(DownloadState.PAUSED,DownloadState.FAILED,DownloadState.COMPLETED,DownloadState.CANCELLED)})
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        val f=Fixture(privateTorrent=false);f.ready()
+        var id="";var folderName=""
+        val marker=org.json.JSONObject().put("base",f.base.path).put("port",f.port).put("trackerPort",f.tracker.localPort)
+            .put("originals",restartFingerprint(original.sortedBy {it.id}.toString()))
+            .put("browsers",restartFingerprint(com.espitman.sdm.web.WebPanelRuntime.access.browsers.value.sortedBy {it.id}.toString()))
+            .put("settings",restartFingerprint(context.getSharedPreferences("sdm_settings",0).all.toSortedMap().toString()))
+        withIsolatedWebCommands { request ->
+            fun json(response:com.espitman.sdm.web.LanHttpServer.Response)=org.json.JSONObject(String(response.body))
+            val roots=json(request("/api/folders",null,null)).getJSONArray("folders")
+            val root=(0 until roots.length()).map {roots.getJSONObject(it)}.first {it.getString("kind")=="app"}
+            folderName="SDM-web-restart-${UUID.randomUUID()}"
+            val created=request("/api/folders/create",org.json.JSONObject().put("parent",root.getString("id")).put("name",folderName),null)
+            assertEquals(String(created.body),200,created.status)
+            val folder=json(created).getString("id")
+            val upload=request("/api/torrent/upload",null,f.bytes);assertEquals(202,upload.status)
+            val draft=json(upload).getString("id")
+            kotlinx.coroutines.runBlocking {await("web restart metadata") {json(request("/api/torrent/draft/$draft",null,null)).optString("status")=="ready"}}
+            val submit=request("/api/torrent/submit",org.json.JSONObject().put("id",draft).put("selected",org.json.JSONArray(listOf(f.contents.files.first().index))).put("seed",false).put("startNow",false).put("folder",folder),null)
+            assertEquals(String(submit.body),200,submit.status);id=json(submit).getString("id")
+            assertEquals(200,request("/api/download/limit",org.json.JSONObject().put("id",id).put("unlimited",false).put("value","32").put("unit","KB/s"),null).status)
+        }
+        marker.put("id",id).put("folder",folderName)
+        File(context.filesDir,"web-torrent-process-qa.json").writeText(marker.toString())
+        context.startActivity(android.content.Intent(context,com.espitman.sdm.MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        File(context.externalCacheDir,"web-torrent-process-prepared").writeText(repo.get(id)!!.fileName)
+        await("Chrome starts web torrent and stores partial progress") {repo.get(id)!!.downloadedBytes>=262144}
+        marker.put("bytes",repo.get(id)!!.downloadedBytes)
+        File(context.filesDir,"web-torrent-process-qa.json").writeText(marker.toString())
+        File(context.externalCacheDir,"web-torrent-process-ready").writeText("ready")
+        delay(120000);error("Host must interrupt the staged process")
+    }
+    @Test fun recoverWebServiceTorrentProcessDeath() = runBlocking {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("torrentPhase")=="web-recover")
+        val markerFile=File(context.filesDir,"web-torrent-process-qa.json");val marker=org.json.JSONObject(markerFile.readText());val id=marker.getString("id")
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        val repo=com.espitman.sdm.data.AppRepositories.downloads(context);repo.awaitInitialized()
+        assertEquals(DownloadState.DOWNLOADING,repo.get(id)!!.state)
+        assertTrue(repo.get(id)!!.downloadedBytes>=marker.getLong("bytes"))
+        Fixture(privateTorrent=false,persistedBase=File(marker.getString("base")),seedPort=marker.getInt("port"),trackerPort=marker.getInt("trackerPort")).use {f ->
+            f.ready()
+            try {
+                withIsolatedWebCommands {request ->assertEquals(200,request("/api/download/limit",org.json.JSONObject().put("id",id).put("unlimited",true),null).status)}
+                context.startActivity(android.content.Intent(context,com.espitman.sdm.MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                await("production service automatic torrent recovery") {repo.get(id)!!.state==DownloadState.COMPLETED}
+                val row=repo.get(id)!!;assertEquals(f.first.size.toLong(),row.downloadedBytes)
+                val chosen=f.contents.files.first();val published=TorrentStore(context).selection(id).published[chosen.index]
+                val bytes=if(published!=null)context.contentResolver.openInputStream(android.net.Uri.parse(published))!!.use {it.readBytes()} else TorrentPaths.resolve(File(row.destinationPath!!),chosen.path).readBytes()
+                assertArrayEquals(f.first,bytes)
+                assertEquals(marker.getString("originals"),restartFingerprint(repo.downloads.value.filter {it.id!=id}.sortedBy {it.id}.toString()))
+                assertEquals(marker.getString("browsers"),restartFingerprint(com.espitman.sdm.web.WebPanelRuntime.access.browsers.value.sortedBy {it.id}.toString()))
+                assertEquals(marker.getString("settings"),restartFingerprint(context.getSharedPreferences("sdm_settings",0).all.toSortedMap().toString()))
+                delay(10000)
+            } finally {
+                withIsolatedWebCommands {request ->assertEquals(200,request("/api/downloads/remove",org.json.JSONObject().put("ids",org.json.JSONArray(listOf(id))).put("confirmed",true).put("deleteFiles",true),null).status)}
+                File(AppSpecificDownloadsDirectory.from(context),marker.getString("folder")).deleteRecursively()
+                markerFile.delete();File(context.externalCacheDir,"web-torrent-process-prepared").delete();File(context.externalCacheDir,"web-torrent-process-ready").delete()
+            }
+        }
+    }
+
+    @Test fun externalChromeTabCloseKeepsServiceTorrentRunning() = runBlocking {
+        val repo=com.espitman.sdm.data.AppRepositories.downloads(context);repo.awaitInitialized()
+        val originals=repo.downloads.value
+        check(originals.all {it.state in setOf(DownloadState.PAUSED,DownloadState.FAILED,DownloadState.COMPLETED,DownloadState.CANCELLED)})
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        val browsers=com.espitman.sdm.web.WebPanelRuntime.access.browsers.value
+        val settings=context.getSharedPreferences("sdm_settings",0).all
+        val prepared=File(context.externalCacheDir,"web-tab-close-prepared")
+        val closing=File(context.externalCacheDir,"web-tab-close-confirmed")
+        val ready=File(context.externalCacheDir,"web-tab-close-ready")
+        prepared.delete();closing.delete();ready.delete()
+        var id:String?=null;var folderName:String?=null
+        Fixture(privateTorrent=false).use {f ->
+            f.ready()
+            try {
+                withIsolatedWebCommands {request ->
+                    fun json(response:com.espitman.sdm.web.LanHttpServer.Response)=org.json.JSONObject(String(response.body))
+                    val roots=json(request("/api/folders",null,null)).getJSONArray("folders")
+                    val root=(0 until roots.length()).map {roots.getJSONObject(it)}.first {it.getString("kind")=="app"}
+                    folderName="SDM-tab-close-${UUID.randomUUID()}"
+                    val created=request("/api/folders/create",org.json.JSONObject().put("parent",root.getString("id")).put("name",folderName),null)
+                    assertEquals(String(created.body),200,created.status)
+                    val folder=json(created).getString("id")
+                    val uploaded=request("/api/torrent/upload",null,f.bytes);assertEquals(202,uploaded.status)
+                    val draft=json(uploaded).getString("id")
+                    runBlocking {await("tab close metadata") {json(request("/api/torrent/draft/$draft",null,null)).optString("status")=="ready"}}
+                    val submitted=request("/api/torrent/submit",org.json.JSONObject().put("id",draft).put("selected",org.json.JSONArray(listOf(f.contents.files.first().index))).put("seed",false).put("startNow",false).put("folder",folder),null)
+                    assertEquals(String(submitted.body),200,submitted.status);id=json(submitted).getString("id")
+                    assertEquals(200,request("/api/download/limit",org.json.JSONObject().put("id",id).put("unlimited",false).put("value","32").put("unit","KB/s"),null).status)
+                }
+                prepared.writeText(repo.get(id!!)!!.fileName)
+                withTimeout(180000){while(repo.get(id!!)!!.downloadedBytes<65536)delay(100)}
+                ready.writeText("ready")
+                withTimeout(60000){while(!closing.exists())delay(100)}
+                val offset=repo.get(id!!)!!.downloadedBytes
+                assertEquals(DownloadState.DOWNLOADING,repo.get(id!!)!!.state)
+                assertTrue(offset<f.first.size)
+                await("torrent gains bytes after external tab closes") {repo.get(id!!)!!.downloadedBytes>offset}
+                withTimeout(120000){while(repo.get(id!!)!!.state!=DownloadState.COMPLETED)delay(100)}
+                val row=repo.get(id!!)!!;assertEquals(f.first.size.toLong(),row.downloadedBytes)
+                val selected=f.contents.files.first();val published=TorrentStore(context).selection(id!!).published[selected.index]
+                val bytes=if(published!=null)context.contentResolver.openInputStream(android.net.Uri.parse(published))!!.use {it.readBytes()} else TorrentPaths.resolve(File(row.destinationPath!!),selected.path).readBytes()
+                assertArrayEquals(f.first,bytes)
+                assertEquals(originals,repo.downloads.value.filter {it.id!=id})
+                assertEquals(browsers,com.espitman.sdm.web.WebPanelRuntime.access.browsers.value)
+                assertEquals(settings,context.getSharedPreferences("sdm_settings",0).all)
+            } finally {
+                id?.let {owned ->
+                    com.espitman.sdm.download.DownloadTransferService.cancelTransfer(context,owned)
+                    await("tab close fixture engine cleanup") {TorrentRuntime.telemetry.value[owned]==null}
+                    withIsolatedWebCommands {request ->
+                        val removed=request("/api/downloads/remove",org.json.JSONObject().put("ids",org.json.JSONArray(listOf(owned))).put("confirmed",true).put("deleteFiles",true),null)
+                        assertEquals(String(removed.body),200,removed.status)
+                        assertTrue(org.json.JSONObject(String(removed.body)).getJSONArray("results").getJSONObject(0).getBoolean("removed"))
+                    }
+                }
+                folderName?.let {File(AppSpecificDownloadsDirectory.from(context),it).deleteRecursively()}
+                prepared.delete();closing.delete();ready.delete()
+            }
+        }
+        assertEquals(originals,repo.downloads.value)
+    }
+
+    @Test fun externalChromeTorrentPausesOnCellularAndResumesOnWifi() = runBlocking {
+        org.junit.Assume.assumeTrue(com.espitman.sdm.data.settings.SettingsRepository.get(context).settings.value.let {it.wifiOnly && it.autoResume})
+        val repo=com.espitman.sdm.data.AppRepositories.downloads(context);repo.awaitInitialized()
+        val originals=repo.downloads.value
+        check(originals.all {it.state in setOf(DownloadState.PAUSED,DownloadState.FAILED,DownloadState.COMPLETED,DownloadState.CANCELLED)})
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        val browsers=com.espitman.sdm.web.WebPanelRuntime.access.browsers.value
+        val settings=context.getSharedPreferences("sdm_settings",0).all
+        val prepared=File(context.externalCacheDir,"web-torrent-network-prepared")
+        val closing=File(context.externalCacheDir,"web-torrent-network-confirmed")
+        val ready=File(context.externalCacheDir,"web-torrent-network-ready")
+        prepared.delete();closing.delete();ready.delete()
+        var id:String?=null;var folderName:String?=null
+        Fixture(privateTorrent=false).use {f ->
+            f.ready()
+            try {
+                withIsolatedWebCommands {request ->
+                    fun json(response:com.espitman.sdm.web.LanHttpServer.Response)=org.json.JSONObject(String(response.body))
+                    val roots=json(request("/api/folders",null,null)).getJSONArray("folders")
+                    val root=(0 until roots.length()).map {roots.getJSONObject(it)}.first {it.getString("kind")=="app"}
+                    folderName="SDM-torrent-network-${UUID.randomUUID()}"
+                    val created=request("/api/folders/create",org.json.JSONObject().put("parent",root.getString("id")).put("name",folderName),null)
+                    assertEquals(String(created.body),200,created.status)
+                    val folder=json(created).getString("id")
+                    val uploaded=request("/api/torrent/upload",null,f.bytes);assertEquals(202,uploaded.status)
+                    val draft=json(uploaded).getString("id")
+                    runBlocking {await("tab close metadata") {json(request("/api/torrent/draft/$draft",null,null)).optString("status")=="ready"}}
+                    val submitted=request("/api/torrent/submit",org.json.JSONObject().put("id",draft).put("selected",org.json.JSONArray(listOf(f.contents.files.first().index))).put("seed",false).put("startNow",false).put("folder",folder),null)
+                    assertEquals(String(submitted.body),200,submitted.status);id=json(submitted).getString("id")
+                    assertEquals(200,request("/api/download/limit",org.json.JSONObject().put("id",id).put("unlimited",false).put("value","32").put("unit","KB/s"),null).status)
+                }
+                prepared.writeText(repo.get(id!!)!!.fileName)
+                withTimeout(180000){while(repo.get(id!!)!!.downloadedBytes<65536)delay(100)}
+                ready.writeText("ready")
+                withTimeout(45000){while(repo.get(id!!)!!.pauseCause!=com.espitman.sdm.domain.DownloadPauseCause.NETWORK_POLICY)delay(100)}
+                val paused=repo.get(id!!)!!;assertEquals(DownloadState.PAUSED,paused.state)
+                val offset=paused.downloadedBytes;assertTrue(offset in 1 until f.first.size.toLong())
+                delay(1500);assertEquals(offset,repo.get(id!!)!!.downloadedBytes)
+                File(context.externalCacheDir,"web-torrent-network-paused").writeText("paused")
+                withTimeout(120000){while(repo.get(id!!)!!.state!=DownloadState.COMPLETED)delay(100)}
+                val row=repo.get(id!!)!!;assertEquals(f.first.size.toLong(),row.downloadedBytes)
+                val selected=f.contents.files.first();val published=TorrentStore(context).selection(id!!).published[selected.index]
+                val bytes=if(published!=null)context.contentResolver.openInputStream(android.net.Uri.parse(published))!!.use {it.readBytes()} else TorrentPaths.resolve(File(row.destinationPath!!),selected.path).readBytes()
+                assertArrayEquals(f.first,bytes)
+                assertEquals(originals,repo.downloads.value.filter {it.id!=id})
+                assertEquals(browsers,com.espitman.sdm.web.WebPanelRuntime.access.browsers.value)
+                assertEquals(settings,context.getSharedPreferences("sdm_settings",0).all)
+            } finally {
+                id?.let {owned ->
+                    com.espitman.sdm.download.DownloadTransferService.cancelTransfer(context,owned)
+                    await("tab close fixture engine cleanup") {TorrentRuntime.telemetry.value[owned]==null}
+                    withIsolatedWebCommands {request ->
+                        val removed=request("/api/downloads/remove",org.json.JSONObject().put("ids",org.json.JSONArray(listOf(owned))).put("confirmed",true).put("deleteFiles",true),null)
+                        assertEquals(String(removed.body),200,removed.status)
+                        assertTrue(org.json.JSONObject(String(removed.body)).getJSONArray("results").getJSONObject(0).getBoolean("removed"))
+                    }
+                }
+                folderName?.let {File(AppSpecificDownloadsDirectory.from(context),it).deleteRecursively()}
+                prepared.delete();closing.delete();ready.delete();File(context.externalCacheDir,"web-torrent-network-paused").delete()
+            }
+        }
+        assertEquals(originals,repo.downloads.value)
+    }
+
+    /** Keeps an owned real peer available while external Chrome drives the actual panel. */
+    @Test fun externalChromeMagnetFixture() = runBlocking { externalChromeFixture(false) }
+    @Test fun externalChromeUploadFixture() = runBlocking { externalChromeFixture(true) }
+    private suspend fun externalChromeFixture(upload: Boolean) {
+        val repo=com.espitman.sdm.data.AppRepositories.downloads(context);repo.awaitInitialized()
+        val originals=repo.downloads.value
+        check(originals.all { it.state in setOf(DownloadState.PAUSED,DownloadState.COMPLETED,DownloadState.FAILED,DownloadState.CANCELLED) })
+        com.espitman.sdm.web.WebPanelRuntime.initialize(context)
+        context.startActivity(android.content.Intent(context,com.espitman.sdm.MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        var owned:String?=null
+        Fixture(privateTorrent=false).use { f ->
+            f.ready()
+            if (upload) {
+                println("BROWSER_TORRENT_FILE="+File(f.base,"fixture.torrent").absolutePath)
+                println("BROWSER_TORRENT_BASE64="+android.util.Base64.encodeToString(f.bytes, android.util.Base64.NO_WRAP))
+            }
+            else println("BROWSER_MAGNET_FIXTURE="+f.contents.magnet)
+            try {
+                withTimeout(600_000) {
+                    while(owned==null) {
+                        owned=repo.downloads.value.firstOrNull { row -> row.isTorrent && row.id !in originals.map { it.id } && TorrentMagnet.identities(row.url).intersect(TorrentMagnet.identities(f.contents.magnet)).isNotEmpty() }?.id
+                        delay(200)
+                    }
+                    while(repo.get(owned!!)!!.state!=DownloadState.COMPLETED)delay(200)
+                }
+                val row=repo.get(owned!!)!!
+                assertEquals(f.first.size.toLong(),row.totalBytes)
+                val chosen=f.contents.files.first { it.path.endsWith("first.bin") }
+                assertEquals(setOf(chosen.index),TorrentStore(context).selection(row.id).selected)
+                val published=TorrentStore(context).selection(row.id).published[chosen.index]
+                val bytes=if(published!=null)context.contentResolver.openInputStream(android.net.Uri.parse(published))!!.use { it.readBytes() } else TorrentPaths.resolve(File(row.destinationPath!!),chosen.path).readBytes()
+                assertArrayEquals(f.first,bytes)
+                assertEquals(originals,repo.downloads.value.filter { it.id!=owned })
+                println("BROWSER_MAGNET_VERIFIED="+row.id)
+                delay(20_000) // Allow capture of the completed real browser state before owned cleanup.
+            } finally {
+                owned?.let { id ->
+                    com.espitman.sdm.download.DownloadTransferService.cancelTransfer(context,id)
+                    await("browser fixture engine stopped") { TorrentRuntime.telemetry.value[id]==null }
+                    val access=com.espitman.sdm.web.WebPanelRuntime.access
+                    val (pending,ticket)=access.request("Owned browser torrent cleanup","127.0.0.5")
+                    check(access.approve(pending.id));val secret=checkNotNull(access.collect(pending.id,ticket));val browser=access.authorize(secret)
+                    val bridge=com.espitman.sdm.web.WebAppBridge(context)
+                    try {
+                        val router=com.espitman.sdm.web.WebRouter(access,{"Fixture"},{null},bridge::handle)
+                        val body=org.json.JSONObject().put("ids",org.json.JSONArray(listOf(id))).put("confirmed",true).put("deleteFiles",true)
+                        val response=router.handle(com.espitman.sdm.web.LanHttpServer.Request("POST","/api/downloads/remove",mapOf("authorization" to "Bearer $secret","idempotency-key" to UUID.randomUUID().toString(),"content-type" to "application/json"),body.toString().toByteArray(),"127.0.0.5"))
+                        assertEquals(String(response.body),200,response.status)
+                        assertTrue(org.json.JSONObject(String(response.body)).getJSONArray("results").getJSONObject(0).getBoolean("removed"))
+                    } finally { bridge.close();access.revoke(browser.id) }
+                }
+            }
+        }
+        assertEquals(originals,repo.downloads.value)
     }
 
     @Test fun cleanupVisualFixture(): Unit = runBlocking {
