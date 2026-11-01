@@ -93,7 +93,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.heightIn
 import kotlinx.coroutines.delay
 
-private enum class Destination(val label: String, val icon: ImageVector) {
+internal enum class Destination(val label: String, val icon: ImageVector) {
     Downloads("Downloads", SdmIcons.Download),
     Browser("Browser", SdmIcons.Browser),
     Add("Add", SdmIcons.Add),
@@ -109,6 +109,18 @@ fun SdmApp(
     openDownloadId: String? = null,
     onConsumed: () -> Unit = {},
 ) {
+    val tutorialContext = androidx.compose.ui.platform.LocalContext.current
+    val tutorialStore = remember(tutorialContext) { com.espitman.sdm.ui.tutorial.TutorialStore(tutorialContext) }
+    var tutorial by remember { mutableStateOf(tutorialStore.read()) }
+    fun updateTutorial(value: com.espitman.sdm.ui.tutorial.TourState) { tutorialStore.save(value); tutorial = value }
+    LaunchedEffect(torrentRequest, openDownloads, openDownloadId) {
+        if (torrentRequest != null || openDownloads || openDownloadId != null) {
+            if (tutorial.phase != com.espitman.sdm.ui.tutorial.TourPhase.Hidden) {
+                tutorialStore.save(tutorial)
+                tutorial = tutorial.close()
+            }
+        }
+    }
     WebAccessApproval()
     WebFolderAccessSheet()
     val downloadsStateHolder = rememberSaveableStateHolder()
@@ -232,6 +244,7 @@ fun SdmApp(
                             Destination.Settings -> SettingsScreen(
                                 showHeader = false,
                                 uiState = settingsUiState,
+                                onRestartTutorial = { updateTutorial(com.espitman.sdm.ui.tutorial.TourState()) },
                             ) { toastMessage = it; toastSequence++ }
                         }
                     }
@@ -287,6 +300,10 @@ fun SdmApp(
             onToast = { toastMessage = it; toastSequence++ },
         )
     }
+    if (tutorial.phase != com.espitman.sdm.ui.tutorial.TourPhase.Hidden) {
+        com.espitman.sdm.ui.tutorial.TutorialHost(tutorial, ::updateTutorial)
+    }
+
 }
 
 internal data class AppHeaderActions(
@@ -376,7 +393,7 @@ private fun HeaderAction(icon: ImageVector, description: String, onClick: () -> 
 }
 
 @Composable
-private fun BottomNavigation(selected: Destination, onSelect: (Destination) -> Unit, modifier: Modifier = Modifier) {
+internal fun BottomNavigation(selected: Destination, onSelect: (Destination) -> Unit, modifier: Modifier = Modifier) {
     val inactive = sdmColor(0xFF898C8F, 0xFF77736A)
     val background = SdmSurface
     val edge = sdmColor(0x35D4AF37, 0x304B4431)

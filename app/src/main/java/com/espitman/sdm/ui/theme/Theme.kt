@@ -45,6 +45,12 @@ fun SdmTheme(
             }
         }
     }
+    SdmSampleTheme(light, content)
+}
+
+/** Palette only: safe for an isolated tutorial, without changing preferences or window flags. */
+@Composable
+internal fun SdmSampleTheme(light: Boolean, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalSdmLightTheme provides light) {
         val colors = if (light) lightColorScheme() else darkColorScheme()
         MaterialTheme(

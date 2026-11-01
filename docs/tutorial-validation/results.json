@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-01",
+  "version": "0.2.76",
+  "versionCode": 78,
+  "releaseUnit": {
+    "tests": 900,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "device": {
+    "tests": 4,
+    "seconds": 28.845,
+    "stepsReached": 33,
+    "preserved": [
+      "original download records",
+      "sdm_settings",
+      "sdm_category_folders",
+      "persisted URI grants"
+    ],
+    "screenshots": [
+      "welcome",
+      "complete",
+      "resume",
+      "large-text",
+      "320-keyboard",
+      "light-theme",
+      "downloads-1",
+      "downloads-5",
+      "details-1",
+      "details-7",
+      "torrents-1",
+      "torrents-4",
+      "browser-1",
+      "browser-5",
+      "files-1",
+      "files-4",
+      "settings-1",
+      "settings-8"
+    ],
+    "fontScale": 2.0,
+    "smallLogicalWidth": 320,
+    "processRecoveryScope": "Activity recreation and persisted state, not a claimed OS force-kill during the tour."
+  },
+  "apkSha256": "4d7c40dfd3e2d656c4964ce7f30aca24a95439037b7d243f6c1eba47b7d2d4e6",
+  "signing": "Existing local QA/debug certificate; non-debuggable release."
+}

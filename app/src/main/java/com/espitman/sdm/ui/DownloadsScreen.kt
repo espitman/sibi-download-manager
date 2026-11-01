@@ -1106,7 +1106,7 @@ private fun HomeMenuItem(icon: ImageVector, title: String, subtitle: String, onC
 }
 
 @Composable
-private fun DownloadStatusCard(
+internal fun DownloadStatusCard(
     records: List<Download>,
     downloadedTodayBytes: Long,
     recentBytesPerSecond: Long,
@@ -1226,7 +1226,7 @@ private fun SelectionActionButton(
 }
 
 @Composable
-private fun DownloadTabs(
+internal fun DownloadTabs(
     selected: DownloadCategory,
     counts: Map<DownloadCategory, Int>,
     onSelect: (DownloadCategory) -> Unit,
@@ -1341,7 +1341,7 @@ internal fun SdmEmptyState(title: String, description: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadCard(
+internal fun DownloadCard(
     item: DownloadCardModel,
     selected: Boolean = false,
     selectionMode: Boolean = false,
@@ -1838,7 +1838,7 @@ private fun DownloadDetailsScreen(
 }
 
 @Composable
-private fun DetailsHero(hero: DownloadDetailsPresentation) {
+internal fun DetailsHero(hero: DownloadDetailsPresentation) {
     val ringTrack = sdmColor(0xFF252622, 0xFFDED8CB)
     val ringProgress = SdmGold
     val stateColor = when (hero.stateTone) {

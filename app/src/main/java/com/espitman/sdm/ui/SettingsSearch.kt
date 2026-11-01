@@ -31,6 +31,7 @@ internal enum class SettingsSearchRow {
     SpeedAlerts,
     Theme,
     Language,
+    Tutorial,
     Version,
     Reset,
 }
@@ -185,6 +186,7 @@ internal fun settingsSearchCatalog(
         subtitle = "English only",
         synonyms = listOf("english", "locale"),
     ),
+    SettingsSearchItem(SettingsSearchRow.Tutorial, "ABOUT", "Restart tutorial", "Explore SDM with safe sample downloads", listOf("tour", "help", "guide", "learn")),
     SettingsSearchItem(
         row = SettingsSearchRow.Version,
         groupTitle = "ABOUT",

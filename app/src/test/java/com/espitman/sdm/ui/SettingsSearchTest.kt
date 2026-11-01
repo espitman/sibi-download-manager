@@ -41,6 +41,8 @@ class SettingsSearchTest {
         assertRows("language", SettingsSearchRow.Language)
         assertRows("version", SettingsSearchRow.Version)
         assertRows("reset", SettingsSearchRow.Reset)
+        assertRows("restart tutorial", SettingsSearchRow.Tutorial)
+        assertRows("help", SettingsSearchRow.Tutorial)
     }
 
     @Test

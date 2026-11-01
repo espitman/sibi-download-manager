@@ -48,6 +48,7 @@ private enum class SettingsOverlay { Connections, Simultaneous, DailySchedule, A
 internal fun SettingsScreen(
     showHeader: Boolean = true,
     uiState: SettingsUiState = rememberSettingsUiState(),
+    onRestartTutorial: () -> Unit = {},
     onToast: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -184,6 +185,9 @@ internal fun SettingsScreen(
                 }
                 item {
                     FilteredSettingsGroup("ABOUT", visibleRows) {
+                        add(SettingsSearchRow.Tutorial) {
+                            ValueRow(SdmIcons.Info, "Restart tutorial", "Explore SDM with safe sample downloads", chevron = true, onClick = onRestartTutorial)
+                        }
                         add(SettingsSearchRow.Version) {
                             ValueRow(SdmIcons.Info, "SDM version", "Sibi Download Manager", version)
                         }
@@ -296,7 +300,7 @@ internal fun SettingsSheet(icon: ImageVector, eyebrow: String, title: String, de
 }
 
 @Composable
-private fun NumberGrid(values: List<Int>, selected: Int, columns: Int, onSelect: (Int) -> Unit) {
+internal fun NumberGrid(values: List<Int>, selected: Int, columns: Int, onSelect: (Int) -> Unit) {
     Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         values.chunked(columns).forEach { rowValues ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
