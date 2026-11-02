@@ -55,8 +55,9 @@ class HttpDownloadMetadataRetriever(
             is HopStep.NetworkFailure -> headStep.failure
             is HopStep.RedirectFailure -> headStep.failure
             is HopStep.Terminal -> {
-                if (headStep.statusCode == 405 || headStep.statusCode == 501) {
-                    // HEAD explicitly unsupported -> safely fall back to minimal GET
+                if (headStep.statusCode in setOf(403, 405, 501)) {
+                    // GET-signed URLs may reject HEAD with 403 even when downloads are allowed.
+                    // Probe GET once; a genuine GET denial remains an HTTP failure.
                     executeGetFallback(validatedUrl, fallbackFromHead = headStep, requestContext)
                 } else if (headStep.statusCode in 200..299) {
                     if (headStep.contentLength == null || headStep.contentLength <= 0) {
@@ -67,7 +68,7 @@ class HttpDownloadMetadataRetriever(
                         DownloadMetadataResult.Success(headStep.toMetadata())
                     }
                 } else {
-                    // HTTP error (e.g. 404, 403, 500)
+                    // Other HTTP errors (e.g. 404, 500)
                     DownloadMetadataResult.Failure.HttpError(
                         url = headStep.url,
                         statusCode = headStep.statusCode,
@@ -83,6 +84,8 @@ class HttpDownloadMetadataRetriever(
         fallbackFromHead: HopStep.Terminal,
         requestContext: ScopedRequestContext?,
     ): DownloadMetadataResult {
+        // Error-page headers describe the denial, not the downloadable file.
+        val usableHead = fallbackFromHead.takeIf { it.statusCode in 200..299 }
         val getStep = executeHopChain(validatedUrl, method = "GET", requestContext)
         return when (getStep) {
             is HopStep.NetworkFailure -> getStep.failure
@@ -91,14 +94,14 @@ class HttpDownloadMetadataRetriever(
                 if (getStep.statusCode in 200..299) {
                     val metadata = DownloadMetadata(
                         url = getStep.url,
-                        contentLength = getStep.contentLength ?: fallbackFromHead.contentLength?.takeIf { it > 0 },
-                        contentType = getStep.contentType ?: fallbackFromHead.contentType,
-                        contentDisposition = getStep.contentDisposition ?: fallbackFromHead.contentDisposition,
-                        etag = getStep.etag ?: fallbackFromHead.etag,
-                        lastModified = getStep.lastModified ?: fallbackFromHead.lastModified,
-                        acceptsRanges = getStep.acceptsRanges || fallbackFromHead.acceptsRanges,
+                        contentLength = getStep.contentLength ?: usableHead?.contentLength?.takeIf { it > 0 },
+                        contentType = getStep.contentType ?: usableHead?.contentType,
+                        contentDisposition = getStep.contentDisposition ?: usableHead?.contentDisposition,
+                        etag = getStep.etag ?: usableHead?.etag,
+                        lastModified = getStep.lastModified ?: usableHead?.lastModified,
+                        acceptsRanges = getStep.acceptsRanges || usableHead?.acceptsRanges == true,
                         statusCode = getStep.statusCode,
-                        referenceSha256 = getStep.referenceSha256 ?: fallbackFromHead.referenceSha256,
+                        referenceSha256 = getStep.referenceSha256 ?: usableHead?.referenceSha256,
                     )
                     DownloadMetadataResult.Success(metadata)
                 } else {

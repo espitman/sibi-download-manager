@@ -405,6 +405,7 @@ class HttpDownloadMetadataRetrieverTest {
     @Test
     fun http403ForbiddenReportsError() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(403))
+        server.enqueue(MockResponse().setResponseCode(403))
 
         val retriever = HttpDownloadMetadataRetriever()
         val url = server.url("/forbidden").toString()
@@ -414,6 +415,54 @@ class HttpDownloadMetadataRetrieverTest {
         val error = result.failureOrNull() as? DownloadMetadataResult.Failure.HttpError
         assertNotNull(error)
         assertEquals(403, error?.statusCode)
+    }
+
+    @Test
+    fun getSignedUrlRejectingHeadFallsBackWithoutChangingSignatureQuery() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(403))
+        server.enqueue(MockResponse().setResponseCode(206)
+            .setHeader("Content-Range", "bytes 0-0/1626008629")
+            .setHeader("Content-Length", "1")
+            .setHeader("Content-Type", "video/mp4")
+            .setBody("x"))
+        val url = server.url("/video.mp4?versionId=fixture&X-Amz-Credential=test%2F20261102%2Fregion%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=synthetic").toString()
+        val result = HttpDownloadMetadataRetriever().retrieve(url)
+        assertTrue(result.isSuccess)
+        assertEquals(1626008629L, result.getOrNull()?.contentLength)
+        assertEquals(206, result.getOrNull()?.statusCode)
+        val head = server.takeRequest()
+        val get = server.takeRequest()
+        assertEquals("HEAD", head.method)
+        assertEquals("GET", get.method)
+        assertEquals(head.path, get.path)
+        assertEquals("bytes=0-0", get.getHeader("Range"))
+        assertEquals("identity", get.getHeader("Accept-Encoding"))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun rejectedHeadErrorPageMetadataIsNotUsedForSuccessfulGet() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(403)
+            .setHeader("Content-Length", "999")
+            .setHeader("Content-Type", "application/xml")
+            .setHeader("ETag", "denied-page"))
+        server.enqueue(MockResponse().setResponseCode(200).setChunkedBody("x", 1))
+        val result = HttpDownloadMetadataRetriever().retrieve(server.url("/get-only.bin").toString())
+        assertTrue(result.isSuccess)
+        assertNull(result.getOrNull()?.contentLength)
+        assertNull(result.getOrNull()?.contentType)
+        assertNull(result.getOrNull()?.etag)
+    }
+
+    @Test
+    fun head403FallbackSupportsGetIgnoringRange() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(403))
+        server.enqueue(MockResponse().setResponseCode(200)
+            .setHeader("Content-Length", "4096"))
+        val result = HttpDownloadMetadataRetriever().retrieve(server.url("/get-only.bin").toString())
+        assertTrue(result.isSuccess)
+        assertEquals(4096L, result.getOrNull()?.contentLength)
+        assertEquals(2, server.requestCount)
     }
 
     @Test
