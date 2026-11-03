@@ -290,3 +290,10 @@ Tutorial validation — 2026-11-01: [Implementation and physical-device verifica
 Splash regression fix — 2026-11-01: original renderer/artwork/timing preserved byte for byte against pre-tutorial commit 8e8e5b4. Tutorial waits for full splash exit, including its unchanged fade. Release 0.2.77 installed; 901 unit tests, lint/assembly and five phone tests pass. [Evidence](docs/tutorial-validation/splash-fix/README.md).
 
 Tutorial chapter continuation — 2026-11-01: intermediate Choose a chapter offers Skip / Next chapter; Done is final-only. Version 0.2.78 installed. All 33 steps now pass through automatic chapter continuation in the five-test phone suite (35.888 s); release unit/lint/assembly pass. [Evidence](docs/tutorial-validation/next-chapter/README.md).
+
+
+### Reopened regression — background downloads (2026-11-04)
+
+Code changes: automatic bounded partial wake lock for active transfers; sticky foreground service; service-side interrupted-download recovery without launching MainActivity. Manual pauses and future schedules remain excluded from automatic dispatch. The retired Always keep active preference remains absent.
+
+- [ ] On the Xiaomi release build, verify Home/minimize and screen-off continuity for a real HTTP download and torrent; inspect foreground service, wake-lock lifecycle, exact saved bytes, process-restart recovery, manual-pause preservation and no stuck “Next in queue” state. Physical verification is pending; the user requested code-only work while the phone is unavailable. Do not use the other user's emulator.

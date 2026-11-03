@@ -32,6 +32,44 @@ import org.junit.Test
 
 class DownloadAutoResumeRecoveryTest {
     @Test
+    fun restartedServiceWaitsForRecoveredStartsWithoutRequiringAnActivity() = runBlocking {
+        val repo = FakeRepo(listOf(
+            active("interrupted", DownloadState.DOWNLOADING, downloadedBytes = 22L),
+            download("manual", DownloadState.PAUSED, downloadedBytes = 15L),
+        ))
+        val starter = RecordingStarter()
+        val allowance = MutableTransferAllowance(initiallyAllowed = false)
+        val scheduler = DownloadQueueScheduler(repo, { 2 }, starter, transferAllowance = allowance)
+        val policy = coordinator(repo, allowance, scheduler, wifiOnly = true, transport = ValidatedTransport.WIFI)
+        val gate = DownloadRecoveryOnceGate()
+        gate.runOnce {
+            DownloadInterruptionRecovery.recover(repo, clock, DownloadInterruptionTrigger.PROCESS_RESTART, autoResume = true)
+        }
+        policy.apply()
+        val pending = repo.schedulingSnapshot()
+        assertEquals(listOf("interrupted"), starter.startedIds())
+        assertTrue(TransferServiceLifecyclePolicy.hasWorkAwaitingDispatch(pending, clock.currentTimeMillis()))
+        assertEquals(22L, repo.get("interrupted")!!.downloadedBytes)
+        assertEquals(DownloadState.PAUSED, repo.get("manual")!!.state)
+        // Later activity creation shares the recovery gate and must not requeue a live worker.
+        repo.transition("interrupted", DownloadState.CONNECTING, clock.currentTimeMillis())
+        gate.runOnce { error("Recovery ran twice in the same process") }
+        assertEquals(DownloadState.CONNECTING, repo.get("interrupted")!!.state)
+    }
+
+    @Test
+    fun restartedServiceStopsForManualPausesAndFutureSchedules() = runBlocking {
+        val paused = download("manual", DownloadState.PAUSED, downloadedBytes = 15L)
+        val future = queued("future").copy(schedule = com.espitman.sdm.domain.DownloadSchedule(
+            kind = com.espitman.sdm.domain.DownloadSchedule.Kind.ONCE,
+            startEpochMillis = clock.currentTimeMillis() + 60_000L,
+        ))
+        assertFalse(TransferServiceLifecyclePolicy.hasWorkAwaitingDispatch(listOf(paused, future), clock.currentTimeMillis()))
+        assertFalse(TransferServiceLifecyclePolicy.hasWorkAwaitingDispatch(listOf(queued("folder")), clock.currentTimeMillis(), folderMutationBlocked = true))
+        assertTrue(TransferServiceLifecyclePolicy.hasWorkAwaitingDispatch(listOf(active("running", DownloadState.DOWNLOADING, downloadedBytes = 1L)), clock.currentTimeMillis()))
+    }
+
+    @Test
     fun recoverThenApplyDoesNotStartBeforeAllowanceSnapshot() = runBlocking {
         val repo = FakeRepo(
             listOf(

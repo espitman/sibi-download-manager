@@ -45,9 +45,9 @@ class DownloadTransferService : Service() {
     private val schedulerCollectorStarted = AtomicBoolean(false)
     private val wakeLockGuard = Any()
     private val acceptingWork = AtomicBoolean(false)
-    private var keepActiveClosed = false
-    private var keepActiveWakeLock: PowerManager.WakeLock? = null
-    private var keepActiveAcquiredAtElapsedMs: Long? = null
+    private var transferPowerClosed = false
+    private var transferWakeLock: PowerManager.WakeLock? = null
+    private var transferAcquiredAtElapsedMs: Long? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,6 +72,28 @@ class DownloadTransferService : Service() {
         }
         acceptingWork.set(true)
         startProgressCollectorOnce()
+        if (intent == null) {
+            // Android restarted a sticky service after process loss. Recover before observing
+            // the queue so stale active records cannot occupy every transfer slot forever.
+            session.handleCommand(startId, command = null)
+            serviceScope.launch {
+                AppRepositories.recoverInterruptedDownloads(
+                    applicationContext,
+                    DownloadInterruptionTrigger.PROCESS_RESTART,
+                )
+                startSchedulerCollectorOnce()
+                AppRepositories.queueScheduler(applicationContext).schedule()
+                val downloads = AppRepositories.downloads(applicationContext).schedulingSnapshot()
+                if (!TransferServiceLifecyclePolicy.hasWorkAwaitingDispatch(
+                        downloads,
+                        System.currentTimeMillis(),
+                        com.espitman.sdm.storage.FolderRenameCoordinator.isPending(applicationContext),
+                    )) {
+                    session.startIdIfIdle()?.let { stopSelf(it) }
+                }
+            }
+            return START_STICKY
+        }
         if (TransferServiceLifecyclePolicy.startQueueObserverBeforeHandling(command)) {
             startSchedulerCollectorOnce()
         }
@@ -113,7 +135,7 @@ class DownloadTransferService : Service() {
                     }
                 }
             }
-            return START_NOT_STICKY
+            return START_STICKY
         }
         if (command is ResumeTransferCommand) {
             session.handleCommand(startId, command = null)
@@ -124,7 +146,7 @@ class DownloadTransferService : Service() {
                     session.startIdIfIdle()?.let { stopSelf(it) }
                 }
             }
-            return START_NOT_STICKY
+            return START_STICKY
         }
         when (val result = session.handleCommand(startId, command)) {
             is SessionCommandResult.StartJob -> {
@@ -211,14 +233,14 @@ class DownloadTransferService : Service() {
                 }
             }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onDestroy() {
         acceptingWork.set(false)
         synchronized(wakeLockGuard) {
-            keepActiveClosed = true
-            applyKeepActiveWakeLockLocked(shouldHold = false)
+            transferPowerClosed = true
+            applyTransferWakeLockLocked(shouldHold = false)
         }
         val teardownSnapshot = AppRepositories.downloads(applicationContext).downloads.value
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -243,16 +265,14 @@ class DownloadTransferService : Service() {
                         settings = settings,
                         nowElapsedMs = SystemClock.elapsedRealtime(),
                     )
-                    val shouldHold = KeepActivePolicy.shouldHoldWakeLock(
-                        keepActive = settings.keepActive,
-                        keepActiveDuration = settings.keepActiveDuration,
+                    val shouldHold = ActiveTransferPowerPolicy.shouldHoldWakeLock(
                         states = downloads.map { it.state },
                     )
-                    applyKeepActiveWakeLock(shouldHold)
+                    applyTransferWakeLock(shouldHold)
                     if (!shouldHold) return@collectLatest
                     while (true) {
-                        delay(KeepActivePolicy.WAKE_LOCK_TIMEOUT_MS / 2)
-                        applyKeepActiveWakeLock(shouldHold = true)
+                        delay(ActiveTransferPowerPolicy.WAKE_LOCK_TIMEOUT_MS / 2)
+                        applyTransferWakeLock(shouldHold = true)
                     }
                 }
         }
@@ -285,47 +305,47 @@ class DownloadTransferService : Service() {
         }
     }
 
-    private fun applyKeepActiveWakeLock(shouldHold: Boolean) {
+    private fun applyTransferWakeLock(shouldHold: Boolean) {
         synchronized(wakeLockGuard) {
-            applyKeepActiveWakeLockLocked(shouldHold)
+            applyTransferWakeLockLocked(shouldHold)
         }
     }
 
-    private fun applyKeepActiveWakeLockLocked(shouldHold: Boolean) {
-        val wakeLock = keepActiveWakeLock
+    private fun applyTransferWakeLockLocked(shouldHold: Boolean) {
+        val wakeLock = transferWakeLock
         val held = wakeLock?.isHeld == true
-        val elapsedSinceAcquireMs = keepActiveAcquiredAtElapsedMs?.let { SystemClock.elapsedRealtime() - it }
+        val elapsedSinceAcquireMs = transferAcquiredAtElapsedMs?.let { SystemClock.elapsedRealtime() - it }
         when (
             KeepActiveWakeLockDecision.nextAction(
-                closed = keepActiveClosed,
+                closed = transferPowerClosed,
                 shouldHold = shouldHold,
                 held = held,
                 elapsedSinceAcquireMs = elapsedSinceAcquireMs,
-                timeoutMs = KeepActivePolicy.WAKE_LOCK_TIMEOUT_MS,
+                timeoutMs = ActiveTransferPowerPolicy.WAKE_LOCK_TIMEOUT_MS,
             )
         ) {
-            KeepActiveWakeLockAction.ACQUIRE -> acquireKeepActiveWakeLockLocked()
-            KeepActiveWakeLockAction.RELEASE -> releaseKeepActiveWakeLockLocked()
+            KeepActiveWakeLockAction.ACQUIRE -> acquireTransferWakeLockLocked()
+            KeepActiveWakeLockAction.RELEASE -> releaseTransferWakeLockLocked()
             KeepActiveWakeLockAction.NONE -> Unit
         }
     }
 
-    private fun acquireKeepActiveWakeLockLocked() {
-        if (keepActiveClosed) return
-        val wakeLock = keepActiveWakeLock ?: (getSystemService(POWER_SERVICE) as PowerManager)
+    private fun acquireTransferWakeLockLocked() {
+        if (transferPowerClosed) return
+        val wakeLock = transferWakeLock ?: (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
             .apply { setReferenceCounted(false) }
-            .also { keepActiveWakeLock = it }
-        wakeLock.acquire(KeepActivePolicy.WAKE_LOCK_TIMEOUT_MS)
-        keepActiveAcquiredAtElapsedMs = SystemClock.elapsedRealtime()
+            .also { transferWakeLock = it }
+        wakeLock.acquire(ActiveTransferPowerPolicy.WAKE_LOCK_TIMEOUT_MS)
+        transferAcquiredAtElapsedMs = SystemClock.elapsedRealtime()
     }
 
-    private fun releaseKeepActiveWakeLockLocked() {
-        val wakeLock = keepActiveWakeLock
+    private fun releaseTransferWakeLockLocked() {
+        val wakeLock = transferWakeLock
         if (wakeLock?.isHeld == true) {
             wakeLock.release()
         }
-        keepActiveAcquiredAtElapsedMs = null
+        transferAcquiredAtElapsedMs = null
     }
 
     private suspend fun persistCancelledIfRequested(downloadId: String) {
@@ -466,7 +486,7 @@ class DownloadTransferService : Service() {
 
     companion object {
         private const val ALERT_TICK_INTERVAL_MS = 1_000L
-        private const val WAKE_LOCK_TAG = "sdm:keep-active"
+        private const val WAKE_LOCK_TAG = "sdm:transfer"
 
         fun startTransfer(context: Context, downloadId: String, tempFilePath: String) {
             val appContext = context.applicationContext
